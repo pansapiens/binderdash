@@ -1,0 +1,488 @@
+<script setup>
+import { ref } from 'vue'
+import TabView from 'primevue/tabview'
+import TabPanel from 'primevue/tabpanel'
+import RunsView from './components/RunsView.vue'
+import PlotsView from './components/PlotsView.vue'
+import FolderBrowser from './components/FolderBrowser.vue'
+</script>
+
+<template>
+  <div id="app">
+    <header class="app-header">
+      <h1>Binderdash</h1>
+      <p>De novo protein binder design results viewer</p>
+    </header>
+
+    <main class="app-main">
+      <TabView>
+        <TabPanel header="Runs & Structure Viewer">
+          <RunsView />
+        </TabPanel>
+        <TabPanel header="Plots">
+          <PlotsView />
+        </TabPanel>
+        <TabPanel header="Configure Source Folders">
+          <FolderBrowser />
+        </TabPanel>
+      </TabView>
+    </main>
+
+    <Toast />
+  </div>
+</template>
+
+<style>
+#app {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  min-height: 100vh;
+  background-color: #f8f9fa;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.app-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 1rem 2rem;
+  text-align: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.app-header p {
+  margin: 0.5rem 0 0 0;
+  opacity: 0.9;
+  font-size: 1rem;
+}
+
+.app-main {
+  padding: 2rem;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Global text color overrides - HIGH PRIORITY */
+* {
+  color: #495057 !important;
+}
+
+/* Ensure all text elements have proper contrast */
+p, span, div, label, input, textarea, select, button, a, h1, h2, h3, h4, h5, h6 {
+  color: #495057 !important;
+}
+
+/* App header override - keep white text on dark background */
+.app-header, .app-header * {
+  color: white !important;
+}
+
+.app-header h1, .app-header p {
+  color: white !important;
+}
+
+/* PrimeVue TabView - COMPREHENSIVE OVERRIDE */
+.p-tabview {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.p-tabview .p-tabview-nav {
+  border-bottom: 2px solid #e9ecef !important;
+  background: white !important;
+  border-radius: 8px 8px 0 0 !important;
+}
+
+.p-tabview .p-tabview-nav .p-tabview-nav-link {
+  padding: 1rem 1.5rem !important;
+  font-weight: 500 !important;
+  color: #495057 !important;
+  background: #f8f9fa !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  transition: all 0.2s ease !important;
+}
+
+.p-tabview .p-tabview-nav .p-tabview-nav-link:hover {
+  background: #e9ecef !important;
+  color: #212529 !important;
+}
+
+.p-tabview .p-tabview-nav .p-tabview-nav-link.p-highlight {
+  background: white !important;
+  color: #667eea !important;
+  border-bottom: 2px solid #667eea !important;
+  font-weight: 600 !important;
+}
+
+.p-tabview .p-tabview-panels {
+  background: white !important;
+  border-radius: 0 0 8px 8px !important;
+  padding: 2rem !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+}
+
+.p-tabview .p-tabview-panels .p-tabview-panel {
+  padding: 0 !important;
+  width: 100% !important;
+}
+
+.p-tabview .p-tabview-panels {
+  background: white !important;
+  border-radius: 0 0 8px 8px !important;
+  padding: 2rem !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* Button styling - COMPREHENSIVE OVERRIDE */
+.p-button {
+  color: #495057 !important;
+  background: #ffffff !important;
+  border: 1px solid #dee2e6 !important;
+  font-weight: 500 !important;
+}
+
+.p-button:hover {
+  background: #f8f9fa !important;
+  border-color: #adb5bd !important;
+  color: #212529 !important;
+}
+
+.p-button.p-button-secondary {
+  background: #6c757d !important;
+  border-color: #6c757d !important;
+  color: white !important;
+}
+
+.p-button.p-button-secondary:hover {
+  background: #5a6268 !important;
+  border-color: #545b62 !important;
+}
+
+.p-button.p-button-danger {
+  background: #dc3545 !important;
+  border-color: #dc3545 !important;
+  color: white !important;
+}
+
+.p-button.p-button-danger:hover {
+  background: #c82333 !important;
+  border-color: #bd2130 !important;
+}
+
+/* DataTable styling - COMPREHENSIVE OVERRIDE */
+.p-datatable .p-datatable-thead > tr > th {
+  background: #f8f9fa !important;
+  color: #495057 !important;
+  font-weight: 600 !important;
+  border-bottom: 1px solid #dee2e6 !important;
+}
+
+.p-datatable .p-datatable-tbody > tr > td {
+  color: #495057 !important;
+  border-bottom: 1px solid #f1f3f4 !important;
+}
+
+.p-datatable .p-datatable-tbody > tr:hover > td {
+  background: #f8f9fa !important;
+}
+
+/* TreeTable styling - COMPREHENSIVE OVERRIDE */
+.p-treetable .p-treetable-thead > tr > th {
+  background: #f8f9fa !important;
+  color: #495057 !important;
+  font-weight: 600 !important;
+  border-bottom: 1px solid #dee2e6 !important;
+}
+
+.p-treetable .p-treetable-tbody > tr > td {
+  color: #495057 !important;
+  border-bottom: 1px solid #f1f3f4 !important;
+}
+
+.p-treetable .p-treetable-tbody > tr:hover > td {
+  background: #f8f9fa !important;
+}
+
+/* Pagination styling - COMPREHENSIVE OVERRIDE */
+.p-paginator {
+  background: #f8f9fa !important;
+  border-top: 1px solid #dee2e6 !important;
+}
+
+.p-paginator .p-paginator-current {
+  color: #495057 !important;
+  font-weight: 500 !important;
+}
+
+.p-paginator .p-paginator-pages .p-paginator-page {
+  color: #495057 !important;
+  background: white !important;
+  border: 1px solid #dee2e6 !important;
+}
+
+.p-paginator .p-paginator-pages .p-paginator-page:hover {
+  background: #e9ecef !important;
+  color: #212529 !important;
+}
+
+.p-paginator .p-paginator-pages .p-paginator-page.p-highlight {
+  background: #667eea !important;
+  color: white !important;
+  border-color: #667eea !important;
+}
+
+/* Dropdown styling - COMPREHENSIVE OVERRIDE */
+.p-dropdown {
+  background: white !important;
+  border: 1px solid #dee2e6 !important;
+  color: #495057 !important;
+}
+
+.p-dropdown:hover {
+  border-color: #adb5bd !important;
+}
+
+.p-dropdown .p-dropdown-trigger {
+  color: #6c757d !important;
+}
+
+.p-dropdown .p-dropdown-label {
+  color: #495057 !important;
+}
+
+/* Tag styling - COMPREHENSIVE OVERRIDE */
+.p-tag {
+  font-weight: 500 !important;
+}
+
+.p-tag.p-tag-success {
+  background: #d4edda !important;
+  color: #155724 !important;
+  border: 1px solid #c3e6cb !important;
+}
+
+.p-tag.p-tag-info {
+  background: #d1ecf1 !important;
+  color: #0c5460 !important;
+  border: 1px solid #bee5eb !important;
+}
+
+.p-tag.p-tag-warning {
+  background: #fff3cd !important;
+  color: #856404 !important;
+  border: 1px solid #ffeaa7 !important;
+}
+
+/* Badge styling - COMPREHENSIVE OVERRIDE */
+.p-badge {
+  font-weight: 500 !important;
+}
+
+.p-badge.p-badge-info {
+  background: #17a2b8 !important;
+  color: white !important;
+}
+
+/* Toast styling - COMPREHENSIVE OVERRIDE */
+.p-toast .p-toast-message {
+  border-radius: 6px !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+}
+
+.p-toast .p-toast-message .p-toast-message-content {
+  padding: 1rem !important;
+}
+
+.p-toast .p-toast-message .p-toast-summary {
+  font-weight: 600 !important;
+  color: #495057 !important;
+}
+
+.p-toast .p-toast-message .p-toast-detail {
+  color: #6c757d !important;
+  margin-top: 0.25rem !important;
+}
+
+/* Chip styling - COMPREHENSIVE OVERRIDE */
+.p-chip {
+  background: #e9ecef !important;
+  color: #495057 !important;
+  border: 1px solid #dee2e6 !important;
+}
+
+.p-chip .p-chip-text {
+  color: #495057 !important;
+}
+
+/* Input styling - COMPREHENSIVE OVERRIDE */
+.p-inputtext {
+  color: #495057 !important;
+  background: white !important;
+  border: 1px solid #dee2e6 !important;
+}
+
+.p-inputtext:focus {
+  border-color: #667eea !important;
+  box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25) !important;
+}
+
+/* Label styling - COMPREHENSIVE OVERRIDE */
+.p-component {
+  color: #495057 !important;
+}
+
+/* Override any remaining light text */
+.p-component * {
+  color: #495057 !important;
+}
+
+/* Ensure icons don't inherit text color */
+.pi {
+  color: inherit !important;
+}
+
+/* Override any PrimeVue default text colors */
+[class*="p-"] {
+  color: #495057 !important;
+}
+
+/* Specific overrides for common PrimeVue text elements */
+.p-component, .p-component * {
+  color: #495057 !important;
+}
+
+/* Force readable text on all interactive elements */
+button, input, select, textarea, a, .p-button, .p-dropdown, .p-inputtext {
+  color: #495057 !important;
+}
+
+/* Override any remaining light grey text */
+*[style*="color: rgb(108, 117, 125)"], 
+*[style*="color: #6c757d"],
+*[style*="color: rgb(173, 181, 189)"],
+*[style*="color: #adb5bd"] {
+  color: #495057 !important;
+}
+
+/* Comprehensive checkbox styling for TreeTable */
+.p-treetable .p-checkbox {
+  display: inline-block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  margin-right: 0.5rem !important;
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+.p-treetable .p-checkbox .p-checkbox-box {
+  display: inline-block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  width: 16px !important;
+  height: 16px !important;
+  border: 2px solid #dee2e6 !important;
+  background: white !important;
+  border-radius: 3px !important;
+  position: relative !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.p-treetable .p-checkbox .p-checkbox-box:hover {
+  border-color: #667eea !important;
+  background: #f8f9fa !important;
+}
+
+.p-treetable .p-checkbox .p-checkbox-box.p-highlight {
+  background: #667eea !important;
+  border-color: #667eea !important;
+}
+
+.p-treetable .p-checkbox .p-checkbox-box.p-highlight .p-checkbox-icon {
+  color: white !important;
+  font-size: 12px !important;
+  font-weight: bold !important;
+}
+
+.p-treetable .p-checkbox .p-checkbox-box .p-checkbox-icon {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  color: white !important;
+  font-size: 12px !important;
+  font-weight: bold !important;
+  text-align: center !important;
+  line-height: 12px !important;
+}
+
+/* Ensure checkbox is clickable */
+.p-treetable .p-checkbox input[type="checkbox"] {
+  position: absolute !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* TreeTable row styling to accommodate checkboxes */
+.p-treetable .p-treetable-tbody > tr > td:first-child {
+  padding-left: 0.5rem !important;
+  position: relative !important;
+}
+
+.p-treetable .p-treetable-tbody > tr > td:first-child .folder-node {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  padding-left: 0 !important;
+}
+
+/* Button styling improvements for better visibility */
+.p-button {
+  color: #495057 !important;
+  background: #ffffff !important;
+  border: 1px solid #dee2e6 !important;
+  font-weight: 500 !important;
+  padding: 0.5rem 1rem !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+.p-button:hover {
+  background: #f8f9fa !important;
+  border-color: #adb5bd !important;
+  color: #212529 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+}
+
+.p-button:disabled {
+  opacity: 0.6 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+</style>

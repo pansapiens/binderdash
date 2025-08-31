@@ -3,16 +3,17 @@
 ## Project overview
 
 - Single-page app to view results of de novo protein binder design runs
-- Frontend: Vite + Vue 3 (Composition API) + PrimeVue, Mol* viewer, Vega-Lite plots
+- Frontend: Vite + Typescript + Vue 3 (Composition API) + PrimeVue, Mol* viewer, Vega-Lite plots
 - Backend: FastAPI (async) serving API and built frontend static files
 
 ## Setup commands
 
+- ALWAYS ensure any existing conda environment is deactivated before running any commands: `conda deactivate; conda deactivate`
 - Backend (Python 3.11+, uv):
-  - Create venv: `uv venv .venv && source .venv/bin/activate`
-  - Install deps: `uv pip install -r requirements.txt`
+  - Create venv: `uv venv -p python3.12 .venv && source .venv/bin/activate`
+  - Update dependencies if required, modify `backend/pyproject.toml` then run `uv pip compile backend/pyproject.toml -o backend/requirements.txt`
+  - Install deps: `uv pip install -r backend/requirements.txt`
   - Start API dev server: `uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000`
-  - Update dependencies: modify `pyproject.toml` then run `uv pip compile pyproject.toml -o requirements.txt`
 - Frontend (pnpm, Vite, PrimeVue):
   - `cd frontend && pnpm install`
   - Dev server: `pnpm run dev`

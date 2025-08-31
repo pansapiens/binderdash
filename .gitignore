@@ -1,1 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
 .env
+
+# Frontend
+/node_modules/
+/frontend/dist/
+/frontend/.pnp.*
+/frontend/.DS_Store
+/frontend/coverage
+/frontend/public
+
+# IDE
+.vscode/
+.idea/
+*.swp
