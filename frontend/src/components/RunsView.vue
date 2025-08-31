@@ -238,6 +238,11 @@ const getRunTypeSeverity = (runType) => {
   }
 }
 
+// Expose methods to parent component
+defineExpose({
+  loadRuns
+})
+
 const loadMolstarViewer = async () => {
   if (!currentStructure.value || !molstarContainer.value) {
     return
@@ -444,4 +449,35 @@ onMounted(() => {
 :deep(.p-datatable .p-datatable-tbody > tr:hover > td) {
   background: #f8f9fa;
 }
+
+/* Pagination spacing improvements */
+:deep(.p-datatable .p-paginator) {
+  padding: 1rem 0;
+  gap: 0.5rem;
+}
+
+:deep(.p-datatable .p-paginator .p-paginator-pages) {
+  gap: 0.25rem;
+}
+
+:deep(.p-datatable .p-paginator .p-paginator-pages .p-paginator-page) {
+  margin: 0 0.125rem;
+}
+
+:deep(.p-datatable .p-paginator .p-paginator-first,
+       .p-datatable .p-paginator .p-paginator-prev,
+       .p-datatable .p-paginator .p-paginator-next,
+       .p-datatable .p-paginator .p-paginator-last) {
+  margin: 0 0.25rem;
+}
+
+:deep(.p-datatable .p-paginator .p-paginator-current) {
+  margin: 0 1rem;
+}
+
+:deep(.p-datatable .p-paginator .p-dropdown) {
+  margin-left: 0.5rem;
+}
+
+
 </style>

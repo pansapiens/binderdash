@@ -120,6 +120,11 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
     for dirpath, dirnames, filenames in os.walk(root_path, followlinks=True):
         current_dir = Path(dirpath)
 
+        # Skip 'work' directories
+        if current_dir.name == "work":
+            dirnames[:] = []  # Stop recursion into work directories
+            continue
+
         # Check if this directory is a valid run
         run_type = None
         results_table = None
@@ -230,6 +235,9 @@ async def get_tree(path: str = ""):
     Returns:
         List of folder objects with name, path, and has_children flag
     """
+    logger.info(
+        f"get_tree called with path: '{path}', run_base_dirs: {settings.run_base_dirs}"
+    )
     try:
         if not path:
             # Return base directories
@@ -243,22 +251,50 @@ async def get_tree(path: str = ""):
                             "has_children": True,
                         }
                     )
+
+            # If no base directories are configured, provide a fallback
+            if not folders:
+                logger.warning("No base directories configured in RUN_BASE_DIRS")
+                # For development, allow browsing from current working directory
+                current_dir = os.getcwd()
+                if os.path.exists(current_dir) and os.path.isdir(current_dir):
+                    folders.append(
+                        {
+                            "name": "Current Directory",
+                            "path": current_dir,
+                            "has_children": True,
+                        }
+                    )
+
             return {"folders": folders}
         else:
             # Return children of the specified path
             if not os.path.exists(path) or not os.path.isdir(path):
                 raise ValueError(f"Path does not exist or is not a directory: {path}")
 
-            # Validate path is within allowed base directories
-            is_allowed = any(
-                path.startswith(base_dir) for base_dir in settings.run_base_dirs
-            )
-            if not is_allowed:
-                raise ValueError(f"Path not within allowed base directories: {path}")
+            # Validate path is within allowed base directories (only if base directories are configured)
+            if settings.run_base_dirs:
+                is_allowed = any(
+                    path.startswith(base_dir) for base_dir in settings.run_base_dirs
+                )
+                if not is_allowed:
+                    raise ValueError(
+                        f"Path not within allowed base directories: {path}"
+                    )
+            else:
+                # If no base directories configured, allow any path for development
+                logger.warning(
+                    f"No base directories configured, allowing access to: {path}"
+                )
 
             folders = []
+            logger.info(f"Listing contents of directory: {path}")
             try:
-                for item in os.listdir(path):
+                items = os.listdir(path)
+                logger.info(
+                    f"Found {len(items)} items in {path}: {items[:10]}..."
+                )  # Log first 10 items
+                for item in items:
                     item_path = os.path.join(path, item)
                     if os.path.isdir(item_path) or os.path.islink(item_path):
                         # Check if directory or symlink has subdirectories

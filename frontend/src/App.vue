@@ -5,6 +5,17 @@ import TabPanel from 'primevue/tabpanel'
 import RunsView from './components/RunsView.vue'
 import PlotsView from './components/PlotsView.vue'
 import FolderBrowser from './components/FolderBrowser.vue'
+
+// Create a ref to the RunsView component so we can call its methods
+const runsViewRef = ref(null)
+
+// Handle runs scanned event from FolderBrowser
+const handleRunsScanned = () => {
+  // Call the loadRuns method on the RunsView component
+  if (runsViewRef.value && runsViewRef.value.loadRuns) {
+    runsViewRef.value.loadRuns()
+  }
+}
 </script>
 
 <template>
@@ -17,13 +28,13 @@ import FolderBrowser from './components/FolderBrowser.vue'
     <main class="app-main">
       <TabView>
         <TabPanel header="Runs & Structure Viewer">
-          <RunsView />
+          <RunsView ref="runsViewRef" />
         </TabPanel>
         <TabPanel header="Plots">
           <PlotsView />
         </TabPanel>
         <TabPanel header="Configure Source Folders">
-          <FolderBrowser />
+          <FolderBrowser @runs-scanned="handleRunsScanned" />
         </TabPanel>
       </TabView>
     </main>
@@ -484,5 +495,67 @@ button, input, select, textarea, a, .p-button, .p-dropdown, .p-inputtext {
   cursor: not-allowed !important;
   transform: none !important;
   box-shadow: none !important;
+}
+
+/* Toast styling improvements - GLOBAL OVERRIDE */
+.p-toast {
+  opacity: 1 !important;
+}
+
+.p-toast .p-toast-message {
+  background: white !important;
+  border: 1px solid #e9ecef !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  opacity: 1 !important;
+  color: #495057 !important;
+}
+
+.p-toast .p-toast-message-content {
+  background: white !important;
+  opacity: 1 !important;
+  color: #495057 !important;
+}
+
+.p-toast .p-toast-message-text {
+  color: #495057 !important;
+  opacity: 1 !important;
+}
+
+.p-toast .p-toast-message-icon {
+  opacity: 1 !important;
+}
+
+.p-toast .p-toast-icon-close {
+  opacity: 1 !important;
+  color: #6c757d !important;
+}
+
+.p-toast .p-toast-icon-close:hover {
+  color: #495057 !important;
+}
+
+/* Toast severity-specific styling */
+.p-toast .p-toast-message.p-toast-message-success {
+  background: #d4edda !important;
+  border-color: #c3e6cb !important;
+  color: #155724 !important;
+}
+
+.p-toast .p-toast-message.p-toast-message-error {
+  background: #f8d7da !important;
+  border-color: #f5c6cb !important;
+  color: #721c24 !important;
+}
+
+.p-toast .p-toast-message.p-toast-message-warn {
+  background: #fff3cd !important;
+  border-color: #ffeaa7 !important;
+  color: #856404 !important;
+}
+
+.p-toast .p-toast-message.p-toast-message-info {
+  background: #d1ecf1 !important;
+  border-color: #bee5eb !important;
+  color: #0c5460 !important;
 }
 </style>

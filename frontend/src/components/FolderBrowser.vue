@@ -25,9 +25,13 @@
         :value="folders" 
         :loading="loading"
         @node-expand="onNodeExpand"
+        @node-collapse="onNodeCollapse"
         :expandedKeys="expandedKeys"
         v-model:expandedKeys="expandedKeys"
         dataKey="key"
+        lazy
+        :loadingIcon="'pi pi-spinner'"
+        :loadingMode="'card'"
       >
         <Column field="name" header="Name" expander>
           <template #body="{ node }">
@@ -97,6 +101,9 @@ import Tag from 'primevue/tag'
 import Checkbox from 'primevue/checkbox'
 import { useToast } from 'primevue/usetoast'
 
+// Define emits
+const emit = defineEmits(['runs-scanned'])
+
 const toast = useToast()
 
 // State
@@ -149,7 +156,7 @@ const loadFolders = async (path = '') => {
       name: folder.name,
       path: folder.path,
       has_children: folder.has_children,
-      children: folder.has_children ? [] : undefined,
+      children: folder.has_children ? undefined : undefined, // Use undefined for lazy loading
       leaf: !folder.has_children,
       selectable: true
     }))
@@ -168,18 +175,22 @@ const loadFolders = async (path = '') => {
 }
 
 const loadChildren = async (node) => {
+  console.log('loadChildren called for node:', node.path)
   try {
-    const response = await fetch(`/api/tree?path=${encodeURIComponent(node.path)}`)
+    const url = `/api/tree?path=${encodeURIComponent(node.path)}`
+    console.log('Fetching from URL:', url)
+    const response = await fetch(url)
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`)
     }
     const data = await response.json()
+    console.log('Received data:', data)
     node.children = data.folders.map(folder => ({
       key: folder.path,
       name: folder.name,
       path: folder.path,
       has_children: folder.has_children,
-      children: folder.has_children ? [] : undefined,
+      children: folder.has_children ? undefined : undefined, // Use undefined for lazy loading
       leaf: !folder.has_children,
       selectable: true
     }))
@@ -196,10 +207,32 @@ const loadChildren = async (node) => {
 }
 
 const onNodeExpand = async (event) => {
-  const node = event.node
-  if (node.children && node.children.length === 0 && node.has_children) {
-    await loadChildren(node)
+  console.log('onNodeExpand called with event:', event)
+  console.log('Event keys:', Object.keys(event))
+  
+  // For PrimeVue TreeTable lazy loading, the node data might be in a different property
+  const node = event.node || event.data || event
+  console.log('Node to expand:', node)
+  
+  if (!node) {
+    console.error('No node data found in event')
+    return
   }
+  
+  console.log('Node children:', node.children)
+  console.log('Node has_children:', node.has_children)
+  
+  // For lazy loading, we need to load children when expanding
+  if (node.has_children && !node.children) {
+    console.log('Loading children for node:', node.path)
+    await loadChildren(node)
+  } else {
+    console.log('Skipping load - conditions not met')
+  }
+}
+
+const onNodeCollapse = (event) => {
+  console.log('onNodeCollapse called with event:', event)
 }
 
 const scanSelectedFolders = async () => {
@@ -230,6 +263,10 @@ const scanSelectedFolders = async () => {
       detail: `Found ${data.runs.length} runs in selected folders`,
       life: 3000
     })
+
+    // Emit event to notify parent that runs have been scanned
+    // This will trigger a refresh of the runs list
+    emit('runs-scanned', data.runs)
   } catch (error) {
     console.error('Error scanning folders:', error)
     toast.add({
@@ -453,4 +490,6 @@ onMounted(() => {
   background: #667eea;
   border-color: #667eea;
 }
+
+
 </style>
