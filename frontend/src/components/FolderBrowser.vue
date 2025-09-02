@@ -71,22 +71,103 @@
     </div>
 
     <div v-if="scanResults.length > 0" class="scan-results">
-      <h3>Scan Results ({{ scanResults.length }} runs found)</h3>
-      <DataTable :value="scanResults" stripedRows>
-        <Column field="metadata.name" header="Name"></Column>
-        <Column field="run_type" header="Type">
+      <div class="scan-results-header">
+        <h3>Scan Results ({{ scanResults.length }} runs found)</h3>
+        <div class="scan-results-controls">
+          <Button 
+            label="Select All" 
+            icon="pi pi-check-square" 
+            @click="selectAllRuns"
+            size="small"
+            outlined
+          />
+          <Button 
+            label="Deselect All" 
+            icon="pi pi-square" 
+            @click="deselectAllRuns"
+            size="small"
+            outlined
+          />
+          <Button 
+            label="Include Selected Runs" 
+            icon="pi pi-plus" 
+            @click="includeSelectedRuns"
+            :disabled="selectedRuns.length === 0"
+            size="small"
+          />
+        </div>
+      </div>
+      
+      <DataTable 
+        :value="scanResults" 
+        v-model:selection="selectedRuns"
+        selectionMode="multiple"
+        dataKey="run_id"
+        stripedRows
+        paginator
+        :rows="10"
+        :rowsPerPageOptions="[5, 10, 20, 50]"
+        paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
+        currentPageReportTemplate="Showing {first} to {last} of {totalRecords} runs"
+        :filters="filters"
+        filterDisplay="menu"
+        :globalFilterFields="['metadata.name', 'run_type', 'path']"
+        showGridlines
+        :resizableColumns="true"
+        columnResizeMode="fit"
+        :reorderableColumns="true"
+        :rowHover="true"
+      >
+        <template #header>
+          <div class="flex justify-content-between align-items-center">
+            <span class="text-xl font-bold">Detected Runs</span>
+            <span class="text-sm text-muted">
+              {{ selectedRuns.length }} of {{ scanResults.length }} selected
+            </span>
+          </div>
+        </template>
+
+        <template #empty>
+          <div class="text-center p-4">
+            <i class="pi pi-search" style="font-size: 3rem; color: #6c757d;"></i>
+            <h3>No Runs Found</h3>
+            <p>No valid runs detected in selected folders</p>
+          </div>
+        </template>
+
+        <Column selectionMode="multiple" headerStyle="width: 3rem"></Column>
+        <Column field="metadata.name" header="Name" sortable style="min-width: 150px">
+          <template #body="{ data }">
+            <div class="run-name">
+              <i :class="getRunTypeIcon(data.run_type)" class="run-type-icon"></i>
+              {{ data.metadata.name }}
+            </div>
+          </template>
+        </Column>
+        <Column field="run_type" header="Type" sortable style="min-width: 100px">
           <template #body="{ data }">
             <Tag :value="data.run_type" :severity="getRunTypeSeverity(data.run_type)" />
           </template>
         </Column>
-        <Column field="metadata.pdb_count" header="PDB Files"></Column>
-        <Column field="path" header="Path">
+        <Column field="metadata.pdb_count" header="PDB Files" sortable style="min-width: 100px">
+          <template #body="{ data }">
+            <Badge :value="data.metadata.pdb_count" severity="info" />
+          </template>
+        </Column>
+        <Column field="path" header="Path" style="min-width: 200px">
           <template #body="{ data }">
             <span class="run-path">{{ data.path }}</span>
           </template>
         </Column>
+        <Column field="metadata.results_file" header="Results File" style="min-width: 150px">
+          <template #body="{ data }">
+            <span class="results-file">{{ data.metadata.results_file }}</span>
+          </template>
+        </Column>
       </DataTable>
     </div>
+    
+    <Toast />
   </div>
 </template>
 
@@ -98,8 +179,9 @@ import Button from 'primevue/button'
 import Chip from 'primevue/chip'
 import DataTable from 'primevue/datatable'
 import Tag from 'primevue/tag'
-import Checkbox from 'primevue/checkbox'
+import Badge from 'primevue/badge'
 import { useToast } from 'primevue/usetoast'
+import Toast from 'primevue/toast'
 
 // Define emits
 const emit = defineEmits(['runs-scanned'])
@@ -113,6 +195,8 @@ const expandedKeys = ref({})
 const loading = ref(false)
 const scanning = ref(false)
 const scanResults = ref([])
+const selectedRuns = ref([])
+const filters = ref(null)
 
 // Computed
 const selectedFolders = computed(() => {
@@ -256,6 +340,9 @@ const scanSelectedFolders = async () => {
 
     const data = await response.json()
     scanResults.value = data.runs
+    
+    // Select all runs by default
+    selectedRuns.value = [...data.runs]
 
     toast.add({
       severity: 'success',
@@ -265,7 +352,6 @@ const scanSelectedFolders = async () => {
     })
 
     // Emit event to notify parent that runs have been scanned
-    // This will trigger a refresh of the runs list
     emit('runs-scanned', data.runs)
   } catch (error) {
     console.error('Error scanning folders:', error)
@@ -282,6 +368,30 @@ const scanSelectedFolders = async () => {
 
 const clearSelection = () => {
   selectedKeys.value = {}
+  selectedRuns.value = []
+  scanResults.value = []
+}
+
+const selectAllRuns = () => {
+  selectedRuns.value = [...scanResults.value]
+}
+
+const deselectAllRuns = () => {
+  selectedRuns.value = []
+}
+
+const includeSelectedRuns = () => {
+  if (selectedRuns.value.length === 0) return
+  
+  toast.add({
+    severity: 'success',
+    summary: 'Runs Included',
+    detail: `${selectedRuns.value.length} runs have been included for processing`,
+    life: 3000
+  })
+  
+  // Emit event with selected runs
+  emit('runs-scanned', selectedRuns.value)
 }
 
 const removeSelectedFolder = (folder) => {
@@ -335,6 +445,17 @@ const getRunTypeSeverity = (runType) => {
       return 'info'
     default:
       return 'warning'
+  }
+}
+
+const getRunTypeIcon = (runType) => {
+  switch (runType) {
+    case 'bindcraft':
+      return 'pi pi-code'
+    case 'rfd':
+      return 'pi pi-file'
+    default:
+      return 'pi pi-info-circle'
   }
 }
 
@@ -449,7 +570,41 @@ onMounted(() => {
   color: #495057;
 }
 
+.scan-results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.scan-results-header h3 {
+  margin: 0;
+  color: #495057;
+}
+
+.scan-results-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .run-path {
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: #6c757d;
+  word-break: break-all;
+}
+
+.run-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.run-type-icon {
+  color: #6c757d;
+}
+
+.results-file {
   font-family: monospace;
   font-size: 0.9rem;
   color: #6c757d;

@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import TabView from 'primevue/tabview'
 import TabPanel from 'primevue/tabpanel'
+import Toast from 'primevue/toast'
 import RunsView from './components/RunsView.vue'
 import PlotsView from './components/PlotsView.vue'
 import FolderBrowser from './components/FolderBrowser.vue'
@@ -11,9 +12,9 @@ const runsViewRef = ref(null)
 
 // Handle runs scanned event from FolderBrowser
 const handleRunsScanned = () => {
-  // Call the loadRuns method on the RunsView component
-  if (runsViewRef.value && runsViewRef.value.loadRuns) {
-    runsViewRef.value.loadRuns()
+  // Call the loadDesigns method on the RunsView component
+  if (runsViewRef.value && runsViewRef.value.loadDesigns) {
+    runsViewRef.value.loadDesigns()
   }
 }
 </script>
@@ -27,7 +28,7 @@ const handleRunsScanned = () => {
 
     <main class="app-main">
       <TabView>
-        <TabPanel header="Runs & Structure Viewer">
+        <TabPanel header="Designs">
           <RunsView ref="runsViewRef" />
         </TabPanel>
         <TabPanel header="Plots">

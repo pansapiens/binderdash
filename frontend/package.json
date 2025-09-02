@@ -9,9 +9,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "watch:build": "vite build --watch",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@primeuix/themes": "^1.2.3",
+    "@primevue/themes": "^4.3.8",
+    "aura": "link:@primeuix/themes/aura",
     "primeicons": "^7.0.0",
     "primevue": "^4.3.7",
     "vue": "^3.5.18"

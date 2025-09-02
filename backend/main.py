@@ -41,6 +41,7 @@ class ScanRequest(BaseModel):
 
 class RunMetadata(BaseModel):
     run_id: str
+    project_id: str
     path: str
     run_type: str  # "bindcraft" or "rfd"
     results_table: Optional[str] = None
@@ -82,6 +83,9 @@ async def get_favicon():
 
 # In-memory cache for run metadata
 run_cache: Dict[str, Dict[str, Any]] = {}
+
+# In-memory cache for designs
+designs_cache: List[Dict[str, Any]] = []
 
 
 def is_bindcraft_results(path: Path) -> bool:
@@ -213,15 +217,185 @@ def load_run_table(run_metadata: Dict[str, Any]) -> Optional[pd.DataFrame]:
         return None
 
 
+def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Parse designs from a run's results table."""
+    try:
+        df = load_run_table(run_metadata)
+        if df is None or df.empty:
+            return []
+
+        designs = []
+        run_type = run_metadata["run_type"]
+        run_path = run_metadata["path"]
+        run_name = run_metadata["metadata"]["name"]
+
+        # Determine the design ID column and primary score column based on run type
+        if run_type == "bindcraft":
+            design_id_col = "Design" if "Design" in df.columns else None
+            primary_score_col = (
+                "Average_i_pTM" if "Average_i_pTM" in df.columns else None
+            )
+            # Sort by primary score descending (higher is better for i_pTM)
+            sort_ascending = False
+        elif run_type == "rfd":
+            design_id_col = "description" if "description" in df.columns else None
+            primary_score_col = (
+                "pae_interaction" if "pae_interaction" in df.columns else None
+            )
+            # Sort by primary score ascending (lower is better for pae_interaction)
+            sort_ascending = True
+        else:
+            # Unknown run type, try to guess columns
+            design_id_col = None
+            primary_score_col = None
+            sort_ascending = True
+
+        # Find design ID column if not found
+        if not design_id_col:
+            for col in df.columns:
+                if col.lower() in ["design", "description", "name", "id"]:
+                    design_id_col = col
+                    break
+
+        # Find primary score column if not found
+        if not primary_score_col:
+            numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+            if numeric_cols:
+                primary_score_col = numeric_cols[0]
+
+        # Sort by primary score if available
+        if primary_score_col and primary_score_col in df.columns:
+            df = df.sort_values(
+                primary_score_col, ascending=sort_ascending
+            ).reset_index(drop=True)
+
+        # Create design objects
+        for index, row in df.iterrows():
+            design_id = (
+                str(row.get(design_id_col, f"design_{index}"))
+                if design_id_col
+                else f"design_{index}"
+            )
+
+            # Note: Score columns are now handled as regular columns in the frontend
+
+            # Find PDB file for this design
+            pdb_file = None
+            if run_type == "bindcraft":
+                # For bindcraft, look for PDB in Accepted/ directory
+                accepted_dir = Path(run_path) / "Accepted"
+                if accepted_dir.exists():
+                    # Try exact match first
+                    exact_pdb = accepted_dir / f"{design_id}.pdb"
+                    if exact_pdb.exists():
+                        pdb_file = str(exact_pdb)
+                    else:
+                        # Try pattern matching
+                        potential_pdbs = list(accepted_dir.glob(f"{design_id}_*.pdb"))
+                        if potential_pdbs:
+                            pdb_file = str(potential_pdbs[0])
+                        else:
+                            # Last resort: any PDB starting with design_id
+                            potential_pdbs = list(
+                                accepted_dir.glob(f"{design_id}*.pdb")
+                            )
+                            if potential_pdbs:
+                                pdb_file = str(potential_pdbs[0])
+
+            elif run_type == "rfd":
+                # For RFD, look for PDB in af2_initial_guess/pdbs/
+                pdbs_dir = Path(run_path) / "af2_initial_guess" / "pdbs"
+                if pdbs_dir.exists():
+                    pdb_path = pdbs_dir / f"{design_id}.pdb"
+                    if pdb_path.exists():
+                        pdb_file = str(pdb_path)
+
+            # Create design object with all available columns
+            design = {
+                "design_id": design_id,
+                "run_id": run_metadata["run_id"],
+                "project_id": run_metadata.get("project_id", None),
+                "run_name": run_name,
+                "run_type": run_type,
+                "run_path": run_path,
+                "pdb_file": pdb_file,
+                # Include all other columns from the source table
+                **{
+                    col: row[col]
+                    for col in df.columns
+                    if col != design_id_col and pd.notna(row[col])
+                },
+            }
+
+            designs.append(design)
+
+        return designs
+
+    except Exception as e:
+        logger.error(
+            f"Error parsing designs from run {run_metadata['run_id']}: {str(e)}"
+        )
+        return []
+
+
+def refresh_designs_cache():
+    """Refresh the designs cache by parsing all cached runs."""
+    global designs_cache
+
+    try:
+        designs_cache.clear()
+
+        for run in run_cache.values():
+            run_designs = parse_designs_from_run(run)
+            designs_cache.extend(run_designs)
+
+            # Sort all designs by score (if available)
+        designs_with_score = []
+        designs_without_score = []
+
+        for design in designs_cache:
+            has_score = False
+            if design["run_type"] == "rfd" and "pae_interaction" in design:
+                has_score = True
+            elif design["run_type"] == "bindcraft" and "Average_i_pTM" in design:
+                has_score = True
+
+            if has_score:
+                designs_with_score.append(design)
+            else:
+                designs_without_score.append(design)
+
+        # Sort by score, handling different run types
+        def sort_key(design):
+            if design["run_type"] == "rfd":
+                score = design.get("pae_interaction")
+                if score is None:
+                    return float("inf")  # Put designs without scores at the end
+                return score  # Lower is better for pae_interaction
+            else:  # bindcraft
+                score = design.get("Average_i_pTM")
+                if score is None:
+                    return float("inf")  # Put designs without scores at the end
+                return -score  # Higher is better for i_pTM, so invert
+
+        designs_with_score.sort(key=sort_key)
+
+        # Combine sorted designs with those without scores
+        designs_cache = designs_with_score + designs_without_score
+
+        logger.info(
+            f"Refreshed designs cache: {len(designs_cache)} designs from {len(run_cache)} runs"
+        )
+
+    except Exception as e:
+        logger.error(f"Error refreshing designs cache: {str(e)}")
+        designs_cache = []
+
+
 @app.get("/")
 async def serve_frontend():
     """Serve the frontend index.html file."""
     return FileResponse("backend/static/index.html")
-
-
-@app.get("/api/hello")
-async def read_root():
-    return {"Hello": "World"}
 
 
 @app.get("/api/tree")
@@ -380,6 +554,9 @@ async def scan_runs(request: ScanRequest):
         for run in runs:
             run_cache[run["run_id"]] = run
 
+        # Refresh designs cache with new runs
+        refresh_designs_cache()
+
         return {"runs": runs}
 
     except Exception as e:
@@ -506,3 +683,40 @@ async def clear_runs():
     """
     run_cache.clear()
     return {"message": "All runs cleared from cache"}
+
+
+@app.get("/api/designs")
+async def list_designs():
+    """
+    List all designs from all cached runs.
+
+    Returns:
+        List of design objects
+    """
+    try:
+        # Refresh designs cache if it's empty
+        if not designs_cache:
+            refresh_designs_cache()
+
+        return {"designs": designs_cache}
+
+    except Exception as e:
+        logger.error(f"Error in list_designs: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/designs")
+async def clear_designs():
+    """
+    Clear all designs from the cache.
+
+    Returns:
+        Success message
+    """
+    try:
+        designs_cache.clear()
+        return {"message": "All designs cleared from cache"}
+
+    except Exception as e:
+        logger.error(f"Error in clear_designs: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

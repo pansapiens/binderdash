@@ -36,6 +36,11 @@
 - Use `pnpm` for package management
 - Composition API; component order: `<template>`, `<script>`, `<style>`
 
+## Design style guide and principles
+
+- Use default PrimeVue styling and components, unless otherwise specified
+- Use checkboxes for row selection in DataTables, where row selection is required: https://primevue.org/datatable/#checkbox_row_selection
+
 ## Testing and quality
 
 - Backend: `pytest` for unit/API tests
