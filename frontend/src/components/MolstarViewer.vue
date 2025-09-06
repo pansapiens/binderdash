@@ -26,6 +26,13 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 
+// Extend Window interface for PDBeMolstarPlugin
+declare global {
+  interface Window {
+    PDBeMolstarPlugin: any
+  }
+}
+
 // Props
 const props = defineProps<{
   pdbUrl: string
@@ -40,7 +47,7 @@ const error = ref<string | null>(null)
 
 // Methods
 const loadMolstarResources = () => {
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     // Check if already loaded
     if (window.PDBeMolstarPlugin) {
       resolve()
@@ -146,7 +153,7 @@ const loadStructure = async () => {
 
   } catch (err) {
     console.error('Error loading Molstar viewer:', err)
-    error.value = err.message || 'Failed to load structure'
+    error.value = (err as Error).message || 'Failed to load structure'
     loading.value = false
   }
 }

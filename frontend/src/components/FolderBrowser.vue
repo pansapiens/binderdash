@@ -7,14 +7,14 @@
           label="Scan Selected Folders" 
           icon="pi pi-search" 
           @click="scanSelectedFolders"
-          :loading="scanning"
-          :disabled="selectedFolders.length === 0"
+          :loading="folderStore.scanning"
+          :disabled="selectedFolderNodes.length === 0"
         />
         <Button 
           label="Clear Selection" 
           icon="pi pi-times" 
           @click="clearSelection"
-          :disabled="selectedFolders.length === 0"
+          :disabled="selectedFolderNodes.length === 0"
           severity="secondary"
         />
       </div>
@@ -22,8 +22,8 @@
 
     <div class="browser-content">
       <TreeTable 
-        :value="folders" 
-        :loading="loading"
+        :value="folderStore.folders" 
+        :loading="folderStore.loading"
         @node-expand="onNodeExpand"
         @node-collapse="onNodeCollapse"
         v-model:expandedKeys="expandedKeys"
@@ -56,11 +56,11 @@
       </TreeTable>
     </div>
 
-    <div v-if="selectedFolders.length > 0" class="selection-summary">
-      <h3>Selected Folders ({{ selectedFolders.length }})</h3>
+    <div v-if="selectedFolderNodes.length > 0" class="selection-summary">
+      <h3>Selected Folders ({{ selectedFolderNodes.length }})</h3>
       <div class="selected-folders">
         <Chip 
-          v-for="folder in selectedFolders" 
+          v-for="folder in selectedFolderNodes" 
           :key="folder.path"
           :label="folder.name"
           :removable="true"
@@ -69,9 +69,9 @@
       </div>
     </div>
 
-    <div v-if="scanResults.length > 0" class="scan-results">
+    <div v-if="folderStore.scanResults.length > 0" class="scan-results">
       <div class="scan-results-header">
-        <h3>Scan Results ({{ scanResults.length }} runs found)</h3>
+        <h3>Scan Results ({{ folderStore.scanResults.length }} runs found)</h3>
         <div class="scan-results-controls">
           <Button 
             label="Select All" 
@@ -91,15 +91,15 @@
             label="Include Selected Runs" 
             icon="pi pi-plus" 
             @click="includeSelectedRuns"
-            :disabled="selectedRuns.length === 0"
+            :disabled="folderStore.selectedRuns.length === 0"
             size="small"
           />
         </div>
       </div>
       
       <DataTable 
-        :value="scanResults" 
-        v-model:selection="selectedRuns"
+        :value="folderStore.scanResults" 
+        v-model:selection="folderStore.selectedRuns"
         selectionMode="multiple"
         dataKey="run_id"
         stripedRows
@@ -121,7 +121,7 @@
           <div class="flex justify-content-between align-items-center">
             <span class="text-xl font-bold">Detected Runs</span>
             <span class="text-sm text-muted">
-              {{ selectedRuns.length }} of {{ scanResults.length }} selected
+              {{ folderStore.selectedRuns.length }} of {{ folderStore.scanResults.length }} selected
             </span>
           </div>
         </template>
@@ -186,27 +186,25 @@ import Tag from 'primevue/tag'
 import Badge from 'primevue/badge'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
-import { treeApi, runsApi } from '../webapi'
+import { useFolderStore, useRunsStore } from '../stores'
 
 // Define emits
 const emit = defineEmits(['runs-scanned'])
 
 const toast = useToast()
 
-// State
-const folders = ref<any[]>([])
-const selectedKeys = ref<Record<string, any>>({})
+// Use Pinia stores
+const folderStore = useFolderStore()
+const runsStore = useRunsStore()
+
+// Local UI state (not shared across components)
 const expandedKeys = ref<Record<string, any>>({})
-const loading = ref(false)
-const scanning = ref(false)
-const scanResults = ref<any[]>([])
-const selectedRuns = ref<any[]>([])
 const filters = ref<any>(null)
 
 // Computed
-const selectedFolders = computed(() => {
+const selectedFolderNodes = computed(() => {
   const selected: any[] = []
-  for (const [key, value] of Object.entries(selectedKeys.value)) {
+  for (const [key, value] of Object.entries(folderStore.selectedKeys)) {
     if (value !== null) {
       // Find the node in the folders tree
       const findNode = (nodes: any[], targetKey: string): any => {
@@ -222,7 +220,7 @@ const selectedFolders = computed(() => {
         return null
       }
       
-      const node = findNode(folders.value, key)
+      const node = findNode(folderStore.folders, key)
       if (node) {
         selected.push(node)
       }
@@ -233,19 +231,8 @@ const selectedFolders = computed(() => {
 
 // Methods
 const loadFolders = async (path = '') => {
-  loading.value = true
   try {
-    const data = await treeApi.getTree(path)
-    folders.value = data.folders.map(folder => ({
-      key: folder.path,
-      name: folder.name,
-      path: folder.path,
-      has_children: folder.has_children,
-      children: folder.has_children ? undefined : undefined, // Use undefined for lazy loading
-      leaf: !folder.has_children,
-      selectable: true
-    }))
-    console.log('Loaded folders:', folders.value)
+    await folderStore.fetchFolders(path)
   } catch (error) {
     console.error('Error loading folders:', error)
     toast.add({
@@ -254,27 +241,13 @@ const loadFolders = async (path = '') => {
       detail: 'Failed to load folders',
       life: 3000
     })
-  } finally {
-    loading.value = false
   }
 }
 
 const loadChildren = async (node: any): Promise<void> => {
   console.log('loadChildren called for node:', node.path)
   try {
-    console.log('Fetching children for path:', node.path)
-    const data = await treeApi.getTree(node.path)
-    console.log('Received data:', data)
-    node.children = data.folders.map((folder: any) => ({
-      key: folder.path,
-      name: folder.name,
-      path: folder.path,
-      has_children: folder.has_children,
-      children: folder.has_children ? undefined : undefined, // Use undefined for lazy loading
-      leaf: !folder.has_children,
-      selectable: true
-    }))
-    console.log('Loaded children for node:', node.path, node.children)
+    await folderStore.loadChildren(node)
   } catch (error) {
     console.error('Error loading children:', error)
     toast.add({
@@ -316,25 +289,20 @@ const onNodeCollapse = (event: any): void => {
 }
 
 const scanSelectedFolders = async () => {
-  if (selectedFolders.value.length === 0) return
+  if (selectedFolderNodes.value.length === 0) return
 
-  scanning.value = true
   try {
-    const data = await runsApi.scanRuns(selectedFolders.value.map(folder => folder.path))
-    scanResults.value = data.runs
-    
-    // Select all runs by default
-    selectedRuns.value = [...data.runs]
+    const runs = await folderStore.scanFolders(selectedFolderNodes.value.map(folder => folder.path))
 
     toast.add({
       severity: 'success',
       summary: 'Scan Complete',
-      detail: `Found ${data.runs.length} runs in selected folders`,
+      detail: `Found ${runs.length} runs in selected folders`,
       life: 3000
     })
 
     // Emit event to notify parent that runs have been scanned
-    emit('runs-scanned', data.runs)
+    emit('runs-scanned', runs)
   } catch (error) {
     console.error('Error scanning folders:', error)
     toast.add({
@@ -343,51 +311,47 @@ const scanSelectedFolders = async () => {
       detail: 'Failed to scan selected folders',
       life: 3000
     })
-  } finally {
-    scanning.value = false
   }
 }
 
 const clearSelection = () => {
-  selectedKeys.value = {}
-  selectedRuns.value = []
-  scanResults.value = []
+  folderStore.clearSelection()
 }
 
 const selectAllRuns = () => {
-  selectedRuns.value = [...scanResults.value]
+  folderStore.selectAllRuns()
 }
 
 const deselectAllRuns = () => {
-  selectedRuns.value = []
+  folderStore.deselectAllRuns()
 }
 
 const includeSelectedRuns = () => {
-  if (selectedRuns.value.length === 0) return
+  if (folderStore.selectedRuns.length === 0) return
   
   toast.add({
     severity: 'success',
     summary: 'Runs Included',
-    detail: `${selectedRuns.value.length} runs have been included for processing`,
+    detail: `${folderStore.selectedRuns.length} runs have been included for processing`,
     life: 3000
   })
   
   // Emit event with selected runs
-  emit('runs-scanned', selectedRuns.value)
+  emit('runs-scanned', folderStore.selectedRuns)
 }
 
 const removeSelectedFolder = (folder: any): void => {
-  delete selectedKeys.value[folder.key]
+  folderStore.removeSelectedFolder(folder.key)
 }
 
 const onNodeSelect = (event: any): void => {
   console.log('Node selected:', event.node)
-  console.log('Current selectedKeys:', selectedKeys.value)
+  console.log('Current selectedKeys:', folderStore.selectedKeys)
 }
 
 const onNodeUnselect = (event: any): void => {
   console.log('Node unselected:', event.node)
-  console.log('Current selectedKeys:', selectedKeys.value)
+  console.log('Current selectedKeys:', folderStore.selectedKeys)
 }
 
 const getFolderIcon = (node: any): string => {
@@ -398,24 +362,18 @@ const getFolderIcon = (node: any): string => {
 }
 
 const isNodeSelected = (node: any): boolean => {
-  const result = selectedKeys.value[node.key] === true
-  console.log('isNodeSelected for node:', node.key, 'result:', result, 'selectedKeys:', selectedKeys.value)
+  const result = folderStore.selectedKeys[node.key] === true
+  console.log('isNodeSelected for node:', node.key, 'result:', result, 'selectedKeys:', folderStore.selectedKeys)
   return result
 }
 
 const toggleNodeSelection = (node: any): void => {
   console.log('toggleNodeSelection called for node:', node.key)
-  console.log('Current selectedKeys before toggle:', selectedKeys.value)
+  console.log('Current selectedKeys before toggle:', folderStore.selectedKeys)
   
-  if (selectedKeys.value[node.key]) {
-    delete selectedKeys.value[node.key]
-    console.log('Removed node from selection')
-  } else {
-    selectedKeys.value[node.key] = true
-    console.log('Added node to selection')
-  }
+  folderStore.toggleNodeSelection(node.key)
   
-  console.log('Selected keys after toggle:', selectedKeys.value)
+  console.log('Selected keys after toggle:', folderStore.selectedKeys)
   console.log('isNodeSelected result:', isNodeSelected(node))
 }
 

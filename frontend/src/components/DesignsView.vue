@@ -7,7 +7,7 @@
           label="Refresh Designs" 
           icon="pi pi-refresh" 
           @click="loadDesigns"
-          :loading="loading"
+          :loading="designsStore.loading"
         />
         <Button 
           label="Clear Cache" 
@@ -33,7 +33,7 @@
             />
           </div>
           <div class="column-toggles">
-            <div v-for="col in allColumns" :key="col.field" class="column-toggle">
+            <div v-for="col in designsStore.columns" :key="col.field" class="column-toggle">
               <Checkbox 
                 :modelValue="isColumnVisible(col.field)"
                 @update:modelValue="toggleColumn(col.field)"
@@ -62,7 +62,7 @@
             <div class="filter-row">
               <label>Global Search:</label>
               <InputText 
-                v-model="filters.global.value" 
+                v-model="designsStore.filters.global.value" 
                 placeholder="Search all columns..."
                 class="filter-input"
               />
@@ -70,7 +70,7 @@
             <div class="filter-row">
               <label>Design ID:</label>
               <InputText 
-                v-model="filters.design_id.value" 
+                v-model="designsStore.filters.design_id.value" 
                 placeholder="Filter by design ID..."
                 class="filter-input"
               />
@@ -78,7 +78,7 @@
             <div class="filter-row">
               <label>Project ID:</label>
               <InputText 
-                v-model="filters.project_id.value" 
+                v-model="designsStore.filters.project_id.value" 
                 placeholder="Filter by project ID..."
                 class="filter-input"
               />
@@ -86,7 +86,7 @@
             <div class="filter-row">
               <label>Run Name:</label>
               <InputText 
-                v-model="filters.run_name.value" 
+                v-model="designsStore.filters.run_name.value" 
                 placeholder="Filter by run name..."
                 class="filter-input"
               />
@@ -94,7 +94,7 @@
             <div class="filter-row">
               <label>Protocol:</label>
               <Dropdown 
-                v-model="filters.protocol.value" 
+                v-model="designsStore.filters.protocol.value" 
                 :options="protocolOptions" 
                 placeholder="Select protocol"
                 class="filter-input"
@@ -105,13 +105,13 @@
               <label>Score Range:</label>
               <div class="score-range">
                 <InputNumber 
-                  v-model="filters.score_min.value" 
+                  v-model="designsStore.filters.score_min.value" 
                   placeholder="Min"
                   class="filter-input-small"
                 />
                 <span class="range-separator">to</span>
                 <InputNumber 
-                  v-model="filters.score_max.value" 
+                  v-model="designsStore.filters.score_max.value" 
                   placeholder="Max"
                   class="filter-input-small"
                 />
@@ -135,9 +135,9 @@
 
         <div class="designs-table-section">
           <DataTable 
-          :value="designs" 
-          :loading="loading"
-          v-model:selection="selectedDesigns"
+          :value="designsStore.designs" 
+          :loading="designsStore.loading"
+          v-model:selection="designsStore.selectedDesigns"
           selectionMode="multiple"
           dataKey="design_id"
           stripedRows
@@ -146,9 +146,9 @@
           :rowsPerPageOptions="[10, 20, 50, 100]"
           paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
           currentPageReportTemplate="Showing {first} to {last} of {totalRecords} designs"
-          :filters="filters"
+          :filters="designsStore.filters"
           filterDisplay="row"
-          :globalFilterFields="['design_id', 'project_id', 'run_name', 'protocol', 'pae_interaction', 'Average_i_pTM']"
+          :globalFilterFields="getGlobalFilterFields()"
           showGridlines
           :resizableColumns="true"
           columnResizeMode="fit"
@@ -197,14 +197,14 @@
 
           <!-- Dynamic columns based on available data -->
           <Column 
-            v-for="col in visibleColumns" 
+            v-for="col in getVisibleColumns()" 
             :key="col.field"
             :field="col.field" 
             :header="col.header"
             :sortable="col.sortable"
-            :filter="true"
+            :filter="col.filter"
             :filterType="col.filterType || 'text'"
-            :showFilterMenu="false"
+            :showFilterMenu="col.showFilterMenu"
             :style="col.style"
             :class="col.class"
           >
@@ -229,14 +229,14 @@
       </div>
 
       <!-- Structure Viewer Section -->
-      <div v-if="selectedDesigns.length > 0" class="structure-viewer-section">
+      <div v-if="designsStore.selectedDesigns.length > 0" class="structure-viewer-section">
         <div class="viewer-header">
           <h3>Structure Viewer</h3>
           <div class="viewer-controls">
             <Button 
               icon="pi pi-chevron-left" 
               @click="navigateToPreviousRow"
-              :disabled="!canNavigateToPrevious"
+              :disabled="!designsStore.canNavigatePrevious"
               text
               rounded
             />
@@ -246,7 +246,7 @@
             <Button 
               icon="pi pi-chevron-right" 
               @click="navigateToNextRow"
-              :disabled="!canNavigateToNext"
+              :disabled="!designsStore.canNavigateNext"
               text
               rounded
             />
@@ -254,18 +254,18 @@
         </div>
 
         <div class="structure-info">
-          <div v-if="currentStructure" class="structure-details">
-            <p><strong>Design:</strong> {{ currentStructure.design.design_id }}</p>
-            <p><strong>Run:</strong> {{ currentStructure.design.run_name }}</p>
-            <p><strong>Protocol:</strong> {{ currentStructure.design.protocol }}</p>
-            <p><strong>File:</strong> {{ currentStructure.filename }}</p>
+          <div v-if="designsStore.currentStructure" class="structure-details">
+            <p><strong>Design:</strong> {{ designsStore.currentStructure.design.design_id }}</p>
+            <p><strong>Run:</strong> {{ designsStore.currentStructure.design.run_name }}</p>
+            <p><strong>Protocol:</strong> {{ designsStore.currentStructure.design.protocol }}</p>
+            <p><strong>File:</strong> {{ designsStore.currentStructure.filename }}</p>
           </div>
         </div>
 
         <MolstarViewer 
-          v-if="currentStructure"
+          v-if="designsStore.currentStructure"
           :pdb-url="getPdbUrl()"
-          :structure-info="currentStructure"
+          :structure-info="designsStore.currentStructure"
         />
       </div>
 
@@ -283,7 +283,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
@@ -294,196 +294,32 @@ import Dropdown from 'primevue/dropdown'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import MolstarViewer from './MolstarViewer.vue'
-import { designsApi, runsApi } from '../webapi'
+import { runsApi } from '../webapi'
+import { useDesignsStore, useAppStore } from '../stores'
 
 const toast = useToast()
 
-// State
-const designs = ref<any[]>([])
-const selectedDesigns = ref<any[]>([])
-const loading = ref(false)
-const currentStructureIndex = ref(0)
+// Use Pinia stores
+const designsStore = useDesignsStore()
+const appStore = useAppStore()
+
+// Local UI state (not shared across components)
 const showColumnSelector = ref(false)
 const showFilterPanel = ref(false)
-
-// Filter state
-const filters = ref({
-  global: { value: null, matchMode: 'contains' },
-  design_id: { value: null, matchMode: 'contains' },
-  project_id: { value: null, matchMode: 'contains' },
-  run_name: { value: null, matchMode: 'contains' },
-  protocol: { value: null, matchMode: 'equals' },
-  score_min: { value: null, matchMode: 'gte' },
-  score_max: { value: null, matchMode: 'lte' }
-})
 
 // Filter options
 const protocolOptions = ref(['bindcraft', 'rfd'])
 
-// Column configuration
-interface ColumnConfig {
-  field: string
-  header: string
-  sortable: boolean
-  filter?: boolean
-  filterType?: string
-  showFilterMenu?: boolean
-  style: string
-  class?: string
-  template?: any
-}
-
-const allColumns = ref<ColumnConfig[]>([
-  { field: 'design_id', header: 'Design ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 150px' },
-  { field: 'project_id', header: 'Project ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
-  { field: 'run_name', header: 'Run Name', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
-  { field: 'protocol', header: 'Protocol', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 100px' },
-  { field: 'pae_interaction', header: 'PAE Interaction', sortable: true, filter: true, filterType: 'numeric', showFilterMenu: false, style: 'min-width: 120px' },
-  { field: 'Average_i_pTM', header: 'Average i_pTM', sortable: true, filter: true, filterType: 'numeric', showFilterMenu: false, style: 'min-width: 120px' },
-  { field: 'pdb_file', header: 'PDB File', sortable: false, filter: false, style: 'min-width: 200px' },
-  { field: 'run_path', header: 'Run Path', sortable: false, filter: false, style: 'min-width: 200px' }
-])
-
-// Function to build columns dynamically from data
-const buildColumnsFromData = (designs: any[]): ColumnConfig[] => {
-  if (!designs || designs.length === 0) return allColumns.value
-  
-  const baseColumns: ColumnConfig[] = [
-    { field: 'design_id', header: 'Design ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 150px' },
-    { field: 'project_id', header: 'Project ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
-    { field: 'run_name', header: 'Run Name', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
-    { field: 'protocol', header: 'Protocol', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 100px' }
-  ]
-  
-  // Add score columns if they exist in the data
-  const scoreColumns: ColumnConfig[] = []
-  if (designs.some(d => 'pae_interaction' in d)) {
-    scoreColumns.push({ field: 'pae_interaction', header: 'PAE Interaction', sortable: true, filter: true, filterType: 'numeric', showFilterMenu: false, style: 'min-width: 120px' })
-  }
-  if (designs.some(d => 'Average_i_pTM' in d)) {
-    scoreColumns.push({ field: 'Average_i_pTM', header: 'Average i_pTM', sortable: true, filter: true, filterType: 'numeric', showFilterMenu: false, style: 'min-width: 120px' })
-  }
-  
-  const metadataColumns: ColumnConfig[] = [
-    { field: 'pdb_file', header: 'PDB File', sortable: false, filter: false, style: 'min-width: 200px' },
-    { field: 'run_path', header: 'Run Path', sortable: false, filter: false, style: 'min-width: 200px' }
-  ]
-  
-  // Add other columns from the data (excluding already defined ones)
-  const existingFields = new Set([
-    'design_id', 'project_id', 'run_name', 'protocol', 'pae_interaction', 'Average_i_pTM', 
-    'pdb_file', 'run_path', 'run_id'
-  ])
-  
-  const otherColumns: ColumnConfig[] = []
-  designs.forEach(design => {
-    Object.keys(design).forEach(key => {
-      if (!existingFields.has(key) && !otherColumns.some(col => col.field === key)) {
-        // Determine column type and properties
-        const value = design[key]
-        const isNumeric = typeof value === 'number' && !isNaN(value)
-        const isDate = value instanceof Date || (typeof value === 'string' && !isNaN(Date.parse(value)))
-        
-        let filterType = 'text'
-        if (isNumeric) filterType = 'numeric'
-        else if (isDate) filterType = 'date'
-        
-        otherColumns.push({
-          field: key,
-          header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-          sortable: isNumeric || isDate,
-          filter: true,
-          filterType,
-          showFilterMenu: false,
-          style: 'min-width: 120px'
-        })
-      }
-    })
-  })
-  
-  return [...baseColumns, ...scoreColumns, ...metadataColumns, ...otherColumns]
-}
-
-// Default visible columns
-const defaultVisibleColumns = ref(['design_id', 'project_id', 'run_name', 'protocol', 'pae_interaction', 'Average_i_pTM'])
-
-// Computed
-const visibleColumns = computed(() => {
-  return allColumns.value.filter(col => isColumnVisible(col.field))
-})
-
+// Computed properties using store
 const isColumnVisible = (field: string): boolean => {
-  return defaultVisibleColumns.value.includes(field)
+  return designsStore.visibleColumns.includes(field)
 }
 
-const totalStructures = computed(() => {
-  return selectedDesigns.value.reduce((total, design) => {
-    return total + (design.pdb_file ? 1 : 0)
-  }, 0)
-})
-
-const currentStructure = computed(() => {
-  if (selectedDesigns.value.length === 0 || totalStructures.value === 0) {
-    return null
-  }
-
-  let structureIndex = 0
-  for (const design of selectedDesigns.value) {
-    if (design.pdb_file) {
-      if (structureIndex === currentStructureIndex.value) {
-        return {
-          design,
-          filename: design.pdb_file.split('/').pop(),
-          pdbPath: design.pdb_file
-        }
-      }
-      structureIndex++
-    }
-  }
-  return null
-})
-
-// Get filtered designs for navigation
-const filteredDesigns = computed(() => {
-  // This will be populated by the DataTable's filtering system
-  // We need to get the currently visible/filtered rows
-  return designs.value
-})
-
-// Navigation state
-const canNavigateToPrevious = computed(() => {
-  if (selectedDesigns.value.length === 0) return false
-  const currentDesign = selectedDesigns.value[currentStructureIndex.value]
-  const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
-  return currentIndex > 0
-})
-
-const canNavigateToNext = computed(() => {
-  if (selectedDesigns.value.length === 0) return false
-  const currentDesign = selectedDesigns.value[currentStructureIndex.value]
-  const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
-  return currentIndex < filteredDesigns.value.length - 1
-})
 
 // Methods
 const loadDesigns = async () => {
-  loading.value = true
   try {
-    const data = await designsApi.listDesigns()
-    designs.value = data.designs
-    
-    // Build columns dynamically from the loaded data
-    allColumns.value = buildColumnsFromData(data.designs)
-    
-    // Update default visible columns to include score columns if they exist
-    const newDefaultColumns = ['design_id', 'project_id', 'run_name', 'protocol']
-    if (data.designs.some(d => 'pae_interaction' in d)) {
-      newDefaultColumns.push('pae_interaction')
-    }
-    if (data.designs.some(d => 'Average_i_pTM' in d)) {
-      newDefaultColumns.push('Average_i_pTM')
-    }
-    defaultVisibleColumns.value = newDefaultColumns
+    await designsStore.fetchDesigns()
   } catch (error) {
     console.error('Error loading designs:', error)
     toast.add({
@@ -492,18 +328,12 @@ const loadDesigns = async () => {
       detail: 'Failed to load designs',
       life: 3000
     })
-  } finally {
-    loading.value = false
   }
 }
 
 const clearCache = async () => {
   try {
-    await designsApi.clearDesigns()
-    
-    designs.value = []
-    selectedDesigns.value = []
-    currentStructureIndex.value = 0
+    await designsStore.clearDesigns()
     
     toast.add({
       severity: 'success',
@@ -523,67 +353,19 @@ const clearCache = async () => {
 }
 
 const viewDesign = (design: any): void => {
-  // Select the design and show its structure
-  selectedDesigns.value = [design]
-  currentStructureIndex.value = 0
+  designsStore.viewDesign(design)
 }
 
-const previousStructure = () => {
-  if (currentStructureIndex.value > 0) {
-    currentStructureIndex.value--
-  }
-}
-
-const nextStructure = () => {
-  if (currentStructureIndex.value < totalStructures.value - 1) {
-    currentStructureIndex.value++
-  }
-}
-
-// Navigate to next/previous row in the filtered table
 const navigateToNextRow = () => {
-  if (selectedDesigns.value.length === 0) return
-  
-  const currentDesign = selectedDesigns.value[currentStructureIndex.value]
-  const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
-  
-  if (currentIndex < filteredDesigns.value.length - 1) {
-    const nextDesign = filteredDesigns.value[currentIndex + 1]
-    if (nextDesign.pdb_file) {
-      selectedDesigns.value = [nextDesign]
-      currentStructureIndex.value = 0
-    }
-  }
+  designsStore.navigateStructure('next')
 }
 
 const navigateToPreviousRow = () => {
-  if (selectedDesigns.value.length === 0) return
-  
-  const currentDesign = selectedDesigns.value[currentStructureIndex.value]
-  const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
-  
-  if (currentIndex > 0) {
-    const prevDesign = filteredDesigns.value[currentIndex - 1]
-    if (prevDesign.pdb_file) {
-      selectedDesigns.value = [prevDesign]
-      currentStructureIndex.value = 0
-    }
-  }
+  designsStore.navigateStructure('previous')
 }
 
 const getCurrentRowPosition = () => {
-  if (selectedDesigns.value.length === 0) return '0 / 0'
-  
-  const currentDesign = selectedDesigns.value[currentStructureIndex.value]
-  const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
-  
-  if (currentIndex === -1) return '0 / 0'
-  
-  // Find the position among designs with PDB files
-  const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
-  const pdbIndex = designsWithPdb.findIndex(d => d.design_id === currentDesign.design_id)
-  
-  return `${pdbIndex + 1} / ${designsWithPdb.length}`
+  return designsStore.getCurrentRowPosition()
 }
 
 const toggleColumnSelector = () => {
@@ -597,37 +379,46 @@ const toggleFilterPanel = () => {
 // Removed duplicate function - using the one defined above
 
 const toggleColumn = (field: string): void => {
-  const index = defaultVisibleColumns.value.indexOf(field)
-  if (index > -1) {
-    // Remove column from visible columns
-    defaultVisibleColumns.value.splice(index, 1)
-  } else {
-    // Add column to visible columns
-    defaultVisibleColumns.value.push(field)
-  }
+  designsStore.toggleColumn(field)
 }
 
 const clearFilters = () => {
-  filters.value = {
-    global: { value: null, matchMode: 'contains' },
-    design_id: { value: null, matchMode: 'contains' },
-    project_id: { value: null, matchMode: 'contains' },
-    run_name: { value: null, matchMode: 'contains' },
-    protocol: { value: null, matchMode: 'equals' },
-    score_min: { value: null, matchMode: 'gte' },
-    score_max: { value: null, matchMode: 'lte' }
-  }
+  designsStore.clearFilters()
 }
 
 const applyFilters = () => {
   // Filters are automatically applied through the DataTable's filter system
   // This method can be used for additional custom filtering logic if needed
-  console.log('Filters applied:', filters.value)
+  console.log('Filters applied:', designsStore.filters)
 }
 
 const getPdbUrl = () => {
-  if (!currentStructure.value) return ''
-  return runsApi.getPdbFileUrl(currentStructure.value.design.run_id, currentStructure.value.filename)
+  if (!designsStore.currentStructure) return ''
+  return runsApi.getPdbFileUrl(designsStore.currentStructure.design.run_id, designsStore.currentStructure.filename)
+}
+
+const getGlobalFilterFields = () => {
+  // Base fields that are always present
+  const baseFields = ['design_id', 'project_id', 'run_name', 'protocol']
+  
+  // Add score columns that are currently visible
+  const scoreFields = designsStore.visibleColumns.filter((col: string) => 
+    ['pae_interaction', 'Average_i_pTM', 'pLDDT', 'i_pTM', 'ipTM'].includes(col)
+  )
+  
+  return [...baseFields, ...scoreFields]
+}
+
+const getVisibleColumns = () => {
+  // If columns haven't been loaded yet, return empty array
+  if (designsStore.columns.length === 0) {
+    return []
+  }
+  
+  // Filter the full column configuration to only show visible columns
+  return designsStore.columns.filter((col: any) => 
+    designsStore.visibleColumns.includes(col.field)
+  )
 }
 
 

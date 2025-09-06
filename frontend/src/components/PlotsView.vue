@@ -7,13 +7,13 @@
           label="Refresh Data" 
           icon="pi pi-refresh" 
           @click="loadRunData"
-          :loading="loading"
+          :loading="runsStore.loading"
         />
       </div>
     </div>
 
     <div class="plots-content">
-      <div v-if="availableRuns.length === 0" class="no-data">
+      <div v-if="runsStore.availableRuns.length === 0" class="no-data">
         <div class="no-data-content">
           <i class="pi pi-chart-line" style="font-size: 3rem; color: #6c757d;"></i>
           <h3>No Data Available</h3>
@@ -55,7 +55,7 @@
             <div class="run-selector">
               <label>Select Runs:</label>
               <MultiSelect 
-                v-model="selectedRunIds" 
+                v-model="plotsStore.selectedRunIds" 
                 :options="filteredRuns" 
                 optionLabel="display_name" 
                 optionValue="run_id"
@@ -70,7 +70,7 @@
         </div>
 
         <!-- Plot Controls and Charts -->
-        <div v-if="selectedRunIds.length > 0 && combinedData.length > 0" class="charts-section">
+        <div v-if="plotsStore.selectedRunIds.length > 0 && plotsStore.combinedData.length > 0" class="charts-section">
           <div class="chart-controls">
             <div class="control-group">
               <h4>Scatter Plot</h4>
@@ -78,8 +78,8 @@
                 <div class="axis-control">
                   <label>X Axis:</label>
                   <Dropdown 
-                    v-model="scatterXCol" 
-                    :options="numericColumns" 
+                    v-model="plotsStore.scatterXCol" 
+                    :options="plotsStore.numericColumns" 
                     placeholder="Select X column..."
                     class="axis-dropdown"
                     @change="updateAllPlots"
@@ -88,8 +88,8 @@
                 <div class="axis-control">
                   <label>Y Axis:</label>
                   <Dropdown 
-                    v-model="scatterYCol" 
-                    :options="numericColumns" 
+                    v-model="plotsStore.scatterYCol" 
+                    :options="plotsStore.numericColumns" 
                     placeholder="Select Y column..."
                     class="axis-dropdown"
                     @change="updateAllPlots"
@@ -112,7 +112,7 @@
                 class="chart-plot"
                 :class="{ 'loading': scatterLoading }"
               >
-                <div v-if="!scatterXCol || !scatterYCol" class="chart-placeholder">
+                <div v-if="!plotsStore.scatterXCol || !plotsStore.scatterYCol" class="chart-placeholder">
                   <i class="pi pi-chart-scatter" style="font-size: 2rem; color: #6c757d;"></i>
                   <div>Select X and Y columns to view scatter plot</div>
                 </div>
@@ -121,7 +121,7 @@
 
             <div class="chart-container">
               <div class="chart-header">
-                <h4>Distribution of {{ scatterXCol || 'X Column' }}</h4>
+                <h4>Distribution of {{ plotsStore.scatterXCol || 'X Column' }}</h4>
                 <div v-if="xHistogramLoading" class="chart-loading">
                   <i class="pi pi-spin pi-spinner"></i>
                 </div>
@@ -131,7 +131,7 @@
                 class="chart-plot"
                 :class="{ 'loading': xHistogramLoading }"
               >
-                <div v-if="!scatterXCol" class="chart-placeholder">
+                <div v-if="!plotsStore.scatterXCol" class="chart-placeholder">
                   <i class="pi pi-chart-bar" style="font-size: 2rem; color: #6c757d;"></i>
                   <div>Select X column to view distribution</div>
                 </div>
@@ -140,7 +140,7 @@
 
             <div class="chart-container">
               <div class="chart-header">
-                <h4>Distribution of {{ scatterYCol || 'Y Column' }}</h4>
+                <h4>Distribution of {{ plotsStore.scatterYCol || 'Y Column' }}</h4>
                 <div v-if="yHistogramLoading" class="chart-loading">
                   <i class="pi pi-spin pi-spinner"></i>
                 </div>
@@ -150,7 +150,7 @@
                 class="chart-plot"
                 :class="{ 'loading': yHistogramLoading }"
               >
-                <div v-if="!scatterYCol" class="chart-placeholder">
+                <div v-if="!plotsStore.scatterYCol" class="chart-placeholder">
                   <i class="pi pi-chart-bar" style="font-size: 2rem; color: #6c757d;"></i>
                   <div>Select Y column to view distribution</div>
                 </div>
@@ -170,20 +170,18 @@ import Dropdown from 'primevue/dropdown'
 import MultiSelect from 'primevue/multiselect'
 import { useToast } from 'primevue/usetoast'
 import embed from 'vega-embed'
-import { runsApi, plotsApi } from '../webapi'
+import { usePlotsStore, useRunsStore, useAppStore } from '../stores'
 
 const toast = useToast()
 
-// State
-const availableRuns = ref<any[]>([])
-const selectedRunIds = ref<string[]>([])
+// Use Pinia stores
+const plotsStore = usePlotsStore()
+const runsStore = useRunsStore()
+const appStore = useAppStore()
+
+// Local UI state (not shared across components)
 const selectedProject = ref<string | null>(null)
 const selectedProtocol = ref<string | null>(null)
-const combinedData = ref<any[]>([])
-const numericColumns = ref<string[]>([])
-const scatterXCol = ref<string | null>(null)
-const scatterYCol = ref<string | null>(null)
-const loading = ref(false)
 const scatterLoading = ref(false)
 const xHistogramLoading = ref(false)
 const yHistogramLoading = ref(false)
@@ -195,27 +193,34 @@ const yHistogramPlotContainer = ref<HTMLElement | null>(null)
 
 // Computed
 const projectOptions = computed(() => {
-  const projects = [...new Set(availableRuns.value.map(run => run.project_id))]
+  const projects = [...new Set(runsStore.availableRuns.map((run: any) => run.project_id))]
   return projects.map(project => ({ label: project, value: project }))
 })
 
 const protocolOptions = computed(() => {
-  const protocols = [...new Set(availableRuns.value.map(run => run.protocol))]
+  const protocols = [...new Set(runsStore.availableRuns.map((run: any) => run.protocol))]
   return protocols.map(protocol => ({ label: protocol, value: protocol }))
 })
 
 const filteredRuns = computed(() => {
-  let filtered = availableRuns.value
+  let filtered = runsStore.availableRuns
   
   if (selectedProject.value) {
-    filtered = filtered.filter(run => run.project_id === selectedProject.value)
+    filtered = filtered.filter((run: any) => run.project_id === selectedProject.value)
   }
   
   if (selectedProtocol.value) {
-    filtered = filtered.filter(run => run.protocol === selectedProtocol.value)
+    filtered = filtered.filter((run: any) => run.protocol === selectedProtocol.value)
   }
   
-  return filtered
+  // Transform runs for dropdown display
+  return filtered.map((run: any) => ({
+    run_id: run.run_id,
+    display_name: `${run.project_id}/${run.metadata?.name || 'unknown'} (${run.protocol})`,
+    protocol: run.protocol,
+    project_id: run.project_id,
+    path: run.path
+  }))
 })
 
 // Vega-Lite specification creation functions
@@ -291,22 +296,12 @@ const createHistogramSpec = (data: any, col: any, title = 'Distribution'): any =
 
 // Methods
 const loadRunData = async () => {
-  loading.value = true
   try {
-    const data = await runsApi.listRuns()
-    
-    // Transform runs for dropdown display
-    availableRuns.value = data.runs.map(run => ({
-      run_id: run.run_id,
-      display_name: `${run.project_id}/${run.metadata?.name || 'unknown'} (${run.protocol})`,
-      protocol: run.protocol,
-      project_id: run.project_id,
-      path: run.path
-    }))
+    await runsStore.fetchRuns()
     
     // Auto-select first run if available and none selected
-    if (availableRuns.value.length > 0 && selectedRunIds.value.length === 0) {
-      selectedRunIds.value = [availableRuns.value[0].run_id]
+    if (runsStore.availableRuns.length > 0 && plotsStore.selectedRunIds.length === 0) {
+      plotsStore.setSelectedRuns([runsStore.availableRuns[0].run_id])
       await onRunsSelected()
     }
     
@@ -318,61 +313,31 @@ const loadRunData = async () => {
       detail: 'Failed to load run data',
       life: 3000
     })
-  } finally {
-    loading.value = false
   }
 }
 
 const onProjectFilterChange = () => {
   // Clear selected runs when project filter changes
-  selectedRunIds.value = []
-  combinedData.value = []
-  numericColumns.value = []
-  scatterXCol.value = null
-  scatterYCol.value = null
+  plotsStore.clearData()
 }
 
 const onProtocolFilterChange = () => {
   // Clear selected runs when protocol filter changes
-  selectedRunIds.value = []
-  combinedData.value = []
-  numericColumns.value = []
-  scatterXCol.value = null
-  scatterYCol.value = null
+  plotsStore.clearData()
 }
 
 const onRunsSelected = async () => {
-  if (selectedRunIds.value.length === 0) {
-    combinedData.value = []
-    numericColumns.value = []
-    scatterXCol.value = null
-    scatterYCol.value = null
+  if (plotsStore.selectedRunIds.length === 0) {
+    plotsStore.clearData()
     return
   }
   
   try {
     // Get combined data from all selected runs
-    const result = await plotsApi.getCombinedData(selectedRunIds.value)
-    combinedData.value = result.data
-    numericColumns.value = result.numericColumns
-    
-    // Set default columns based on available numeric columns
-    if (numericColumns.value.length > 0) {
-      // Look for common score columns first
-      const xCol = numericColumns.value.find(col => 
-        col.includes('plddt') || col.includes('pLDDT')
-      ) || numericColumns.value[0]
-      
-      const yCol = numericColumns.value.find(col => 
-        col.includes('pae') || col.includes('i_pTM') || col.includes('ipTM')
-      ) || (numericColumns.value.length > 1 ? numericColumns.value[1] : numericColumns.value[0])
-      
-      scatterXCol.value = xCol
-      scatterYCol.value = yCol
-    }
+    await plotsStore.fetchCombinedData(plotsStore.selectedRunIds)
     
     // Load initial plots if we have valid columns
-    if (scatterXCol.value && scatterYCol.value) {
+    if (plotsStore.scatterXCol && plotsStore.scatterYCol) {
       // Use nextTick to ensure DOM is updated before rendering plots
       await nextTick()
       // Add a small delay to ensure DOM elements are fully rendered
@@ -393,55 +358,55 @@ const onRunsSelected = async () => {
 }
 
 const updateAllPlots = async () => {
-  if (selectedRunIds.value.length === 0) return
+  if (plotsStore.selectedRunIds.length === 0) return
   
   console.log('Updating all plots:', {
-    selectedRunIds: selectedRunIds.value.length,
-    scatterXCol: scatterXCol.value,
-    scatterYCol: scatterYCol.value,
-    combinedDataLength: combinedData.value.length
+    selectedRunIds: plotsStore.selectedRunIds.length,
+    scatterXCol: plotsStore.scatterXCol,
+    scatterYCol: plotsStore.scatterYCol,
+    combinedDataLength: plotsStore.combinedData.length
   })
   
   // Update scatter plot
-  if (scatterXCol.value && scatterYCol.value) {
+  if (plotsStore.scatterXCol && plotsStore.scatterYCol) {
     await updateScatterPlot()
   }
   
   // Update X histogram
-  if (scatterXCol.value) {
+  if (plotsStore.scatterXCol) {
     await updateXHistogramPlot()
   }
   
   // Update Y histogram
-  if (scatterYCol.value) {
+  if (plotsStore.scatterYCol) {
     await updateYHistogramPlot()
   }
 }
 
 const updateScatterPlot = async () => {
-  if (!scatterXCol.value || !scatterYCol.value || combinedData.value.length === 0) {
+  if (!plotsStore.scatterXCol || !plotsStore.scatterYCol || plotsStore.combinedData.length === 0) {
     console.log('Skipping scatter plot update:', {
-      scatterXCol: scatterXCol.value,
-      scatterYCol: scatterYCol.value,
-      combinedDataLength: combinedData.value.length
+      scatterXCol: plotsStore.scatterXCol,
+      scatterYCol: plotsStore.scatterYCol,
+      combinedDataLength: plotsStore.combinedData.length
     })
     return
   }
   
   console.log('Updating scatter plot with:', {
-    xCol: scatterXCol.value,
-    yCol: scatterYCol.value,
-    totalDataPoints: combinedData.value.length
+    xCol: plotsStore.scatterXCol,
+    yCol: plotsStore.scatterYCol,
+    totalDataPoints: plotsStore.combinedData.length
   })
   
   scatterLoading.value = true
   try {
     // Filter data to only include rows with valid values for both columns
-    const filteredData = combinedData.value.filter(row => 
-      row[scatterXCol.value!] != null && 
-      row[scatterYCol.value!] != null &&
-      !isNaN(row[scatterXCol.value!]) && 
-      !isNaN(row[scatterYCol.value!])
+    const filteredData = plotsStore.combinedData.filter((row: any) => 
+      row[plotsStore.scatterXCol!] != null && 
+      row[plotsStore.scatterYCol!] != null &&
+      !isNaN(row[plotsStore.scatterXCol!]) && 
+      !isNaN(row[plotsStore.scatterYCol!])
     )
     
     console.log('Filtered data points:', filteredData.length)
@@ -457,8 +422,8 @@ const updateScatterPlot = async () => {
     }
     
     // Create Vega-Lite spec in frontend
-    const title = `${scatterYCol.value} vs ${scatterXCol.value}${selectedRunIds.value.length > 1 ? ` (${selectedRunIds.value.length} runs)` : ''}`
-    const spec = createScatterPlotSpec(filteredData, scatterXCol.value, scatterYCol.value, title)
+    const title = `${plotsStore.scatterYCol} vs ${plotsStore.scatterXCol}${plotsStore.selectedRunIds.length > 1 ? ` (${plotsStore.selectedRunIds.length} runs)` : ''}`
+    const spec = createScatterPlotSpec(filteredData, plotsStore.scatterXCol, plotsStore.scatterYCol, title)
     
     // Render new chart
     if (scatterPlotContainer.value) {
@@ -501,14 +466,14 @@ const updateScatterPlot = async () => {
 }
 
 const updateXHistogramPlot = async () => {
-  if (!scatterXCol.value || combinedData.value.length === 0) return
+  if (!plotsStore.scatterXCol || plotsStore.combinedData.length === 0) return
   
   xHistogramLoading.value = true
   try {
     // Filter data to only include rows with valid values for the column
-    const filteredData = combinedData.value.filter(row => 
-      row[scatterXCol.value!] != null && 
-      !isNaN(row[scatterXCol.value!])
+    const filteredData = plotsStore.combinedData.filter((row: any) => 
+      row[plotsStore.scatterXCol!] != null && 
+      !isNaN(row[plotsStore.scatterXCol!])
     )
     
     if (filteredData.length === 0) {
@@ -522,8 +487,8 @@ const updateXHistogramPlot = async () => {
     }
     
     // Create Vega-Lite spec in frontend
-    const title = `Distribution of ${scatterXCol.value}${selectedRunIds.value.length > 1 ? ` (${selectedRunIds.value.length} runs)` : ''}`
-    const spec = createHistogramSpec(filteredData, scatterXCol.value, title)
+    const title = `Distribution of ${plotsStore.scatterXCol}${plotsStore.selectedRunIds.length > 1 ? ` (${plotsStore.selectedRunIds.length} runs)` : ''}`
+    const spec = createHistogramSpec(filteredData, plotsStore.scatterXCol, title)
     
     // Render new chart
     if (xHistogramPlotContainer.value) {
@@ -547,14 +512,14 @@ const updateXHistogramPlot = async () => {
 }
 
 const updateYHistogramPlot = async () => {
-  if (!scatterYCol.value || combinedData.value.length === 0) return
+  if (!plotsStore.scatterYCol || plotsStore.combinedData.length === 0) return
   
   yHistogramLoading.value = true
   try {
     // Filter data to only include rows with valid values for the column
-    const filteredData = combinedData.value.filter(row => 
-      row[scatterYCol.value!] != null && 
-      !isNaN(row[scatterYCol.value!])
+    const filteredData = plotsStore.combinedData.filter((row: any) => 
+      row[plotsStore.scatterYCol!] != null && 
+      !isNaN(row[plotsStore.scatterYCol!])
     )
     
     if (filteredData.length === 0) {
@@ -568,8 +533,8 @@ const updateYHistogramPlot = async () => {
     }
     
     // Create Vega-Lite spec in frontend
-    const title = `Distribution of ${scatterYCol.value}${selectedRunIds.value.length > 1 ? ` (${selectedRunIds.value.length} runs)` : ''}`
-    const spec = createHistogramSpec(filteredData, scatterYCol.value, title)
+    const title = `Distribution of ${plotsStore.scatterYCol}${plotsStore.selectedRunIds.length > 1 ? ` (${plotsStore.selectedRunIds.length} runs)` : ''}`
+    const spec = createHistogramSpec(filteredData, plotsStore.scatterYCol, title)
     
     // Render new chart
     if (yHistogramPlotContainer.value) {

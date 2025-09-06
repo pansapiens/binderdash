@@ -20,6 +20,10 @@ test-results/
 /frontend/coverage
 /frontend/public
 
+/backend/static/assets/
+
+/example_runs
+
 # IDE
 .vscode/
 .idea/

@@ -1,6 +1,7 @@
 import './assets/main.css'
 
 import { createApp } from 'vue'
+import { createPinia } from 'pinia'
 import App from './App.vue'
 
 // PrimeVue imports
@@ -11,6 +12,10 @@ import Toast from 'primevue/toast'
 import 'primeicons/primeicons.css'
 
 const app = createApp(App)
+
+// Use Pinia
+const pinia = createPinia()
+app.use(pinia)
 
 // Use PrimeVue
 app.use(PrimeVue, {

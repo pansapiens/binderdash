@@ -6,6 +6,12 @@ import Toast from 'primevue/toast'
 import RunsView from './components/DesignsView.vue'
 import PlotsView from './components/PlotsView.vue'
 import FolderBrowser from './components/FolderBrowser.vue'
+import { useDesignsStore, usePlotsStore, useRunsStore } from './stores'
+
+// Use Pinia stores
+const designsStore = useDesignsStore()
+const plotsStore = usePlotsStore()
+const runsStore = useRunsStore()
 
 // Create refs to components so we can call their methods
 const runsViewRef = ref<any>(null)
@@ -13,17 +19,16 @@ const plotsViewRef = ref<any>(null)
 
 // Handle runs scanned event from FolderBrowser
 const handleRunsScanned = (): void => {
-  // Call the loadDesigns method on the RunsView component
-  if (runsViewRef.value && runsViewRef.value.loadDesigns) {
-    runsViewRef.value.loadDesigns()
-  }
+  // Refresh designs data when new runs are scanned
+  designsStore.fetchDesigns()
 }
 
 // Handle tab change to refresh data when switching to Plots tab
 const handleTabChange = (event: any): void => {
   // Check if the Plots tab is being activated (index 1)
-  if (event.index === 1 && plotsViewRef.value && plotsViewRef.value.loadRunData) {
-    plotsViewRef.value.loadRunData()
+  if (event.index === 1) {
+    // Refresh runs data for plots
+    runsStore.fetchRuns()
   }
 }
 </script>
