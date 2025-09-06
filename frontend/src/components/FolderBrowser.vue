@@ -187,6 +187,7 @@ import Tag from 'primevue/tag'
 import Badge from 'primevue/badge'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
+import { treeApi, runsApi } from '../webapi.js'
 
 // Define emits
 const emit = defineEmits(['runs-scanned'])
@@ -235,11 +236,7 @@ const selectedFolders = computed(() => {
 const loadFolders = async (path = '') => {
   loading.value = true
   try {
-    const response = await fetch(`/api/tree${path ? `?path=${encodeURIComponent(path)}` : ''}`)
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    const data = await response.json()
+    const data = await treeApi.getTree(path)
     folders.value = data.folders.map(folder => ({
       key: folder.path,
       name: folder.name,
@@ -266,13 +263,8 @@ const loadFolders = async (path = '') => {
 const loadChildren = async (node) => {
   console.log('loadChildren called for node:', node.path)
   try {
-    const url = `/api/tree?path=${encodeURIComponent(node.path)}`
-    console.log('Fetching from URL:', url)
-    const response = await fetch(url)
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    const data = await response.json()
+    console.log('Fetching children for path:', node.path)
+    const data = await treeApi.getTree(node.path)
     console.log('Received data:', data)
     node.children = data.folders.map(folder => ({
       key: folder.path,
@@ -329,21 +321,7 @@ const scanSelectedFolders = async () => {
 
   scanning.value = true
   try {
-    const response = await fetch('/api/runs/scan', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        folders: selectedFolders.value.map(folder => folder.path)
-      })
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const data = await response.json()
+    const data = await runsApi.scanRuns(selectedFolders.value.map(folder => folder.path))
     scanResults.value = data.runs
     
     // Select all runs by default

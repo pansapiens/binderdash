@@ -18,6 +18,7 @@
     "aura": "link:@primeuix/themes/aura",
     "primeicons": "^7.0.0",
     "primevue": "^4.3.7",
+    "vega-embed": "^7.0.2",
     "vue": "^3.5.18"
   },
   "devDependencies": {

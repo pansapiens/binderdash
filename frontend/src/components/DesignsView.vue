@@ -294,6 +294,7 @@ import Dropdown from 'primevue/dropdown'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import MolstarViewer from './MolstarViewer.vue'
+import { designsApi, runsApi } from '../webapi.js'
 
 const toast = useToast()
 
@@ -456,11 +457,7 @@ const canNavigateToNext = computed(() => {
 const loadDesigns = async () => {
   loading.value = true
   try {
-    const response = await fetch('/api/designs')
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    const data = await response.json()
+    const data = await designsApi.listDesigns()
     designs.value = data.designs
     
     // Build columns dynamically from the loaded data
@@ -490,12 +487,7 @@ const loadDesigns = async () => {
 
 const clearCache = async () => {
   try {
-    const response = await fetch('/api/designs', {
-      method: 'DELETE'
-    })
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
+    await designsApi.clearDesigns()
     
     designs.value = []
     selectedDesigns.value = []
@@ -623,7 +615,7 @@ const applyFilters = () => {
 
 const getPdbUrl = () => {
   if (!currentStructure.value) return ''
-  return `/api/runs/${currentStructure.value.design.run_id}/files/pdb/${currentStructure.value.filename}`
+  return runsApi.getPdbFileUrl(currentStructure.value.design.run_id, currentStructure.value.filename)
 }
 
 

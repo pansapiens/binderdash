@@ -7,14 +7,23 @@ import RunsView from './components/DesignsView.vue'
 import PlotsView from './components/PlotsView.vue'
 import FolderBrowser from './components/FolderBrowser.vue'
 
-// Create a ref to the RunsView component so we can call its methods
+// Create refs to components so we can call their methods
 const runsViewRef = ref(null)
+const plotsViewRef = ref(null)
 
 // Handle runs scanned event from FolderBrowser
 const handleRunsScanned = () => {
   // Call the loadDesigns method on the RunsView component
   if (runsViewRef.value && runsViewRef.value.loadDesigns) {
     runsViewRef.value.loadDesigns()
+  }
+}
+
+// Handle tab change to refresh data when switching to Plots tab
+const handleTabChange = (event) => {
+  // Check if the Plots tab is being activated (index 1)
+  if (event.index === 1 && plotsViewRef.value && plotsViewRef.value.loadRunData) {
+    plotsViewRef.value.loadRunData()
   }
 }
 </script>
@@ -27,12 +36,12 @@ const handleRunsScanned = () => {
     </header>
 
     <main class="app-main">
-      <TabView>
+      <TabView @tab-change="handleTabChange">
         <TabPanel header="Designs">
           <RunsView ref="runsViewRef" />
         </TabPanel>
         <TabPanel header="Plots">
-          <PlotsView />
+          <PlotsView ref="plotsViewRef" />
         </TabPanel>
         <TabPanel header="Configure Source Folders">
           <FolderBrowser @runs-scanned="handleRunsScanned" />

@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, Any
 from fastapi import HTTPException
 from pathlib import Path
 import pandas as pd
+import numpy as np
 import uuid
 import io
 import re
@@ -286,30 +287,58 @@ def get_run_metadata(run_id: str) -> Optional[Dict[str, Any]]:
 
 
 def load_run_table(run_metadata: Dict[str, Any]) -> Optional[pd.DataFrame]:
-    """Load and parse the results table for a run."""
+    """Load and parse the results table for a run, handling merged runs."""
     try:
-        run_path = Path(run_metadata["path"])
+        # Check if this is a merged run
+        merged_paths = run_metadata.get("merged_paths", [run_metadata["path"]])
         results_table = run_metadata.get("results_table")
 
         if not results_table:
             return None
 
-        table_path = run_path / results_table
+        all_dfs = []
 
-        if not table_path.exists():
-            logger.warning(f"Results table not found: {table_path}")
+        for run_path in merged_paths:
+            path = Path(run_path)
+            table_path = path / results_table
+
+            if not table_path.exists():
+                logger.warning(f"Results table not found: {table_path}")
+                continue
+
+            try:
+                # Load based on file extension
+                if table_path.suffix.lower() == ".csv":
+                    df = pd.read_csv(table_path)
+                elif table_path.suffix.lower() == ".tsv":
+                    df = pd.read_csv(table_path, sep="\t")
+                else:
+                    logger.warning(f"Unsupported table format: {table_path}")
+                    continue
+
+                # Add a column to identify which path this data came from
+                df["source_path"] = str(path)
+                all_dfs.append(df)
+
+            except Exception as e:
+                logger.error(f"Error loading table from {table_path}: {str(e)}")
+                continue
+
+        if not all_dfs:
+            logger.warning(
+                f"No valid tables found for run: {run_metadata.get('path', 'unknown')}"
+            )
             return None
 
-        # Load based on file extension
-        if table_path.suffix.lower() == ".csv":
-            df = pd.read_csv(table_path)
-        elif table_path.suffix.lower() == ".tsv":
-            df = pd.read_csv(table_path, sep="\t")
+        # Combine all dataframes
+        if len(all_dfs) == 1:
+            return all_dfs[0]
         else:
-            logger.warning(f"Unsupported table format: {table_path}")
-            return None
-
-        return df
+            combined_df = pd.concat(all_dfs, ignore_index=True)
+            logger.info(
+                f"Combined {len(all_dfs)} tables for merged run, total rows: {len(combined_df)}"
+            )
+            return combined_df
 
     except Exception as e:
         logger.error(f"Error loading run table: {str(e)}")
@@ -743,15 +772,56 @@ async def get_pdb_file(run_id: str, filename: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def merge_runs(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Merge runs with the same project_id and run name into single logical runs."""
+    merged_runs = {}
+
+    for run in runs:
+        # Create a key for grouping runs
+        project_id = run.get("project_id", "unknown")
+        run_name = run.get("metadata", {}).get("name", "unknown")
+        group_key = f"{project_id}/{run_name}"
+
+        if group_key not in merged_runs:
+            # First run with this key - use it as the base
+            merged_runs[group_key] = run.copy()
+            merged_runs[group_key]["merged_paths"] = [run["path"]]
+            merged_runs[group_key]["merged_pdb_files"] = run.get("pdb_files", []).copy()
+        else:
+            # Merge with existing run
+            existing = merged_runs[group_key]
+            existing["merged_paths"].append(run["path"])
+            existing["merged_pdb_files"].extend(run.get("pdb_files", []))
+
+            # Update metadata to reflect merged state
+            existing["metadata"]["merged_count"] = len(existing["merged_paths"])
+            existing["metadata"]["total_pdb_count"] = len(existing["merged_pdb_files"])
+
+    # Convert back to list and clean up the merged data
+    result = []
+    for run in merged_runs.values():
+        # Keep merged_paths for data loading, but clean up temporary fields
+        run.pop("merged_pdb_files", None)
+        result.append(run)
+
+    return result
+
+
 @app.get("/api/runs")
 async def list_runs():
     """
-    List all cached runs.
+    List all cached runs, merging runs with the same project_id and run name.
 
     Returns:
-        List of run metadata objects
+        List of merged run metadata objects
     """
-    return {"runs": list(run_cache.values())}
+    try:
+        all_runs = list(run_cache.values())
+        merged_runs = merge_runs(all_runs)
+        return {"runs": merged_runs}
+    except Exception as e:
+        logger.error(f"Error in list_runs: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/api/runs/{run_id}")
@@ -818,4 +888,355 @@ async def clear_designs():
 
     except Exception as e:
         logger.error(f"Error in clear_designs: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def get_default_plot_columns(df: pd.DataFrame, run_type: str) -> Dict[str, str]:
+    """Get default column selections for plots based on run type and available columns."""
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+
+    defaults = {"x": None, "y": None}
+
+    if run_type == "bindcraft":
+        # BindCraft defaults
+        if "Average_pLDDT" in numeric_cols:
+            defaults["x"] = "Average_pLDDT"
+        elif "mean_plddt" in numeric_cols:
+            defaults["x"] = "mean_plddt"
+        elif "plddt" in numeric_cols:
+            defaults["x"] = "plddt"
+
+        if "Average_i_pTM" in numeric_cols:
+            defaults["y"] = "Average_i_pTM"
+        elif "ipTM" in numeric_cols:
+            defaults["y"] = "ipTM"
+    elif run_type == "rfd":
+        # RFD defaults
+        if "plddt_binder" in numeric_cols:
+            defaults["x"] = "plddt_binder"
+        elif "plddt" in numeric_cols:
+            defaults["x"] = "plddt"
+
+        if "pae_interaction" in numeric_cols:
+            defaults["y"] = "pae_interaction"
+        elif "pae_binder" in numeric_cols:
+            defaults["y"] = "pae_binder"
+
+    # Fallback to first available numeric columns
+    if not defaults["x"] and numeric_cols:
+        defaults["x"] = numeric_cols[0]
+    if not defaults["y"] and len(numeric_cols) > 1:
+        defaults["y"] = numeric_cols[1]
+    elif not defaults["y"] and numeric_cols:
+        defaults["y"] = numeric_cols[0]
+
+    return defaults
+
+
+def create_scatter_plot_spec(
+    df: pd.DataFrame, x_col: str, y_col: str, title: str = "Scatter Plot"
+) -> Dict:
+    """Create a Vega-Lite specification for a scatter plot."""
+    # Convert DataFrame to the format Vega-Lite expects
+    data_values = df[[x_col, y_col]].to_dict(orient="records")
+
+    spec = {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "title": title,
+        "data": {"values": data_values},
+        "mark": {"type": "circle", "size": 60, "opacity": 0.7},
+        "encoding": {
+            "x": {
+                "field": x_col,
+                "type": "quantitative",
+                "scale": {"zero": False},
+                "title": x_col,
+            },
+            "y": {
+                "field": y_col,
+                "type": "quantitative",
+                "scale": {"zero": False},
+                "title": y_col,
+            },
+            "tooltip": [
+                {"field": x_col, "type": "quantitative", "format": ".3f"},
+                {"field": y_col, "type": "quantitative", "format": ".3f"},
+            ],
+        },
+        "width": 400,
+        "height": 300,
+    }
+
+    return spec
+
+
+def create_histogram_spec(
+    df: pd.DataFrame, col: str, title: str = "Distribution"
+) -> Dict:
+    """Create a Vega-Lite specification for a histogram/density plot."""
+    data_values = df[[col]].to_dict(orient="records")
+
+    spec = {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "title": title,
+        "data": {"values": data_values},
+        "layer": [
+            {
+                "mark": {"type": "bar", "opacity": 0.7, "color": "#667eea"},
+                "encoding": {
+                    "x": {
+                        "field": col,
+                        "type": "quantitative",
+                        "bin": {"maxbins": 30},
+                        "title": col,
+                    },
+                    "y": {
+                        "aggregate": "count",
+                        "type": "quantitative",
+                        "title": "Count",
+                    },
+                    "tooltip": [
+                        {
+                            "field": col,
+                            "type": "quantitative",
+                            "bin": True,
+                            "title": f"{col} (binned)",
+                        },
+                        {
+                            "aggregate": "count",
+                            "type": "quantitative",
+                            "title": "Count",
+                        },
+                    ],
+                },
+            }
+        ],
+        "width": 400,
+        "height": 300,
+    }
+
+    return spec
+
+
+@app.post("/api/runs/plots/columns")
+async def get_plot_columns_multiple(request: Dict[str, Any]):
+    """
+    Get available columns for plotting from multiple runs.
+
+    Args:
+        request: Dict containing "run_ids" list
+
+    Returns:
+        Available numeric columns and suggested defaults from combined data
+    """
+    try:
+        run_ids = request.get("run_ids", [])
+        if not run_ids:
+            raise HTTPException(status_code=400, detail="No run IDs provided")
+
+        all_dfs = []
+        run_types = set()
+
+        for run_id in run_ids:
+            run_metadata = get_run_metadata(run_id)
+            if not run_metadata:
+                logger.warning(f"Run not found: {run_id}")
+                continue
+
+            df = load_run_table(run_metadata)
+            if df is None:
+                logger.warning(f"Results table not found for run: {run_id}")
+                continue
+
+            all_dfs.append(df)
+            run_types.add(run_metadata.get("run_type", ""))
+
+        if not all_dfs:
+            raise HTTPException(
+                status_code=404,
+                detail="No valid data found for any of the specified runs",
+            )
+
+        # Combine all dataframes
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+
+        # Get numeric columns
+        numeric_cols = combined_df.select_dtypes(include=[np.number]).columns.tolist()
+
+        # Get default columns based on the most common run type
+        most_common_type = (
+            max(run_types, key=list(run_types).count) if run_types else ""
+        )
+        defaults = get_default_plot_columns(combined_df, most_common_type)
+
+        return {
+            "numeric_columns": numeric_cols,
+            "defaults": defaults,
+            "total_rows": len(combined_df),
+            "run_count": len(run_ids),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_plot_columns_multiple: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/runs/plots/scatter")
+async def get_scatter_plot_multiple(request: Dict[str, Any]):
+    """
+    Get raw data for a scatter plot from multiple runs.
+
+    Args:
+        request: Dict containing "run_ids", "x_col", and "y_col"
+
+    Returns:
+        Raw data for scatter plot with combined data from multiple runs
+    """
+    try:
+        run_ids = request.get("run_ids", [])
+        x_col = request.get("x_col")
+        y_col = request.get("y_col")
+
+        if not run_ids:
+            raise HTTPException(status_code=400, detail="No run IDs provided")
+        if not x_col or not y_col:
+            raise HTTPException(status_code=400, detail="x_col and y_col are required")
+
+        all_dfs = []
+
+        for run_id in run_ids:
+            run_metadata = get_run_metadata(run_id)
+            if not run_metadata:
+                logger.warning(f"Run not found: {run_id}")
+                continue
+
+            df = load_run_table(run_metadata)
+            if df is None:
+                logger.warning(f"Results table not found for run: {run_id}")
+                continue
+
+            all_dfs.append(df)
+
+        if not all_dfs:
+            raise HTTPException(
+                status_code=404,
+                detail="No valid data found for any of the specified runs",
+            )
+
+        # Combine all dataframes
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+
+        # Validate columns exist and are numeric
+        numeric_cols = combined_df.select_dtypes(include=[np.number]).columns.tolist()
+        if x_col not in numeric_cols:
+            raise HTTPException(
+                status_code=400, detail=f"Column '{x_col}' not found or not numeric"
+            )
+        if y_col not in numeric_cols:
+            raise HTTPException(
+                status_code=400, detail=f"Column '{y_col}' not found or not numeric"
+            )
+
+        # Remove any infinite or null values
+        clean_df = (
+            combined_df[[x_col, y_col]].replace([np.inf, -np.inf], np.nan).dropna()
+        )
+
+        if len(clean_df) == 0:
+            raise HTTPException(
+                status_code=400, detail="No valid data points for selected columns"
+            )
+
+        # Convert to the format expected by Vega-Lite
+        data_values = clean_df.to_dict(orient="records")
+
+        return {
+            "data": data_values,
+            "data_points": len(clean_df),
+            "total_rows": len(combined_df),
+            "run_count": len(run_ids),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_scatter_plot_multiple: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/runs/plots/histogram")
+async def get_histogram_plot_multiple(request: Dict[str, Any]):
+    """
+    Get raw data for a histogram/distribution plot from multiple runs.
+
+    Args:
+        request: Dict containing "run_ids" and "col"
+
+    Returns:
+        Raw data for histogram with combined data from multiple runs
+    """
+    try:
+        run_ids = request.get("run_ids", [])
+        col = request.get("col")
+
+        if not run_ids:
+            raise HTTPException(status_code=400, detail="No run IDs provided")
+        if not col:
+            raise HTTPException(status_code=400, detail="col is required")
+
+        all_dfs = []
+
+        for run_id in run_ids:
+            run_metadata = get_run_metadata(run_id)
+            if not run_metadata:
+                logger.warning(f"Run not found: {run_id}")
+                continue
+
+            df = load_run_table(run_metadata)
+            if df is None:
+                logger.warning(f"Results table not found for run: {run_id}")
+                continue
+
+            all_dfs.append(df)
+
+        if not all_dfs:
+            raise HTTPException(
+                status_code=404,
+                detail="No valid data found for any of the specified runs",
+            )
+
+        # Combine all dataframes
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+
+        # Validate column exists and is numeric
+        numeric_cols = combined_df.select_dtypes(include=[np.number]).columns.tolist()
+        if col not in numeric_cols:
+            raise HTTPException(
+                status_code=400, detail=f"Column '{col}' not found or not numeric"
+            )
+
+        # Remove any infinite or null values
+        clean_df = combined_df[[col]].replace([np.inf, -np.inf], np.nan).dropna()
+
+        if len(clean_df) == 0:
+            raise HTTPException(
+                status_code=400, detail="No valid data points for selected column"
+            )
+
+        # Convert to the format expected by Vega-Lite
+        data_values = clean_df.to_dict(orient="records")
+
+        return {
+            "data": data_values,
+            "data_points": len(clean_df),
+            "total_rows": len(combined_df),
+            "run_count": len(run_ids),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_histogram_plot_multiple: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

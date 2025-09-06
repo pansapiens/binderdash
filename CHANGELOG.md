@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Backend API endpoints**:
+  - `GET /api/tree` - Return folder structure for the file browser
   - `POST /api/runs/scan` - Scan selected folders for valid run directories
   - `GET /api/runs/{run_id}/table` - Get results table data for specific runs
   - `GET /api/runs/{run_id}/files/pdb/{filename}` - Stream PDB files for structure viewing
@@ -17,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `DELETE /api/runs` - Clear all runs from cache
   - `GET /api/designs` - List all designs from all cached runs
   - `DELETE /api/designs` - Clear all designs from cache
+  - `POST /api/runs/plots/columns` - Get combined columns from multiple runs
+  - `POST /api/runs/plots/scatter` - Get raw data for scatter plots from multiple runs
+  - `POST /api/runs/plots/histogram` - Get raw data for histograms from multiple runs
 - **Run metadata enhancements**:
   - Added `project_id` field to RunMetadata with intelligent detection
   - Implemented `guess_project_id()` function for project ID detection from directory structure
@@ -40,9 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Main app layout with TabView (Designs, Plots, Folder Browser)
   - FolderBrowser component with TreeTable for folder navigation and DataTable for scan results
   - RunsView component renamed to Designs view with comprehensive DataTable
-  - PlotsView component with analytics dashboard
+  - PlotsView component with Vega-Lite based plotting system (scatter plots and histograms)
+  - Automatic data refresh when switching to Plots tab
+  - Multi-run data merging for combined plots
+  - Frontend-based Vega-Lite specification generation
   - Structure viewer integrated below designs table
   - Added Project ID column to both Designs and Folder Browser tables
+  - Centralized API client (`webapi.js`) for all frontend API calls with proper error handling
 - **UI/UX improvements**:
   - Modern responsive design with PrimeVue components
   - Toast notifications for user feedback
@@ -74,6 +82,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backend now focuses on data parsing and metadata assignment
   - Frontend dynamically generates columns based on available data
   - Score columns (`pae_interaction`, `Average_i_pTM`) are now treated as regular data columns
+- **Plots system refactoring**:
+  - Moved Vega-Lite specification generation from backend to frontend for multiple-run endpoints
+  - Multiple-run backend APIs now return raw data rows instead of Vega-Lite specs
+  - Frontend creates Vega-Lite specifications locally for better customization
+  - Added support for multiple runs data merging in plots
+  - Implemented automatic data refresh when switching to Plots tab
+  - Removed unused single-run plot endpoints (`/api/runs/{run_id}/plots/*`) to simplify API surface
 
 ### Fixed
 - Static file serving configuration for frontend assets
