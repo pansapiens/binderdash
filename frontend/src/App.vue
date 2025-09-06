@@ -36,8 +36,10 @@ const handleTabChange = (event: any): void => {
 <template>
   <div id="app">
     <header class="app-header">
-      <h1>Binderdash</h1>
-      <p>De novo protein binder design results viewer</p>
+      <div class="banner-overlay">
+        <h1>Binderdash</h1>
+        <p>De novo protein binder design results viewer</p>
+      </div>
     </header>
 
     <main class="app-main">
@@ -77,25 +79,53 @@ body {
 }
 
 .app-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background-image: url('./assets/banner.webp');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  position: relative;
   padding: 1rem 2rem;
   text-align: center;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   width: 100%;
   box-sizing: border-box;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.app-header h1 {
+.app-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(102, 51, 153, 0.7); /* Purple filter at 70% opacity */
+  z-index: 1;
+}
+
+.banner-overlay {
+  position: relative;
+  z-index: 2;
+  color: white;
+}
+
+.banner-overlay h1 {
   margin: 0;
   font-size: 2rem;
   font-weight: 600;
+  color: white;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.3);
 }
 
-.app-header p {
+.banner-overlay p {
   margin: 0.5rem 0 0 0;
   opacity: 0.9;
   font-size: 1rem;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
 }
 
 .app-main {
@@ -121,7 +151,11 @@ p, span, div, label, input, textarea, select, button, a, h1, h2, h3, h4, h5, h6 
   color: white !important;
 }
 
-.app-header h1, .app-header p {
+.banner-overlay, .banner-overlay * {
+  color: white !important;
+}
+
+.banner-overlay h1, .banner-overlay p {
   color: white !important;
 }
 
