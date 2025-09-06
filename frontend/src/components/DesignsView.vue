@@ -282,7 +282,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
@@ -294,13 +294,13 @@ import Dropdown from 'primevue/dropdown'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import MolstarViewer from './MolstarViewer.vue'
-import { designsApi, runsApi } from '../webapi.js'
+import { designsApi, runsApi } from '../webapi'
 
 const toast = useToast()
 
 // State
-const designs = ref([])
-const selectedDesigns = ref([])
+const designs = ref<any[]>([])
+const selectedDesigns = ref<any[]>([])
 const loading = ref(false)
 const currentStructureIndex = ref(0)
 const showColumnSelector = ref(false)
@@ -321,7 +321,19 @@ const filters = ref({
 const runTypeOptions = ref(['bindcraft', 'rfd'])
 
 // Column configuration
-const allColumns = ref([
+interface ColumnConfig {
+  field: string
+  header: string
+  sortable: boolean
+  filter?: boolean
+  filterType?: string
+  showFilterMenu?: boolean
+  style: string
+  class?: string
+  template?: any
+}
+
+const allColumns = ref<ColumnConfig[]>([
   { field: 'design_id', header: 'Design ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 150px' },
   { field: 'project_id', header: 'Project ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
   { field: 'run_name', header: 'Run Name', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
@@ -333,10 +345,10 @@ const allColumns = ref([
 ])
 
 // Function to build columns dynamically from data
-const buildColumnsFromData = (designs) => {
+const buildColumnsFromData = (designs: any[]): ColumnConfig[] => {
   if (!designs || designs.length === 0) return allColumns.value
   
-  const baseColumns = [
+  const baseColumns: ColumnConfig[] = [
     { field: 'design_id', header: 'Design ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 150px' },
     { field: 'project_id', header: 'Project ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
     { field: 'run_name', header: 'Run Name', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
@@ -344,7 +356,7 @@ const buildColumnsFromData = (designs) => {
   ]
   
   // Add score columns if they exist in the data
-  const scoreColumns = []
+  const scoreColumns: ColumnConfig[] = []
   if (designs.some(d => 'pae_interaction' in d)) {
     scoreColumns.push({ field: 'pae_interaction', header: 'PAE Interaction', sortable: true, filter: true, filterType: 'numeric', showFilterMenu: false, style: 'min-width: 120px' })
   }
@@ -352,7 +364,7 @@ const buildColumnsFromData = (designs) => {
     scoreColumns.push({ field: 'Average_i_pTM', header: 'Average i_pTM', sortable: true, filter: true, filterType: 'numeric', showFilterMenu: false, style: 'min-width: 120px' })
   }
   
-  const metadataColumns = [
+  const metadataColumns: ColumnConfig[] = [
     { field: 'pdb_file', header: 'PDB File', sortable: false, filter: false, style: 'min-width: 200px' },
     { field: 'run_path', header: 'Run Path', sortable: false, filter: false, style: 'min-width: 200px' }
   ]
@@ -363,7 +375,7 @@ const buildColumnsFromData = (designs) => {
     'pdb_file', 'run_path', 'run_id'
   ])
   
-  const otherColumns = []
+  const otherColumns: ColumnConfig[] = []
   designs.forEach(design => {
     Object.keys(design).forEach(key => {
       if (!existingFields.has(key) && !otherColumns.some(col => col.field === key)) {
@@ -400,7 +412,7 @@ const visibleColumns = computed(() => {
   return allColumns.value.filter(col => isColumnVisible(col.field))
 })
 
-const isColumnVisible = (field) => {
+const isColumnVisible = (field: string): boolean => {
   return defaultVisibleColumns.value.includes(field)
 }
 
@@ -510,7 +522,7 @@ const clearCache = async () => {
   }
 }
 
-const viewDesign = (design) => {
+const viewDesign = (design: any): void => {
   // Select the design and show its structure
   selectedDesigns.value = [design]
   currentStructureIndex.value = 0
@@ -584,7 +596,7 @@ const toggleFilterPanel = () => {
 
 // Removed duplicate function - using the one defined above
 
-const toggleColumn = (field) => {
+const toggleColumn = (field: string): void => {
   const index = defaultVisibleColumns.value.indexOf(field)
   if (index > -1) {
     // Remove column from visible columns

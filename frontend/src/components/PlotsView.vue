@@ -150,33 +150,33 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import Button from 'primevue/button'
 import Dropdown from 'primevue/dropdown'
 import MultiSelect from 'primevue/multiselect'
 import { useToast } from 'primevue/usetoast'
 import embed from 'vega-embed'
-import { runsApi, plotsApi } from '../webapi.js'
+import { runsApi, plotsApi } from '../webapi'
 
 const toast = useToast()
 
 // State
-const availableRuns = ref([])
-const selectedRunIds = ref([])
-const selectedProject = ref(null)
-const columnsData = ref(null)
-const scatterXCol = ref(null)
-const scatterYCol = ref(null)
+const availableRuns = ref<any[]>([])
+const selectedRunIds = ref<string[]>([])
+const selectedProject = ref<string | null>(null)
+const columnsData = ref<any>(null)
+const scatterXCol = ref<string | null>(null)
+const scatterYCol = ref<string | null>(null)
 const loading = ref(false)
 const scatterLoading = ref(false)
 const xHistogramLoading = ref(false)
 const yHistogramLoading = ref(false)
 
 // Refs for chart containers
-const scatterPlotContainer = ref(null)
-const xHistogramPlotContainer = ref(null)
-const yHistogramPlotContainer = ref(null)
+const scatterPlotContainer = ref<HTMLElement | null>(null)
+const xHistogramPlotContainer = ref<HTMLElement | null>(null)
+const yHistogramPlotContainer = ref<HTMLElement | null>(null)
 
 // Computed
 const projectOptions = computed(() => {
@@ -192,7 +192,7 @@ const filteredRuns = computed(() => {
 })
 
 // Vega-Lite specification creation functions
-const createScatterPlotSpec = (data, xCol, yCol, title = 'Scatter Plot') => {
+const createScatterPlotSpec = (data: any, xCol: any, yCol: any, title = 'Scatter Plot'): any => {
   return {
     $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
     title: title,
@@ -221,7 +221,7 @@ const createScatterPlotSpec = (data, xCol, yCol, title = 'Scatter Plot') => {
   }
 }
 
-const createHistogramSpec = (data, col, title = 'Distribution') => {
+const createHistogramSpec = (data: any, col: any, title = 'Distribution'): any => {
   return {
     $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
     title: title,
@@ -377,14 +377,16 @@ const updateScatterPlot = async () => {
     }
     
     // Create Vega-Lite spec in frontend
-    const title = `${scatterYCol.value} vs ${scatterXCol.value}${data.run_count > 1 ? ` (${data.run_count} runs)` : ''}`
+    const title = `${scatterYCol.value} vs ${scatterXCol.value}${data.run_count && data.run_count > 1 ? ` (${data.run_count} runs)` : ''}`
     const spec = createScatterPlotSpec(data.data, scatterXCol.value, scatterYCol.value, title)
     
     // Render new chart
-    await embed(scatterPlotContainer.value, spec, {
-      actions: false,
-      renderer: 'svg'
-    })
+    if (scatterPlotContainer.value) {
+      await embed(scatterPlotContainer.value, spec, {
+        actions: false,
+        renderer: 'svg'
+      })
+    }
     
   } catch (error) {
     console.error('Error loading scatter plot:', error)
@@ -413,14 +415,16 @@ const updateXHistogramPlot = async () => {
     }
     
     // Create Vega-Lite spec in frontend
-    const title = `Distribution of ${scatterXCol.value}${data.run_count > 1 ? ` (${data.run_count} runs)` : ''}`
+    const title = `Distribution of ${scatterXCol.value}${data.run_count && data.run_count > 1 ? ` (${data.run_count} runs)` : ''}`
     const spec = createHistogramSpec(data.data, scatterXCol.value, title)
     
     // Render new chart
-    await embed(xHistogramPlotContainer.value, spec, {
-      actions: false,
-      renderer: 'svg'
-    })
+    if (xHistogramPlotContainer.value) {
+      await embed(xHistogramPlotContainer.value, spec, {
+        actions: false,
+        renderer: 'svg'
+      })
+    }
     
   } catch (error) {
     console.error('Error loading X histogram plot:', error)
@@ -449,14 +453,16 @@ const updateYHistogramPlot = async () => {
     }
     
     // Create Vega-Lite spec in frontend
-    const title = `Distribution of ${scatterYCol.value}${data.run_count > 1 ? ` (${data.run_count} runs)` : ''}`
+    const title = `Distribution of ${scatterYCol.value}${data.run_count && data.run_count > 1 ? ` (${data.run_count} runs)` : ''}`
     const spec = createHistogramSpec(data.data, scatterYCol.value, title)
     
     // Render new chart
-    await embed(yHistogramPlotContainer.value, spec, {
-      actions: false,
-      renderer: 'svg'
-    })
+    if (yHistogramPlotContainer.value) {
+      await embed(yHistogramPlotContainer.value, spec, {
+        actions: false,
+        renderer: 'svg'
+      })
+    }
     
   } catch (error) {
     console.error('Error loading Y histogram plot:', error)

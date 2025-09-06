@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
 import TabView from 'primevue/tabview'
 import TabPanel from 'primevue/tabpanel'
@@ -8,11 +8,11 @@ import PlotsView from './components/PlotsView.vue'
 import FolderBrowser from './components/FolderBrowser.vue'
 
 // Create refs to components so we can call their methods
-const runsViewRef = ref(null)
-const plotsViewRef = ref(null)
+const runsViewRef = ref<any>(null)
+const plotsViewRef = ref<any>(null)
 
 // Handle runs scanned event from FolderBrowser
-const handleRunsScanned = () => {
+const handleRunsScanned = (): void => {
   // Call the loadDesigns method on the RunsView component
   if (runsViewRef.value && runsViewRef.value.loadDesigns) {
     runsViewRef.value.loadDesigns()
@@ -20,7 +20,7 @@ const handleRunsScanned = () => {
 }
 
 // Handle tab change to refresh data when switching to Plots tab
-const handleTabChange = (event) => {
+const handleTabChange = (event: any): void => {
   // Check if the Plots tab is being activated (index 1)
   if (event.index === 1 && plotsViewRef.value && plotsViewRef.value.loadRunData) {
     plotsViewRef.value.loadRunData()
@@ -37,13 +37,13 @@ const handleTabChange = (event) => {
 
     <main class="app-main">
       <TabView @tab-change="handleTabChange">
-        <TabPanel header="Designs">
+        <TabPanel header="Designs" value="designs">
           <RunsView ref="runsViewRef" />
         </TabPanel>
-        <TabPanel header="Plots">
+        <TabPanel header="Plots" value="plots">
           <PlotsView ref="plotsViewRef" />
         </TabPanel>
-        <TabPanel header="Configure Source Folders">
+        <TabPanel header="Configure Source Folders" value="folders">
           <FolderBrowser @runs-scanned="handleRunsScanned" />
         </TabPanel>
       </TabView>

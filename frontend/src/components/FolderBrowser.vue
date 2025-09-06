@@ -26,7 +26,6 @@
         :loading="loading"
         @node-expand="onNodeExpand"
         @node-collapse="onNodeCollapse"
-        :expandedKeys="expandedKeys"
         v-model:expandedKeys="expandedKeys"
         dataKey="key"
         lazy
@@ -176,7 +175,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import TreeTable from 'primevue/treetable'
 import Column from 'primevue/column'
@@ -187,7 +186,7 @@ import Tag from 'primevue/tag'
 import Badge from 'primevue/badge'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
-import { treeApi, runsApi } from '../webapi.js'
+import { treeApi, runsApi } from '../webapi'
 
 // Define emits
 const emit = defineEmits(['runs-scanned'])
@@ -195,22 +194,22 @@ const emit = defineEmits(['runs-scanned'])
 const toast = useToast()
 
 // State
-const folders = ref([])
-const selectedKeys = ref({})
-const expandedKeys = ref({})
+const folders = ref<any[]>([])
+const selectedKeys = ref<Record<string, any>>({})
+const expandedKeys = ref<Record<string, any>>({})
 const loading = ref(false)
 const scanning = ref(false)
-const scanResults = ref([])
-const selectedRuns = ref([])
-const filters = ref(null)
+const scanResults = ref<any[]>([])
+const selectedRuns = ref<any[]>([])
+const filters = ref<any>(null)
 
 // Computed
 const selectedFolders = computed(() => {
-  const selected = []
+  const selected: any[] = []
   for (const [key, value] of Object.entries(selectedKeys.value)) {
     if (value !== null) {
       // Find the node in the folders tree
-      const findNode = (nodes, targetKey) => {
+      const findNode = (nodes: any[], targetKey: string): any => {
         for (const node of nodes) {
           if (node.key === targetKey) {
             return node
@@ -260,13 +259,13 @@ const loadFolders = async (path = '') => {
   }
 }
 
-const loadChildren = async (node) => {
+const loadChildren = async (node: any): Promise<void> => {
   console.log('loadChildren called for node:', node.path)
   try {
     console.log('Fetching children for path:', node.path)
     const data = await treeApi.getTree(node.path)
     console.log('Received data:', data)
-    node.children = data.folders.map(folder => ({
+    node.children = data.folders.map((folder: any) => ({
       key: folder.path,
       name: folder.name,
       path: folder.path,
@@ -287,7 +286,7 @@ const loadChildren = async (node) => {
   }
 }
 
-const onNodeExpand = async (event) => {
+const onNodeExpand = async (event: any): Promise<void> => {
   console.log('onNodeExpand called with event:', event)
   console.log('Event keys:', Object.keys(event))
   
@@ -312,7 +311,7 @@ const onNodeExpand = async (event) => {
   }
 }
 
-const onNodeCollapse = (event) => {
+const onNodeCollapse = (event: any): void => {
   console.log('onNodeCollapse called with event:', event)
 }
 
@@ -377,34 +376,34 @@ const includeSelectedRuns = () => {
   emit('runs-scanned', selectedRuns.value)
 }
 
-const removeSelectedFolder = (folder) => {
+const removeSelectedFolder = (folder: any): void => {
   delete selectedKeys.value[folder.key]
 }
 
-const onNodeSelect = (event) => {
+const onNodeSelect = (event: any): void => {
   console.log('Node selected:', event.node)
   console.log('Current selectedKeys:', selectedKeys.value)
 }
 
-const onNodeUnselect = (event) => {
+const onNodeUnselect = (event: any): void => {
   console.log('Node unselected:', event.node)
   console.log('Current selectedKeys:', selectedKeys.value)
 }
 
-const getFolderIcon = (node) => {
+const getFolderIcon = (node: any): string => {
   if (node.has_children) {
     return 'pi pi-folder-open'
   }
   return 'pi pi-folder'
 }
 
-const isNodeSelected = (node) => {
+const isNodeSelected = (node: any): boolean => {
   const result = selectedKeys.value[node.key] === true
   console.log('isNodeSelected for node:', node.key, 'result:', result, 'selectedKeys:', selectedKeys.value)
   return result
 }
 
-const toggleNodeSelection = (node) => {
+const toggleNodeSelection = (node: any): void => {
   console.log('toggleNodeSelection called for node:', node.key)
   console.log('Current selectedKeys before toggle:', selectedKeys.value)
   
@@ -420,7 +419,7 @@ const toggleNodeSelection = (node) => {
   console.log('isNodeSelected result:', isNodeSelected(node))
 }
 
-const getRunTypeSeverity = (runType) => {
+const getRunTypeSeverity = (runType: any): string => {
   switch (runType) {
     case 'bindcraft':
       return 'success'
@@ -431,7 +430,7 @@ const getRunTypeSeverity = (runType) => {
   }
 }
 
-const getRunTypeIcon = (runType) => {
+const getRunTypeIcon = (runType: any): string => {
   switch (runType) {
     case 'bindcraft':
       return 'pi pi-code'

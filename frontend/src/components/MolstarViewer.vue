@@ -23,26 +23,20 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 
 // Props
-const props = defineProps({
-  pdbUrl: {
-    type: String,
-    required: true
-  },
-  structureInfo: {
-    type: Object,
-    default: () => ({})
-  }
-})
+const props = defineProps<{
+  pdbUrl: string
+  structureInfo?: any
+}>()
 
 // State
-const molstarContainer = ref(null)
-const viewerInstance = ref(null)
+const molstarContainer = ref<HTMLElement | null>(null)
+const viewerInstance = ref<any>(null)
 const loading = ref(false)
-const error = ref(null)
+const error = ref<string | null>(null)
 
 // Methods
 const loadMolstarResources = () => {
