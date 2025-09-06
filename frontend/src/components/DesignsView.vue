@@ -92,11 +92,11 @@
               />
             </div>
             <div class="filter-row">
-              <label>Run Type:</label>
+              <label>Protocol:</label>
               <Dropdown 
-                v-model="filters.run_type.value" 
-                :options="runTypeOptions" 
-                placeholder="Select run type"
+                v-model="filters.protocol.value" 
+                :options="protocolOptions" 
+                placeholder="Select protocol"
                 class="filter-input"
                 showClear
               />
@@ -148,7 +148,7 @@
           currentPageReportTemplate="Showing {first} to {last} of {totalRecords} designs"
           :filters="filters"
           filterDisplay="row"
-          :globalFilterFields="['design_id', 'project_id', 'run_name', 'run_type', 'pae_interaction', 'Average_i_pTM']"
+          :globalFilterFields="['design_id', 'project_id', 'run_name', 'protocol', 'pae_interaction', 'Average_i_pTM']"
           showGridlines
           :resizableColumns="true"
           columnResizeMode="fit"
@@ -257,7 +257,7 @@
           <div v-if="currentStructure" class="structure-details">
             <p><strong>Design:</strong> {{ currentStructure.design.design_id }}</p>
             <p><strong>Run:</strong> {{ currentStructure.design.run_name }}</p>
-            <p><strong>Type:</strong> {{ currentStructure.design.run_type }}</p>
+            <p><strong>Protocol:</strong> {{ currentStructure.design.protocol }}</p>
             <p><strong>File:</strong> {{ currentStructure.filename }}</p>
           </div>
         </div>
@@ -312,13 +312,13 @@ const filters = ref({
   design_id: { value: null, matchMode: 'contains' },
   project_id: { value: null, matchMode: 'contains' },
   run_name: { value: null, matchMode: 'contains' },
-  run_type: { value: null, matchMode: 'equals' },
+  protocol: { value: null, matchMode: 'equals' },
   score_min: { value: null, matchMode: 'gte' },
   score_max: { value: null, matchMode: 'lte' }
 })
 
 // Filter options
-const runTypeOptions = ref(['bindcraft', 'rfd'])
+const protocolOptions = ref(['bindcraft', 'rfd'])
 
 // Column configuration
 interface ColumnConfig {
@@ -337,7 +337,7 @@ const allColumns = ref<ColumnConfig[]>([
   { field: 'design_id', header: 'Design ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 150px' },
   { field: 'project_id', header: 'Project ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
   { field: 'run_name', header: 'Run Name', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
-  { field: 'run_type', header: 'Run Type', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 100px' },
+  { field: 'protocol', header: 'Protocol', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 100px' },
   { field: 'pae_interaction', header: 'PAE Interaction', sortable: true, filter: true, filterType: 'numeric', showFilterMenu: false, style: 'min-width: 120px' },
   { field: 'Average_i_pTM', header: 'Average i_pTM', sortable: true, filter: true, filterType: 'numeric', showFilterMenu: false, style: 'min-width: 120px' },
   { field: 'pdb_file', header: 'PDB File', sortable: false, filter: false, style: 'min-width: 200px' },
@@ -352,7 +352,7 @@ const buildColumnsFromData = (designs: any[]): ColumnConfig[] => {
     { field: 'design_id', header: 'Design ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 150px' },
     { field: 'project_id', header: 'Project ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
     { field: 'run_name', header: 'Run Name', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
-    { field: 'run_type', header: 'Run Type', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 100px' }
+    { field: 'protocol', header: 'Protocol', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 100px' }
   ]
   
   // Add score columns if they exist in the data
@@ -371,7 +371,7 @@ const buildColumnsFromData = (designs: any[]): ColumnConfig[] => {
   
   // Add other columns from the data (excluding already defined ones)
   const existingFields = new Set([
-    'design_id', 'project_id', 'run_name', 'run_type', 'pae_interaction', 'Average_i_pTM', 
+    'design_id', 'project_id', 'run_name', 'protocol', 'pae_interaction', 'Average_i_pTM', 
     'pdb_file', 'run_path', 'run_id'
   ])
   
@@ -405,7 +405,7 @@ const buildColumnsFromData = (designs: any[]): ColumnConfig[] => {
 }
 
 // Default visible columns
-const defaultVisibleColumns = ref(['design_id', 'project_id', 'run_name', 'run_type', 'pae_interaction', 'Average_i_pTM'])
+const defaultVisibleColumns = ref(['design_id', 'project_id', 'run_name', 'protocol', 'pae_interaction', 'Average_i_pTM'])
 
 // Computed
 const visibleColumns = computed(() => {
@@ -476,7 +476,7 @@ const loadDesigns = async () => {
     allColumns.value = buildColumnsFromData(data.designs)
     
     // Update default visible columns to include score columns if they exist
-    const newDefaultColumns = ['design_id', 'project_id', 'run_name', 'run_type']
+    const newDefaultColumns = ['design_id', 'project_id', 'run_name', 'protocol']
     if (data.designs.some(d => 'pae_interaction' in d)) {
       newDefaultColumns.push('pae_interaction')
     }
@@ -613,7 +613,7 @@ const clearFilters = () => {
     design_id: { value: null, matchMode: 'contains' },
     project_id: { value: null, matchMode: 'contains' },
     run_name: { value: null, matchMode: 'contains' },
-    run_type: { value: null, matchMode: 'equals' },
+    protocol: { value: null, matchMode: 'equals' },
     score_min: { value: null, matchMode: 'gte' },
     score_max: { value: null, matchMode: 'lte' }
   }

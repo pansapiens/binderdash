@@ -110,7 +110,7 @@
         currentPageReportTemplate="Showing {first} to {last} of {totalRecords} runs"
         :filters="filters"
         filterDisplay="menu"
-        :globalFilterFields="['metadata.name', 'run_type', 'path']"
+        :globalFilterFields="['metadata.name', 'protocol', 'path']"
         showGridlines
         :resizableColumns="true"
         columnResizeMode="fit"
@@ -138,7 +138,7 @@
         <Column field="metadata.name" header="Name" sortable style="min-width: 150px">
           <template #body="{ data }">
             <div class="run-name">
-              <i :class="getRunTypeIcon(data.run_type)" class="run-type-icon"></i>
+              <i :class="getProtocolIcon(data.protocol)" class="protocol-icon"></i>
               {{ data.metadata.name }}
             </div>
           </template>
@@ -148,9 +148,9 @@
             <span class="project-id">{{ data.project_id || '-' }}</span>
           </template>
         </Column>
-        <Column field="run_type" header="Type" sortable style="min-width: 100px">
+        <Column field="protocol" header="Protocol" sortable style="min-width: 100px">
           <template #body="{ data }">
-            <Tag :value="data.run_type" :severity="getRunTypeSeverity(data.run_type)" />
+            <Tag :value="data.protocol" :severity="getProtocolSeverity(data.protocol)" />
           </template>
         </Column>
         <Column field="metadata.pdb_count" header="PDB Files" sortable style="min-width: 100px">
@@ -419,8 +419,8 @@ const toggleNodeSelection = (node: any): void => {
   console.log('isNodeSelected result:', isNodeSelected(node))
 }
 
-const getRunTypeSeverity = (runType: any): string => {
-  switch (runType) {
+const getProtocolSeverity = (protocol: any): string => {
+  switch (protocol) {
     case 'bindcraft':
       return 'success'
     case 'rfd':
@@ -430,8 +430,8 @@ const getRunTypeSeverity = (runType: any): string => {
   }
 }
 
-const getRunTypeIcon = (runType: any): string => {
-  switch (runType) {
+const getProtocolIcon = (protocol: any): string => {
+  switch (protocol) {
     case 'bindcraft':
       return 'pi pi-code'
     case 'rfd':

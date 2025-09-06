@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Protocol filtering in Plots tab**: Added "Filter by Protocol" dropdown to allow filtering runs by binding protocol (bindcraft/rfd) before plotting
+
+### Changed
+- **Simplified plotting architecture**: Removed unnecessary backend plotting API endpoints (`/api/runs/plots/scatter` and `/api/runs/plots/histogram`). Frontend now fetches raw data directly and handles all plotting logic with Vega-Lite, reducing API complexity and improving performance.
+
+### Fixed
+- **JSON serialization error**: Fixed `ValueError: Out of range float values are not JSON compliant: nan` by properly handling NaN and infinite values in DataFrame-to-JSON conversion in the `/api/runs/{run_id}/table` endpoint.
+- **Initial scatter plot rendering**: Fixed issue where scatter plots wouldn't render immediately when runs are first selected, requiring users to change axis dropdowns to see the plot. Added proper DOM timing and container dimension checks.
 - **Backend API endpoints**:
   - `GET /api/tree` - Return folder structure for the file browser
   - `POST /api/runs/scan` - Scan selected folders for valid run directories

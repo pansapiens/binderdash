@@ -23,7 +23,7 @@ interface TreeResponse {
 interface Run {
     run_id: string;
     project_id: string;
-    run_type: string;
+    protocol: string;
     path: string;
     metadata: {
         name: string;
@@ -40,7 +40,7 @@ interface Design {
     design_id: string;
     project_id: string;
     run_name: string;
-    run_type: string;
+    protocol: string;
     pae_interaction?: number;
     Average_i_pTM?: number;
     pdb_file?: string;
@@ -53,29 +53,6 @@ interface DesignsResponse {
     designs: Design[];
 }
 
-interface PlotColumnsResponse {
-    numeric_columns: string[];
-    defaults: {
-        x?: string;
-        y?: string;
-    };
-    total_rows: number;
-    run_count?: number;
-}
-
-interface ScatterPlotResponse {
-    data: any[];
-    data_points: number;
-    total_rows: number;
-    run_count?: number;
-}
-
-interface HistogramPlotResponse {
-    data: any[];
-    data_points: number;
-    total_rows: number;
-    run_count?: number;
-}
 
 interface MessageResponse {
     message: string;
@@ -211,85 +188,54 @@ export const designsApi = {
 }
 
 /**
- * Plots APIs
+ * Plots APIs - Simplified to work with raw data
  */
 export const plotsApi = {
     /**
-     * Get available columns for plotting from a specific run
-     * @param runId - Unique identifier for the run
-     * @returns Promise with column information
-     */
-    async getPlotColumns(runId: string): Promise<PlotColumnsResponse> {
-        return await apiRequest<PlotColumnsResponse>(`${API_BASE}/api/runs/${runId}/plots/columns`)
-    },
-
-    /**
-     * Get available columns for plotting from multiple runs
+     * Get combined data from multiple runs for plotting
      * @param runIds - List of run IDs
-     * @returns Promise with combined column information
+     * @returns Promise with combined data and column information
      */
-    async getPlotColumnsMultiple(runIds: string[]): Promise<PlotColumnsResponse> {
-        return await apiRequest<PlotColumnsResponse>(`${API_BASE}/api/runs/plots/columns`, {
-            method: 'POST',
-            body: JSON.stringify({ run_ids: runIds })
+    async getCombinedData(runIds: string[]): Promise<{ data: any[], columns: string[], numericColumns: string[] }> {
+        const allData: any[] = []
+        const allColumns = new Set<string>()
+
+        // Fetch data from each run
+        for (const runId of runIds) {
+            try {
+                const runData = await runsApi.getRunTable(runId)
+                if (runData && runData.data) {
+                    // Add run_id to each row for identification
+                    const enrichedData = runData.data.map((row: any) => ({
+                        ...row,
+                        run_id: runId
+                    }))
+                    allData.push(...enrichedData)
+
+                    // Collect all column names
+                    runData.columns.forEach((col: string) => allColumns.add(col))
+                }
+            } catch (error) {
+                console.warn(`Failed to load data for run ${runId}:`, error)
+            }
+        }
+
+        // Determine numeric columns
+        const numericColumns = Array.from(allColumns).filter(col => {
+            if (allData.length === 0) return false
+            // Check if column has numeric values (excluding null/undefined)
+            return allData.some(row =>
+                row[col] != null &&
+                typeof row[col] === 'number' &&
+                !isNaN(row[col])
+            )
         })
-    },
 
-    /**
-     * Get Vega-Lite specification for a scatter plot from a single run
-     * @param runId - Unique identifier for the run
-     * @param xCol - Column name for X axis
-     * @param yCol - Column name for Y axis
-     * @returns Promise with scatter plot data
-     */
-    async getScatterPlot(runId: string, xCol: string, yCol: string): Promise<any> {
-        const params = new URLSearchParams({ x_col: xCol, y_col: yCol })
-        return await apiRequest(`${API_BASE}/api/runs/${runId}/plots/scatter?${params}`)
-    },
-
-    /**
-     * Get raw data for a scatter plot from multiple runs
-     * @param runIds - List of run IDs
-     * @param xCol - Column name for X axis
-     * @param yCol - Column name for Y axis
-     * @returns Promise with scatter plot data
-     */
-    async getScatterPlotMultiple(runIds: string[], xCol: string, yCol: string): Promise<ScatterPlotResponse> {
-        return await apiRequest<ScatterPlotResponse>(`${API_BASE}/api/runs/plots/scatter`, {
-            method: 'POST',
-            body: JSON.stringify({
-                run_ids: runIds,
-                x_col: xCol,
-                y_col: yCol
-            })
-        })
-    },
-
-    /**
-     * Get Vega-Lite specification for a histogram from a single run
-     * @param runId - Unique identifier for the run
-     * @param col - Column name for the distribution
-     * @returns Promise with histogram data
-     */
-    async getHistogramPlot(runId: string, col: string): Promise<any> {
-        const params = new URLSearchParams({ col })
-        return await apiRequest(`${API_BASE}/api/runs/${runId}/plots/histogram?${params}`)
-    },
-
-    /**
-     * Get raw data for a histogram from multiple runs
-     * @param runIds - List of run IDs
-     * @param col - Column name for the distribution
-     * @returns Promise with histogram data
-     */
-    async getHistogramPlotMultiple(runIds: string[], col: string): Promise<HistogramPlotResponse> {
-        return await apiRequest<HistogramPlotResponse>(`${API_BASE}/api/runs/plots/histogram`, {
-            method: 'POST',
-            body: JSON.stringify({
-                run_ids: runIds,
-                col
-            })
-        })
+        return {
+            data: allData,
+            columns: Array.from(allColumns),
+            numericColumns
+        }
     }
 }
 

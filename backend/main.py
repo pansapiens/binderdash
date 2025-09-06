@@ -45,7 +45,7 @@ class RunMetadata(BaseModel):
     run_id: str
     project_id: str
     path: str
-    run_type: str  # "bindcraft" or "rfd"
+    protocol: str  # "bindcraft" or "rfd"
     results_table: Optional[str] = None
     pdb_files: List[str] = []
     metadata: Dict[str, Any] = {}
@@ -224,12 +224,12 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
             continue
 
         # Check if this directory is a valid run
-        run_type = None
+        protocol = None
         results_table = None
         pdb_files = []
 
         if is_bindcraft_results(current_dir):
-            run_type = "bindcraft"
+            protocol = "bindcraft"
             results_table = "final_design_stats.csv"
 
             # Find PDB files in Accepted/ directory
@@ -238,7 +238,7 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
                 pdb_files = [str(p) for p in accepted_dir.glob("*.pdb")]
 
         elif is_rfd_results(current_dir):
-            run_type = "rfd"
+            protocol = "rfd"
 
             # Determine results table path
             combined_file = current_dir / "combined_scores.tsv"
@@ -250,7 +250,7 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
             if pdbs_dir.is_dir():
                 pdb_files = [str(p) for p in pdbs_dir.glob("*.pdb")]
 
-        if run_type:
+        if protocol:
             # Create unique run ID
             run_id = str(uuid.uuid4())
 
@@ -263,7 +263,7 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
                     "run_id": run_id,
                     "project_id": guessed_project_id,
                     "path": str(current_dir),
-                    "run_type": run_type,
+                    "protocol": protocol,
                     "results_table": results_table,
                     "pdb_files": pdb_files,
                     "metadata": {
@@ -353,19 +353,19 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
             return []
 
         designs = []
-        run_type = run_metadata["run_type"]
+        protocol = run_metadata["protocol"]
         run_path = run_metadata["path"]
         run_name = run_metadata["metadata"]["name"]
 
-        # Determine the design ID column and primary score column based on run type
-        if run_type == "bindcraft":
+        # Determine the design ID column and primary score column based on protocol
+        if protocol == "bindcraft":
             design_id_col = "Design" if "Design" in df.columns else None
             primary_score_col = (
                 "Average_i_pTM" if "Average_i_pTM" in df.columns else None
             )
             # Sort by primary score descending (higher is better for i_pTM)
             sort_ascending = False
-        elif run_type == "rfd":
+        elif protocol == "rfd":
             design_id_col = "description" if "description" in df.columns else None
             primary_score_col = (
                 "pae_interaction" if "pae_interaction" in df.columns else None
@@ -373,7 +373,7 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
             # Sort by primary score ascending (lower is better for pae_interaction)
             sort_ascending = True
         else:
-            # Unknown run type, try to guess columns
+            # Unknown protocol, try to guess columns
             design_id_col = None
             primary_score_col = None
             sort_ascending = True
@@ -409,7 +409,7 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
 
             # Find PDB file for this design
             pdb_file = None
-            if run_type == "bindcraft":
+            if protocol == "bindcraft":
                 # For bindcraft, look for PDB in Accepted/ directory
                 accepted_dir = Path(run_path) / "Accepted"
                 if accepted_dir.exists():
@@ -430,7 +430,7 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                             if potential_pdbs:
                                 pdb_file = str(potential_pdbs[0])
 
-            elif run_type == "rfd":
+            elif protocol == "rfd":
                 # For RFD, look for PDB in af2_initial_guess/pdbs/
                 pdbs_dir = Path(run_path) / "af2_initial_guess" / "pdbs"
                 if pdbs_dir.exists():
@@ -444,7 +444,7 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                 "run_id": run_metadata["run_id"],
                 "project_id": run_metadata.get("project_id", ""),
                 "run_name": run_name,
-                "run_type": run_type,
+                "protocol": protocol,
                 "run_path": run_path,
                 "pdb_file": pdb_file,
                 # Include all other columns from the source table
@@ -483,9 +483,9 @@ def refresh_designs_cache():
 
         for design in designs_cache:
             has_score = False
-            if design["run_type"] == "rfd" and "pae_interaction" in design:
+            if design["protocol"] == "rfd" and "pae_interaction" in design:
                 has_score = True
-            elif design["run_type"] == "bindcraft" and "Average_i_pTM" in design:
+            elif design["protocol"] == "bindcraft" and "Average_i_pTM" in design:
                 has_score = True
 
             if has_score:
@@ -493,9 +493,9 @@ def refresh_designs_cache():
             else:
                 designs_without_score.append(design)
 
-        # Sort by score, handling different run types
+        # Sort by score, handling different protocols
         def sort_key(design):
-            if design["run_type"] == "rfd":
+            if design["protocol"] == "rfd":
                 score = design.get("pae_interaction")
                 if score is None:
                     return float("inf")  # Put designs without scores at the end
@@ -714,10 +714,13 @@ async def get_run_table(run_id: str):
                 status_code=404, detail="Results table not found or could not be loaded"
             )
 
-        # Convert DataFrame to JSON
+        # Convert DataFrame to JSON, handling NaN and infinite values
+        # Replace NaN and infinite values with None (which becomes null in JSON)
+        df_clean = df.replace({np.nan: None, np.inf: None, -np.inf: None})
+
         return {
             "columns": df.columns.tolist(),
-            "data": df.to_dict(orient="records"),
+            "data": df_clean.to_dict(orient="records"),
             "total_rows": len(df),
         }
 
@@ -891,13 +894,13 @@ async def clear_designs():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def get_default_plot_columns(df: pd.DataFrame, run_type: str) -> Dict[str, str]:
-    """Get default column selections for plots based on run type and available columns."""
+def get_default_plot_columns(df: pd.DataFrame, protocol: str) -> Dict[str, str]:
+    """Get default column selections for plots based on protocol and available columns."""
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
 
-    defaults = {"x": None, "y": None}
+    defaults = {"x": "", "y": ""}
 
-    if run_type == "bindcraft":
+    if protocol == "bindcraft":
         # BindCraft defaults
         if "Average_pLDDT" in numeric_cols:
             defaults["x"] = "Average_pLDDT"
@@ -910,7 +913,7 @@ def get_default_plot_columns(df: pd.DataFrame, run_type: str) -> Dict[str, str]:
             defaults["y"] = "Average_i_pTM"
         elif "ipTM" in numeric_cols:
             defaults["y"] = "ipTM"
-    elif run_type == "rfd":
+    elif protocol == "rfd":
         # RFD defaults
         if "plddt_binder" in numeric_cols:
             defaults["x"] = "plddt_binder"
@@ -1035,7 +1038,7 @@ async def get_plot_columns_multiple(request: Dict[str, Any]):
             raise HTTPException(status_code=400, detail="No run IDs provided")
 
         all_dfs = []
-        run_types = set()
+        protocols = set()
 
         for run_id in run_ids:
             run_metadata = get_run_metadata(run_id)
@@ -1049,7 +1052,7 @@ async def get_plot_columns_multiple(request: Dict[str, Any]):
                 continue
 
             all_dfs.append(df)
-            run_types.add(run_metadata.get("run_type", ""))
+            protocols.add(run_metadata.get("protocol", ""))
 
         if not all_dfs:
             raise HTTPException(
@@ -1063,11 +1066,11 @@ async def get_plot_columns_multiple(request: Dict[str, Any]):
         # Get numeric columns
         numeric_cols = combined_df.select_dtypes(include=[np.number]).columns.tolist()
 
-        # Get default columns based on the most common run type
-        most_common_type = (
-            max(run_types, key=list(run_types).count) if run_types else ""
+        # Get default columns based on the most common protocol
+        most_common_protocol = (
+            max(protocols, key=list(protocols).count) if protocols else ""
         )
-        defaults = get_default_plot_columns(combined_df, most_common_type)
+        defaults = get_default_plot_columns(combined_df, most_common_protocol)
 
         return {
             "numeric_columns": numeric_cols,

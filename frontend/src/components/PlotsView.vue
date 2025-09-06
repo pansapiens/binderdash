@@ -39,6 +39,19 @@
                 showClear
               />
             </div>
+            <div class="protocol-filter">
+              <label>Filter by Protocol:</label>
+              <Dropdown 
+                v-model="selectedProtocol" 
+                :options="protocolOptions" 
+                optionLabel="label"
+                optionValue="value"
+                placeholder="All Protocols"
+                class="protocol-dropdown"
+                @change="onProtocolFilterChange"
+                showClear
+              />
+            </div>
             <div class="run-selector">
               <label>Select Runs:</label>
               <MultiSelect 
@@ -57,7 +70,7 @@
         </div>
 
         <!-- Plot Controls and Charts -->
-        <div v-if="selectedRunIds.length > 0 && columnsData" class="charts-section">
+        <div v-if="selectedRunIds.length > 0 && combinedData.length > 0" class="charts-section">
           <div class="chart-controls">
             <div class="control-group">
               <h4>Scatter Plot</h4>
@@ -66,7 +79,7 @@
                   <label>X Axis:</label>
                   <Dropdown 
                     v-model="scatterXCol" 
-                    :options="columnsData.numeric_columns" 
+                    :options="numericColumns" 
                     placeholder="Select X column..."
                     class="axis-dropdown"
                     @change="updateAllPlots"
@@ -76,7 +89,7 @@
                   <label>Y Axis:</label>
                   <Dropdown 
                     v-model="scatterYCol" 
-                    :options="columnsData.numeric_columns" 
+                    :options="numericColumns" 
                     placeholder="Select Y column..."
                     class="axis-dropdown"
                     @change="updateAllPlots"
@@ -151,7 +164,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, nextTick } from 'vue'
 import Button from 'primevue/button'
 import Dropdown from 'primevue/dropdown'
 import MultiSelect from 'primevue/multiselect'
@@ -165,7 +178,9 @@ const toast = useToast()
 const availableRuns = ref<any[]>([])
 const selectedRunIds = ref<string[]>([])
 const selectedProject = ref<string | null>(null)
-const columnsData = ref<any>(null)
+const selectedProtocol = ref<string | null>(null)
+const combinedData = ref<any[]>([])
+const numericColumns = ref<string[]>([])
 const scatterXCol = ref<string | null>(null)
 const scatterYCol = ref<string | null>(null)
 const loading = ref(false)
@@ -184,11 +199,23 @@ const projectOptions = computed(() => {
   return projects.map(project => ({ label: project, value: project }))
 })
 
+const protocolOptions = computed(() => {
+  const protocols = [...new Set(availableRuns.value.map(run => run.protocol))]
+  return protocols.map(protocol => ({ label: protocol, value: protocol }))
+})
+
 const filteredRuns = computed(() => {
-  if (!selectedProject.value) {
-    return availableRuns.value
+  let filtered = availableRuns.value
+  
+  if (selectedProject.value) {
+    filtered = filtered.filter(run => run.project_id === selectedProject.value)
   }
-  return availableRuns.value.filter(run => run.project_id === selectedProject.value)
+  
+  if (selectedProtocol.value) {
+    filtered = filtered.filter(run => run.protocol === selectedProtocol.value)
+  }
+  
+  return filtered
 })
 
 // Vega-Lite specification creation functions
@@ -271,8 +298,8 @@ const loadRunData = async () => {
     // Transform runs for dropdown display
     availableRuns.value = data.runs.map(run => ({
       run_id: run.run_id,
-      display_name: `${run.project_id}/${run.metadata?.name || 'unknown'} (${run.run_type})`,
-      run_type: run.run_type,
+      display_name: `${run.project_id}/${run.metadata?.name || 'unknown'} (${run.protocol})`,
+      protocol: run.protocol,
       project_id: run.project_id,
       path: run.path
     }))
@@ -299,42 +326,67 @@ const loadRunData = async () => {
 const onProjectFilterChange = () => {
   // Clear selected runs when project filter changes
   selectedRunIds.value = []
-  columnsData.value = null
+  combinedData.value = []
+  numericColumns.value = []
+  scatterXCol.value = null
+  scatterYCol.value = null
+}
+
+const onProtocolFilterChange = () => {
+  // Clear selected runs when protocol filter changes
+  selectedRunIds.value = []
+  combinedData.value = []
+  numericColumns.value = []
   scatterXCol.value = null
   scatterYCol.value = null
 }
 
 const onRunsSelected = async () => {
   if (selectedRunIds.value.length === 0) {
-    columnsData.value = null
+    combinedData.value = []
+    numericColumns.value = []
     scatterXCol.value = null
     scatterYCol.value = null
     return
   }
   
   try {
-    // Use the multiple runs endpoint to get combined column data
-    columnsData.value = await plotsApi.getPlotColumnsMultiple(selectedRunIds.value)
+    // Get combined data from all selected runs
+    const result = await plotsApi.getCombinedData(selectedRunIds.value)
+    combinedData.value = result.data
+    numericColumns.value = result.numericColumns
     
-    // Set default columns based on backend suggestions
-    if (columnsData.value.defaults.x) {
-      scatterXCol.value = columnsData.value.defaults.x
-    }
-    if (columnsData.value.defaults.y) {
-      scatterYCol.value = columnsData.value.defaults.y
+    // Set default columns based on available numeric columns
+    if (numericColumns.value.length > 0) {
+      // Look for common score columns first
+      const xCol = numericColumns.value.find(col => 
+        col.includes('plddt') || col.includes('pLDDT')
+      ) || numericColumns.value[0]
+      
+      const yCol = numericColumns.value.find(col => 
+        col.includes('pae') || col.includes('i_pTM') || col.includes('ipTM')
+      ) || (numericColumns.value.length > 1 ? numericColumns.value[1] : numericColumns.value[0])
+      
+      scatterXCol.value = xCol
+      scatterYCol.value = yCol
     }
     
-    // Load initial plots if we have valid defaults
+    // Load initial plots if we have valid columns
     if (scatterXCol.value && scatterYCol.value) {
-      await updateAllPlots()
+      // Use nextTick to ensure DOM is updated before rendering plots
+      await nextTick()
+      // Add a small delay to ensure DOM elements are fully rendered
+      setTimeout(async () => {
+        await updateAllPlots()
+      }, 100)
     }
     
   } catch (error) {
-    console.error('Error loading column data:', error)
+    console.error('Error loading data:', error)
     toast.add({
       severity: 'error',
       summary: 'Error',
-      detail: 'Failed to load column data',
+      detail: 'Failed to load data',
       life: 3000
     })
   }
@@ -342,6 +394,13 @@ const onRunsSelected = async () => {
 
 const updateAllPlots = async () => {
   if (selectedRunIds.value.length === 0) return
+  
+  console.log('Updating all plots:', {
+    selectedRunIds: selectedRunIds.value.length,
+    scatterXCol: scatterXCol.value,
+    scatterYCol: scatterYCol.value,
+    combinedDataLength: combinedData.value.length
+  })
   
   // Update scatter plot
   if (scatterXCol.value && scatterYCol.value) {
@@ -360,16 +419,37 @@ const updateAllPlots = async () => {
 }
 
 const updateScatterPlot = async () => {
-  if (selectedRunIds.value.length === 0 || !scatterXCol.value || !scatterYCol.value) return
+  if (!scatterXCol.value || !scatterYCol.value || combinedData.value.length === 0) {
+    console.log('Skipping scatter plot update:', {
+      scatterXCol: scatterXCol.value,
+      scatterYCol: scatterYCol.value,
+      combinedDataLength: combinedData.value.length
+    })
+    return
+  }
+  
+  console.log('Updating scatter plot with:', {
+    xCol: scatterXCol.value,
+    yCol: scatterYCol.value,
+    totalDataPoints: combinedData.value.length
+  })
   
   scatterLoading.value = true
   try {
-    // Use the multiple runs endpoint to get combined data
-    const data = await plotsApi.getScatterPlotMultiple(
-      selectedRunIds.value,
-      scatterXCol.value,
-      scatterYCol.value
+    // Filter data to only include rows with valid values for both columns
+    const filteredData = combinedData.value.filter(row => 
+      row[scatterXCol.value!] != null && 
+      row[scatterYCol.value!] != null &&
+      !isNaN(row[scatterXCol.value!]) && 
+      !isNaN(row[scatterYCol.value!])
     )
+    
+    console.log('Filtered data points:', filteredData.length)
+    
+    if (filteredData.length === 0) {
+      console.warn('No valid data points for scatter plot')
+      return
+    }
     
     // Clear previous chart
     if (scatterPlotContainer.value) {
@@ -377,23 +457,42 @@ const updateScatterPlot = async () => {
     }
     
     // Create Vega-Lite spec in frontend
-    const title = `${scatterYCol.value} vs ${scatterXCol.value}${data.run_count && data.run_count > 1 ? ` (${data.run_count} runs)` : ''}`
-    const spec = createScatterPlotSpec(data.data, scatterXCol.value, scatterYCol.value, title)
+    const title = `${scatterYCol.value} vs ${scatterXCol.value}${selectedRunIds.value.length > 1 ? ` (${selectedRunIds.value.length} runs)` : ''}`
+    const spec = createScatterPlotSpec(filteredData, scatterXCol.value, scatterYCol.value, title)
     
     // Render new chart
     if (scatterPlotContainer.value) {
-      await embed(scatterPlotContainer.value, spec, {
-        actions: false,
-        renderer: 'svg'
-      })
+      // Check if container has dimensions
+      const rect = scatterPlotContainer.value.getBoundingClientRect()
+      console.log('Scatter plot container dimensions:', rect)
+      
+      if (rect.width > 0 && rect.height > 0) {
+        await embed(scatterPlotContainer.value, spec, {
+          actions: false,
+          renderer: 'svg'
+        })
+        console.log('Scatter plot rendered successfully')
+      } else {
+        console.warn('Scatter plot container has no dimensions, retrying...')
+        // Retry after a short delay
+        setTimeout(async () => {
+          if (scatterPlotContainer.value) {
+            await embed(scatterPlotContainer.value, spec, {
+              actions: false,
+              renderer: 'svg'
+            })
+            console.log('Scatter plot rendered on retry')
+          }
+        }, 200)
+      }
     }
     
   } catch (error) {
-    console.error('Error loading scatter plot:', error)
+    console.error('Error creating scatter plot:', error)
     toast.add({
       severity: 'error',
       summary: 'Error',
-      detail: 'Failed to load scatter plot',
+      detail: 'Failed to create scatter plot',
       life: 3000
     })
   } finally {
@@ -402,12 +501,20 @@ const updateScatterPlot = async () => {
 }
 
 const updateXHistogramPlot = async () => {
-  if (selectedRunIds.value.length === 0 || !scatterXCol.value) return
+  if (!scatterXCol.value || combinedData.value.length === 0) return
   
   xHistogramLoading.value = true
   try {
-    // Use the multiple runs endpoint to get combined data
-    const data = await plotsApi.getHistogramPlotMultiple(selectedRunIds.value, scatterXCol.value)
+    // Filter data to only include rows with valid values for the column
+    const filteredData = combinedData.value.filter(row => 
+      row[scatterXCol.value!] != null && 
+      !isNaN(row[scatterXCol.value!])
+    )
+    
+    if (filteredData.length === 0) {
+      console.warn('No valid data points for X histogram')
+      return
+    }
     
     // Clear previous chart
     if (xHistogramPlotContainer.value) {
@@ -415,8 +522,8 @@ const updateXHistogramPlot = async () => {
     }
     
     // Create Vega-Lite spec in frontend
-    const title = `Distribution of ${scatterXCol.value}${data.run_count && data.run_count > 1 ? ` (${data.run_count} runs)` : ''}`
-    const spec = createHistogramSpec(data.data, scatterXCol.value, title)
+    const title = `Distribution of ${scatterXCol.value}${selectedRunIds.value.length > 1 ? ` (${selectedRunIds.value.length} runs)` : ''}`
+    const spec = createHistogramSpec(filteredData, scatterXCol.value, title)
     
     // Render new chart
     if (xHistogramPlotContainer.value) {
@@ -427,11 +534,11 @@ const updateXHistogramPlot = async () => {
     }
     
   } catch (error) {
-    console.error('Error loading X histogram plot:', error)
+    console.error('Error creating X histogram plot:', error)
     toast.add({
       severity: 'error',
       summary: 'Error',
-      detail: 'Failed to load X histogram plot',
+      detail: 'Failed to create X histogram plot',
       life: 3000
     })
   } finally {
@@ -440,12 +547,20 @@ const updateXHistogramPlot = async () => {
 }
 
 const updateYHistogramPlot = async () => {
-  if (selectedRunIds.value.length === 0 || !scatterYCol.value) return
+  if (!scatterYCol.value || combinedData.value.length === 0) return
   
   yHistogramLoading.value = true
   try {
-    // Use the multiple runs endpoint to get combined data
-    const data = await plotsApi.getHistogramPlotMultiple(selectedRunIds.value, scatterYCol.value)
+    // Filter data to only include rows with valid values for the column
+    const filteredData = combinedData.value.filter(row => 
+      row[scatterYCol.value!] != null && 
+      !isNaN(row[scatterYCol.value!])
+    )
+    
+    if (filteredData.length === 0) {
+      console.warn('No valid data points for Y histogram')
+      return
+    }
     
     // Clear previous chart
     if (yHistogramPlotContainer.value) {
@@ -453,8 +568,8 @@ const updateYHistogramPlot = async () => {
     }
     
     // Create Vega-Lite spec in frontend
-    const title = `Distribution of ${scatterYCol.value}${data.run_count && data.run_count > 1 ? ` (${data.run_count} runs)` : ''}`
-    const spec = createHistogramSpec(data.data, scatterYCol.value, title)
+    const title = `Distribution of ${scatterYCol.value}${selectedRunIds.value.length > 1 ? ` (${selectedRunIds.value.length} runs)` : ''}`
+    const spec = createHistogramSpec(filteredData, scatterYCol.value, title)
     
     // Render new chart
     if (yHistogramPlotContainer.value) {
@@ -465,11 +580,11 @@ const updateYHistogramPlot = async () => {
     }
     
   } catch (error) {
-    console.error('Error loading Y histogram plot:', error)
+    console.error('Error creating Y histogram plot:', error)
     toast.add({
       severity: 'error',
       summary: 'Error',
-      detail: 'Failed to load Y histogram plot',
+      detail: 'Failed to create Y histogram plot',
       life: 3000
     })
   } finally {
@@ -558,12 +673,13 @@ onMounted(() => {
 
 .run-selection-controls {
   display: grid;
-  grid-template-columns: 1fr 2fr;
-  gap: 2rem;
+  grid-template-columns: 1fr 1fr 2fr;
+  gap: 1.5rem;
   align-items: end;
 }
 
 .project-filter,
+.protocol-filter,
 .run-selector {
   display: flex;
   flex-direction: column;
@@ -571,6 +687,7 @@ onMounted(() => {
 }
 
 .project-filter label,
+.protocol-filter label,
 .run-selector label {
   font-weight: 500;
   color: #495057;
@@ -578,6 +695,7 @@ onMounted(() => {
 }
 
 .project-dropdown,
+.protocol-dropdown,
 .run-multiselect {
   width: 100%;
 }
@@ -678,6 +796,17 @@ onMounted(() => {
 @media (max-width: 1400px) {
   .charts-grid {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 1200px) {
+  .run-selection-controls {
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  
+  .run-selector {
+    grid-column: 1 / -1;
   }
 }
 
