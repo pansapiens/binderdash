@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 import uuid
 import io
+import re
 
 # Configure logging
 logging.basicConfig(
@@ -88,6 +89,98 @@ run_cache: Dict[str, Dict[str, Any]] = {}
 designs_cache: List[Dict[str, Any]] = []
 
 
+def guess_project_id(path: Path) -> str:
+    """
+    Guess the project ID based on the path, avoiding disallowed names.
+    First finds the run name, then looks for a valid project name below it in the tree.
+
+    Args:
+        path: Path to the run directory
+
+    Returns:
+        Guessed project ID
+    """
+    # First, find the run name using the existing function
+    run_name = guess_run_name(path)
+
+    # Regex patterns for disallowed names
+    disallowed_patterns = [
+        r"^runs$",  # exact match for runs
+        r"^results.*$",  # results, results_1, results_final, etc.
+        r"^batch.*$",  # batch, batch_1, batch_final, etc.
+        r"^bindcraft$",  # exact match for bindcraft
+        r"^rfd$",  # exact match for rfd
+        r"^\d+$",  # numeric-only names
+    ]
+
+    # Start from the current directory and work up the path
+    current_path = path
+    found_run_name = False
+
+    while current_path != current_path.parent:  # Stop at root
+        name = current_path.name
+
+        # Check if we've found the run name
+        if name == run_name:
+            found_run_name = True
+            # Move up one level to start looking for project ID below the run name
+            current_path = current_path.parent
+            continue
+
+        # Only start looking for project ID after we've found the run name
+        if found_run_name:
+            # Check if name matches any disallowed pattern
+            is_disallowed = any(
+                re.match(pattern, name) for pattern in disallowed_patterns
+            )
+
+            if not is_disallowed:
+                return name
+
+        # Move up one level
+        current_path = current_path.parent
+
+    # If we can't find a good name, return empty string
+    return ""
+
+
+def guess_run_name(path: Path) -> str:
+    """
+    Guess the run name based on the path, avoiding disallowed names.
+
+    Args:
+        path: Path to the run directory
+
+    Returns:
+        Guessed run name
+    """
+    # Regex patterns for disallowed names
+    disallowed_patterns = [
+        r"^results.*$",  # results, results_1, results_final, etc.
+        r"^bindcraft$",  # exact match for bindcraft
+        r"^batches$",  # exact match for batches
+        r"^\d+$",  # numeric-only names
+    ]
+
+    # Start from the current directory and work up the path
+    current_path = path
+
+    while current_path != current_path.parent:  # Stop at root
+        name = current_path.name
+
+        # Check if name matches any disallowed pattern
+        is_disallowed = any(re.match(pattern, name) for pattern in disallowed_patterns)
+
+        if not is_disallowed:
+            return name
+
+        # Move up one level
+        current_path = current_path.parent
+
+    # If we can't find a good name, use the original directory name
+    return path.name
+
+
 def is_bindcraft_results(path: Path) -> bool:
     """Check if a directory contains BindCraft results (final_design_stats.csv and Accepted/ folder)."""
     if not path.is_dir():
@@ -160,15 +253,21 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
             # Create unique run ID
             run_id = str(uuid.uuid4())
 
+            # Guess project ID and run name using the new functions
+            guessed_project_id = guess_project_id(current_dir)
+            guessed_name = guess_run_name(current_dir)
+
             runs.append(
                 {
                     "run_id": run_id,
+                    "project_id": guessed_project_id,
                     "path": str(current_dir),
                     "run_type": run_type,
                     "results_table": results_table,
                     "pdb_files": pdb_files,
                     "metadata": {
-                        "name": current_dir.name,
+                        "name": guessed_name,
+                        "original_name": current_dir.name,
                         "parent_path": str(current_dir.parent),
                         "pdb_count": len(pdb_files),
                     },
@@ -314,7 +413,7 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
             design = {
                 "design_id": design_id,
                 "run_id": run_metadata["run_id"],
-                "project_id": run_metadata.get("project_id", None),
+                "project_id": run_metadata.get("project_id", ""),
                 "run_name": run_name,
                 "run_type": run_type,
                 "run_path": run_path,

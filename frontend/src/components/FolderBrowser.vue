@@ -144,6 +144,11 @@
             </div>
           </template>
         </Column>
+        <Column field="project_id" header="Project ID" sortable style="min-width: 120px">
+          <template #body="{ data }">
+            <span class="project-id">{{ data.project_id || '-' }}</span>
+          </template>
+        </Column>
         <Column field="run_type" header="Type" sortable style="min-width: 100px">
           <template #body="{ data }">
             <Tag :value="data.run_type" :severity="getRunTypeSeverity(data.run_type)" />

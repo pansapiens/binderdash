@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `DELETE /api/runs` - Clear all runs from cache
   - `GET /api/designs` - List all designs from all cached runs
   - `DELETE /api/designs` - Clear all designs from cache
+- **Run metadata enhancements**:
+  - Added `project_id` field to RunMetadata with intelligent detection
+  - Implemented `guess_project_id()` function for project ID detection from directory structure
+  - Implemented `guess_run_name()` function for intelligent run name detection
+  - Project ID guessing avoids disallowed names: 'runs', 'bindcraft', 'rfd', and numeric-only names
+  - Run name guessing uses regex patterns to avoid disallowed names: 'results.*', 'bindcraft', 'batches', and numeric-only names
+  - Both functions traverse directory hierarchy to find appropriate names
 - **Run detection logic** based on prototypes:
   - BindCraft runs: detects `final_design_stats.csv` and `Accepted/` folder
   - RFD runs: detects `combined_scores.tsv` or `.cs` files in `af2_initial_guess/`
@@ -35,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - RunsView component renamed to Designs view with comprehensive DataTable
   - PlotsView component with analytics dashboard
   - Structure viewer integrated below designs table
+  - Added Project ID column to both Designs and Folder Browser tables
 - **UI/UX improvements**:
   - Modern responsive design with PrimeVue components
   - Toast notifications for user feedback
