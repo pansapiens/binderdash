@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import TabView from 'primevue/tabview'
 import TabPanel from 'primevue/tabpanel'
 import Toast from 'primevue/toast'
-import RunsView from './components/RunsView.vue'
+import RunsView from './components/DesignsView.vue'
 import PlotsView from './components/PlotsView.vue'
 import FolderBrowser from './components/FolderBrowser.vue'
 

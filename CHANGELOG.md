@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Close button (X) in top-right corner of column selector panel
   - Comprehensive filter panel with global search, column-specific filters, and score range filtering
   - Default PrimeVue styling with checkbox row selection
+- **Structure viewer integration**:
+  - Molstar viewer for 3D protein structure visualization
+  - PDB file loading via backend API endpoints
+  - Navigation between selected structures with next/previous buttons
+  - Row-based navigation reflecting filtered table state
+  - Loading states and error handling for structure viewer
+  - Proper cleanup and resource management
 
 ### Changed
 - Updated project structure to support full-stack application
@@ -64,6 +71,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Static file serving configuration for frontend assets
 - API endpoint routing and response formatting
 - Toast component imports and usage across components
+- **Molstar integration**: Refactored to separate component and fixed API issues
+  - Created dedicated MolstarViewer.vue component for better modularity
+  - Removed problematic molstar npm package that caused build failures
+  - Switched to PDBe Molstar implementation from CDN (https://cdn.jsdelivr.net/npm/pdbe-molstar@latest/)
+  - Fixed API usage to use direct PDBeMolstarPlugin constructor instead of non-existent create() method
+  - Implemented proper PDB ID extraction from URLs for PDBe Molstar
+  - Added extensive debugging and error handling for structure viewer
+  - Separated Molstar logic from DesignsView component for better maintainability
+  - Fixed TypeError: window.PDBeMolstarPlugin.create is not a function error
+- **Automated Testing**: Added comprehensive Playwright test suite
+  - Created reusable test script for complete workflow automation
+  - Tests: Configure folders → Scan → View designs → Load structure
+  - Added additional tests for design navigation and filter functionality
+  - Configured automatic server startup and browser management
+  - Added screenshot capture and HTML reporting for debugging
+  - Created helper scripts and documentation for test execution
 
 ## [0.1.0] - 2025-08-31
 

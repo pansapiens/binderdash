@@ -219,18 +219,18 @@
           <div class="viewer-controls">
             <Button 
               icon="pi pi-chevron-left" 
-              @click="previousStructure"
-              :disabled="currentStructureIndex <= 0"
+              @click="navigateToPreviousRow"
+              :disabled="!canNavigateToPrevious"
               text
               rounded
             />
             <span class="structure-counter">
-              {{ currentStructureIndex + 1 }} / {{ totalStructures }}
+              {{ getCurrentRowPosition() }}
             </span>
             <Button 
               icon="pi pi-chevron-right" 
-              @click="nextStructure"
-              :disabled="currentStructureIndex >= totalStructures - 1"
+              @click="navigateToNextRow"
+              :disabled="!canNavigateToNext"
               text
               rounded
             />
@@ -246,9 +246,11 @@
           </div>
         </div>
 
-        <div class="molstar-container">
-          <div ref="molstarContainer" class="molstar-viewer"></div>
-        </div>
+        <MolstarViewer 
+          v-if="currentStructure"
+          :pdb-url="getPdbUrl()"
+          :structure-info="currentStructure"
+        />
       </div>
 
       <div v-else class="no-selection">
@@ -265,7 +267,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
@@ -275,6 +277,7 @@ import InputNumber from 'primevue/inputnumber'
 import Dropdown from 'primevue/dropdown'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
+import MolstarViewer from './MolstarViewer.vue'
 
 const toast = useToast()
 
@@ -283,7 +286,6 @@ const designs = ref([])
 const selectedDesigns = ref([])
 const loading = ref(false)
 const currentStructureIndex = ref(0)
-const molstarContainer = ref(null)
 const showColumnSelector = ref(false)
 const showFilterPanel = ref(false)
 
@@ -408,6 +410,28 @@ const currentStructure = computed(() => {
   return null
 })
 
+// Get filtered designs for navigation
+const filteredDesigns = computed(() => {
+  // This will be populated by the DataTable's filtering system
+  // We need to get the currently visible/filtered rows
+  return designs.value
+})
+
+// Navigation state
+const canNavigateToPrevious = computed(() => {
+  if (selectedDesigns.value.length === 0) return false
+  const currentDesign = selectedDesigns.value[currentStructureIndex.value]
+  const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
+  return currentIndex > 0
+})
+
+const canNavigateToNext = computed(() => {
+  if (selectedDesigns.value.length === 0) return false
+  const currentDesign = selectedDesigns.value[currentStructureIndex.value]
+  const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
+  return currentIndex < filteredDesigns.value.length - 1
+})
+
 // Methods
 const loadDesigns = async () => {
   loading.value = true
@@ -492,6 +516,52 @@ const nextStructure = () => {
   }
 }
 
+// Navigate to next/previous row in the filtered table
+const navigateToNextRow = () => {
+  if (selectedDesigns.value.length === 0) return
+  
+  const currentDesign = selectedDesigns.value[currentStructureIndex.value]
+  const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
+  
+  if (currentIndex < filteredDesigns.value.length - 1) {
+    const nextDesign = filteredDesigns.value[currentIndex + 1]
+    if (nextDesign.pdb_file) {
+      selectedDesigns.value = [nextDesign]
+      currentStructureIndex.value = 0
+    }
+  }
+}
+
+const navigateToPreviousRow = () => {
+  if (selectedDesigns.value.length === 0) return
+  
+  const currentDesign = selectedDesigns.value[currentStructureIndex.value]
+  const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
+  
+  if (currentIndex > 0) {
+    const prevDesign = filteredDesigns.value[currentIndex - 1]
+    if (prevDesign.pdb_file) {
+      selectedDesigns.value = [prevDesign]
+      currentStructureIndex.value = 0
+    }
+  }
+}
+
+const getCurrentRowPosition = () => {
+  if (selectedDesigns.value.length === 0) return '0 / 0'
+  
+  const currentDesign = selectedDesigns.value[currentStructureIndex.value]
+  const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
+  
+  if (currentIndex === -1) return '0 / 0'
+  
+  // Find the position among designs with PDB files
+  const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
+  const pdbIndex = designsWithPdb.findIndex(d => d.design_id === currentDesign.design_id)
+  
+  return `${pdbIndex + 1} / ${designsWithPdb.length}`
+}
+
 const toggleColumnSelector = () => {
   showColumnSelector.value = !showColumnSelector.value
 }
@@ -529,60 +599,11 @@ const applyFilters = () => {
   console.log('Filters applied:', filters.value)
 }
 
-const loadMolstarViewer = async () => {
-  if (!currentStructure.value || !molstarContainer.value) {
-    return
-  }
-
-  try {
-    // Clear previous viewer
-    molstarContainer.value.innerHTML = ''
-
-    // Create a simple placeholder for now
-    const placeholder = document.createElement('div')
-    placeholder.style.cssText = `
-      width: 100%;
-      height: 400px;
-      background: #f8f9fa;
-      border: 2px dashed #dee2e6;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #6c757d;
-      font-size: 1.1rem;
-    `
-    placeholder.innerHTML = `
-      <div style="text-align: center;">
-        <i class="pi pi-cube" style="font-size: 2rem; margin-bottom: 1rem; display: block;"></i>
-        <div>Molstar Viewer</div>
-        <div style="font-size: 0.9rem; margin-top: 0.5rem;">
-          Loading: ${currentStructure.value.filename}
-        </div>
-      </div>
-    `
-    
-    molstarContainer.value.appendChild(placeholder)
-
-    // TODO: Implement actual Molstar viewer
-    
-  } catch (error) {
-    console.error('Error loading Molstar viewer:', error)
-    toast.add({
-      severity: 'error',
-      summary: 'Error',
-      detail: 'Failed to load structure viewer',
-      life: 3000
-    })
-  }
+const getPdbUrl = () => {
+  if (!currentStructure.value) return ''
+  return `/api/runs/${currentStructure.value.design.run_id}/files/pdb/${currentStructure.value.filename}`
 }
 
-// Watchers
-watch(currentStructure, () => {
-  nextTick(() => {
-    loadMolstarViewer()
-  })
-})
 
 // Lifecycle
 onMounted(() => {
@@ -796,16 +817,6 @@ defineExpose({
   color: #495057;
 }
 
-.molstar-container {
-  border: 1px solid #e9ecef;
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.molstar-viewer {
-  width: 100%;
-  height: 400px;
-}
 
 .no-selection {
   background: white;

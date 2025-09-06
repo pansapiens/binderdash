@@ -8,6 +8,9 @@ build/
 dist/
 *.egg-info/
 .env
+playwright-report/
+.last-run.json
+test-results/
 
 # Frontend
 /node_modules/
