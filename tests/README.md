@@ -21,6 +21,9 @@ The `binderdash-workflow.spec.js` file contains the main test that automates the
 
 ### Quick Start
 ```bash
+# Install root dependencies (first time only)
+pnpm install
+
 # Run all tests with automatic setup
 pnpm test
 ```
@@ -28,22 +31,22 @@ pnpm test
 ### Manual Commands
 ```bash
 # Install Playwright browsers (first time only)
-npx playwright install
+pnpm exec playwright install
 
 # Run tests in headless mode
-npx playwright test
+pnpm exec playwright test
 
 # Run tests with browser UI visible
-npx playwright test --headed
+pnpm exec playwright test --headed
 
 # Run tests with Playwright UI
-npx playwright test --ui
+pnpm exec playwright test --ui
 
 # Debug tests step by step
-npx playwright test --debug
+pnpm exec playwright test --debug
 
 # Show test report in browser (happens automatically when tests fail)
-npx playwright show-report
+pnpm exec playwright show-report
 ```
 
 ## Test Results
@@ -70,7 +73,7 @@ The tests are configured in `playwright.config.js`:
 ### Debug Mode
 ```bash
 # Run a specific test in debug mode
-npx playwright test --debug tests/binderdash-workflow.spec.js
+pnpm exec playwright test --debug tests/binderdash-workflow.spec.js
 ```
 
 ### Screenshots

@@ -8,7 +8,7 @@ console.log('🧪 Starting Binderdash Playwright Tests...\n');
 try {
     // Install Playwright browsers if not already installed
     console.log('📦 Installing Playwright browsers...');
-    execSync('npx playwright install', { stdio: 'inherit' });
+    execSync('pnpm exec playwright install', { stdio: 'inherit' });
 
     // Create test results directory
     console.log('📁 Creating test results directory...');
@@ -16,7 +16,7 @@ try {
 
     // Run the tests
     console.log('🚀 Running Playwright tests...');
-    execSync('npx playwright test --reporter=html', { stdio: 'inherit' });
+    execSync('pnpm exec playwright test --reporter=html', { stdio: 'inherit' });
 
     console.log('\n✅ Tests completed successfully!');
     console.log('📊 Test report available at: playwright-report/index.html');

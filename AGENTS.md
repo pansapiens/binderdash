@@ -17,6 +17,7 @@
 - Frontend (pnpm, Vite, PrimeVue):
   - `cd frontend && pnpm install`
   - Dev server: `pnpm run dev`
+  - Watch mode (auto-rebuild): `pnpm run watch:build`
 - Build frontend for backend to serve:
   - `pnpm run build` (output configured to backend static dir)
 - Containerised (optional):
@@ -44,6 +45,13 @@
 ## Testing and quality
 
 - Backend: `pytest` for unit/API tests
+- Frontend: Playwright for end-to-end testing
+  - Install root dependencies: `pnpm install` (first time only)
+  - Run tests: `pnpm test` (installs browsers and runs full suite)
+  - Individual commands: `pnpm test:playwright`, `pnpm test:ui`, `pnpm test:headed`, `pnpm test:debug`
+  - Test configuration: `playwright.config.js` with automatic server startup
+  - Test documentation: `tests/README.md` with comprehensive workflow testing
+  - Helper script: `run-tests.js` for automated test execution
 
 ## Code style
 
@@ -53,6 +61,8 @@
 
 ## PR checklist
 
-- Run backend tests and linters; run frontend build and linters
+- Run backend tests (`pytest`) and linters
+- Run frontend build  (`pnpm run build`) and linters
+- Run Playwright tests: `pnpm test` (from project root)
 - Update `.env.example` when env vars change
 - Update `CHANGELOG.md` for notable features and fixes

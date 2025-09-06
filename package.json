@@ -5,10 +5,10 @@
     "private": true,
     "scripts": {
         "test": "node run-tests.js",
-        "test:playwright": "npx playwright test",
-        "test:ui": "npx playwright test --ui",
-        "test:headed": "npx playwright test --headed",
-        "test:debug": "npx playwright test --debug"
+        "test:playwright": "pnpm exec playwright test",
+        "test:ui": "pnpm exec playwright test --ui",
+        "test:headed": "pnpm exec playwright test --headed",
+        "test:debug": "pnpm exec playwright test --debug"
     },
     "devDependencies": {
         "@playwright/test": "^1.55.0"
