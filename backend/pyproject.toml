@@ -2,4 +2,13 @@
 name = "binderdash-backend"
 version = "0.1.0"
 description = "Backend for binderdash"
-dependencies = ["fastapi", "uvicorn[standard]", "pydantic-settings", "pandas"]
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic-settings",
+    "pandas",
+    "bcrypt",
+    "python-jose[cryptography]",
+    "python-multipart",
+    "requests",
+]

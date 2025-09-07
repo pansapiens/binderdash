@@ -283,7 +283,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
@@ -295,13 +295,14 @@ import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import MolstarViewer from './MolstarViewer.vue'
 import { runsApi } from '../webapi'
-import { useDesignsStore, useAppStore } from '../stores'
+import { useDesignsStore, useAppStore, useAuthStore } from '../stores'
 
 const toast = useToast()
 
 // Use Pinia stores
 const designsStore = useDesignsStore()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 
 // Local UI state (not shared across components)
 const showColumnSelector = ref(false)
@@ -318,16 +319,25 @@ const isColumnVisible = (field: string): boolean => {
 
 // Methods
 const loadDesigns = async () => {
+  // Only load designs if authentication allows it
+  if (!authStore.canLoadData) {
+    console.log('Authentication required - skipping designs load')
+    return
+  }
+
   try {
     await designsStore.fetchDesigns()
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error loading designs:', error)
-    toast.add({
-      severity: 'error',
-      summary: 'Error',
-      detail: 'Failed to load designs',
-      life: 3000
-    })
+    // Don't show toast for authentication errors - user will be redirected to login
+    if (error?.message !== 'Authentication required') {
+      toast.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: 'Failed to load designs',
+        life: 3000
+      })
+    }
   }
 }
 
@@ -422,9 +432,19 @@ const getVisibleColumns = () => {
 }
 
 
+// Watchers
+watch(() => authStore.canLoadData, (canLoad) => {
+  if (canLoad && designsStore.designs.length === 0) {
+    loadDesigns()
+  }
+}, { immediate: true })
+
 // Lifecycle
 onMounted(() => {
-  loadDesigns()
+  // Only load if authentication allows it
+  if (authStore.canLoadData) {
+    loadDesigns()
+  }
 })
 
 // Expose methods to parent component

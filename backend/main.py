@@ -1,18 +1,23 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import BaseModel
 import logging
 from typing import List, Optional, Dict, Any
-from fastapi import HTTPException
 from pathlib import Path
 import pandas as pd
 import numpy as np
 import uuid
 import io
 import re
+import bcrypt
+from jose import JWTError, jwt
+from datetime import datetime, timedelta
+import secrets
 
 # Configure logging
 logging.basicConfig(
@@ -29,12 +34,44 @@ class RawSettings(BaseSettings):
     run_base_dirs: str = ""
     allowed_users: str = ""
     local_users: str = ""
+    secret_key: str = ""
+    cors_allowed_origins: str = ""
+    disable_authentication: str = ""
+
+
+class LocalUser(BaseModel):
+    username: str
+    password_hash: str
 
 
 class AppSettings(BaseModel):
     run_base_dirs: List[str] = []
     allowed_users: List[str] = []
-    local_users: List[str] = []
+    local_users: List[LocalUser] = []
+    disable_authentication: bool = False
+
+
+# Authentication models
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+
+
+# Authentication configuration
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# Security scheme
+security = HTTPBearer(auto_error=False)
 
 
 class ScanRequest(BaseModel):
@@ -51,6 +88,156 @@ class RunMetadata(BaseModel):
     metadata: Dict[str, Any] = {}
 
 
+def parse_local_users(local_users_str: str) -> List[LocalUser]:
+    """Parse LOCAL_USERS string into list of LocalUser objects."""
+    if not local_users_str:
+        return []
+
+    users = []
+    for item in local_users_str.split(","):
+        item = item.strip()
+        if ":" in item:
+            username, password_hash = item.split(":", 1)
+            users.append(
+                LocalUser(
+                    username=username.strip(), password_hash=password_hash.strip()
+                )
+            )
+        else:
+            logger.warning(f"Invalid LOCAL_USERS format (missing colon): {item}")
+
+    return users
+
+
+# Authentication utility functions
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against its hash."""
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"), hashed_password.encode("utf-8")
+    )
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password using bcrypt."""
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+
+
+def authenticate_user(username: str, password: str) -> Optional[LocalUser]:
+    """Authenticate a user against local users."""
+    for user in settings.local_users:
+        if user.username == username and verify_password(password, user.password_hash):
+            return user
+    return None
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    """Create a JWT access token."""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Get the current authenticated user from JWT token."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(
+            credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM]
+        )
+        username = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(username=username)
+    except JWTError:
+        raise credentials_exception
+
+    # Find the user in local users
+    user = None
+    for local_user in settings.local_users:
+        if local_user.username == token_data.username:
+            user = local_user
+            break
+
+    if user is None:
+        raise credentials_exception
+    return user
+
+
+async def get_current_active_user(current_user: LocalUser = Depends(get_current_user)):
+    """Get the current active user."""
+    return current_user
+
+
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """Get the current user if authentication is enabled, otherwise return None."""
+    if settings.disable_authentication:
+        return None  # Authentication disabled
+
+    if not settings.local_users:
+        return None  # No authentication required
+
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return await get_current_user(credentials)
+
+
+async def get_current_user_optional_with_query(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    token: Optional[str] = None,
+):
+    """
+    Get the current user if authentication is enabled, supporting both
+    header and query parameter auth.
+    """
+    if settings.disable_authentication:
+        return None  # Authentication disabled
+
+    if not settings.local_users:
+        return None  # No authentication required
+
+    # Try query parameter token first, then header credentials
+    if token:
+        try:
+            # Create a mock credentials object for the query token
+            from fastapi.security import HTTPAuthorizationCredentials
+
+            mock_credentials = HTTPAuthorizationCredentials(
+                scheme="Bearer", credentials=token
+            )
+            return await get_current_user(mock_credentials)
+        except Exception:
+            # If query token fails, fall back to header credentials
+            pass
+
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return await get_current_user(credentials)
+
+
 raw_settings = RawSettings()
 settings = AppSettings(
     run_base_dirs=(
@@ -63,14 +250,30 @@ settings = AppSettings(
         if raw_settings.allowed_users
         else []
     ),
-    local_users=(
-        [item.strip() for item in raw_settings.local_users.split(",")]
-        if raw_settings.local_users
-        else []
-    ),
+    local_users=parse_local_users(raw_settings.local_users),
+    disable_authentication=raw_settings.disable_authentication.lower() == "true",
+)
+
+# Set up secret key
+SECRET_KEY = raw_settings.secret_key or secrets.token_urlsafe(32)
+
+# Set up CORS allowed origins
+CORS_ALLOWED_ORIGINS = (
+    [item.strip() for item in raw_settings.cors_allowed_origins.split(",")]
+    if raw_settings.cors_allowed_origins
+    else ["*"]
 )
 
 app = FastAPI()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Mount the frontend static files
 app.mount("/assets", StaticFiles(directory="backend/static/assets"), name="assets")
@@ -451,7 +654,10 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                 **{
                     col: row[col]
                     for col in df.columns
-                    if col != design_id_col and pd.notna(row[col])
+                    if col != design_id_col
+                    and not (
+                        pd.isna(row[col]) if hasattr(pd, "isna") else row[col] is None
+                    )
                 },
             }
 
@@ -526,8 +732,46 @@ async def serve_frontend():
     return FileResponse("backend/static/index.html")
 
 
+# Authentication endpoints
+@app.post("/api/auth/login", response_model=Token)
+async def login(login_request: LoginRequest):
+    """Authenticate user and return JWT token."""
+    user = authenticate_user(login_request.username, login_request.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.get("/api/auth/me")
+async def read_users_me(current_user: LocalUser = Depends(get_current_active_user)):
+    """Get current user information."""
+    return {"username": current_user.username}
+
+
+@app.get("/api/auth/status")
+async def auth_status():
+    """Check if authentication is enabled."""
+    return {
+        "auth_enabled": not settings.disable_authentication
+        and len(settings.local_users) > 0,
+        "disable_authentication": settings.disable_authentication,
+        "local_users_count": len(settings.local_users),
+    }
+
+
 @app.get("/api/tree")
-async def get_tree(path: str = ""):
+async def get_tree(
+    path: str = "",
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
     """
     Return folder structure for the file browser.
 
@@ -641,7 +885,10 @@ async def get_tree(path: str = ""):
 
 
 @app.post("/api/runs/scan")
-async def scan_runs(request: ScanRequest):
+async def scan_runs(
+    request: ScanRequest,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
     """
     Scan selected folders for valid run directories.
 
@@ -693,7 +940,9 @@ async def scan_runs(request: ScanRequest):
 
 
 @app.get("/api/runs/{run_id}/table")
-async def get_run_table(run_id: str):
+async def get_run_table(
+    run_id: str, current_user: Optional[LocalUser] = Depends(get_current_user_optional)
+):
     """
     Get the results table data for a specific run.
 
@@ -732,7 +981,11 @@ async def get_run_table(run_id: str):
 
 
 @app.get("/api/runs/{run_id}/files/pdb/{filename}")
-async def get_pdb_file(run_id: str, filename: str):
+async def get_pdb_file(
+    run_id: str,
+    filename: str,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional_with_query),
+):
     """
     Stream PDB file for a specific run.
 
@@ -811,7 +1064,9 @@ def merge_runs(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 @app.get("/api/runs")
-async def list_runs():
+async def list_runs(
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
     """
     List all cached runs, merging runs with the same project_id and run name.
 
@@ -828,7 +1083,10 @@ async def list_runs():
 
 
 @app.delete("/api/runs/{run_id}")
-async def delete_run(run_id: str):
+async def delete_run(
+    run_id: str,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
     """
     Remove a run from the cache.
 
@@ -846,7 +1104,9 @@ async def delete_run(run_id: str):
 
 
 @app.delete("/api/runs")
-async def clear_runs():
+async def clear_runs(
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
     """
     Clear all runs from the cache.
 
@@ -858,7 +1118,9 @@ async def clear_runs():
 
 
 @app.get("/api/designs")
-async def list_designs():
+async def list_designs(
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
     """
     List all designs from all cached runs.
 
@@ -878,7 +1140,9 @@ async def list_designs():
 
 
 @app.delete("/api/designs")
-async def clear_designs():
+async def clear_designs(
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
     """
     Clear all designs from the cache.
 
@@ -1022,7 +1286,10 @@ def create_histogram_spec(
 
 
 @app.post("/api/runs/plots/columns")
-async def get_plot_columns_multiple(request: Dict[str, Any]):
+async def get_plot_columns_multiple(
+    request: Dict[str, Any],
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
     """
     Get available columns for plotting from multiple runs.
 
@@ -1087,7 +1354,10 @@ async def get_plot_columns_multiple(request: Dict[str, Any]):
 
 
 @app.post("/api/runs/plots/scatter")
-async def get_scatter_plot_multiple(request: Dict[str, Any]):
+async def get_scatter_plot_multiple(
+    request: Dict[str, Any],
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
     """
     Get raw data for a scatter plot from multiple runs.
 
@@ -1170,7 +1440,10 @@ async def get_scatter_plot_multiple(request: Dict[str, Any]):
 
 
 @app.post("/api/runs/plots/histogram")
-async def get_histogram_plot_multiple(request: Dict[str, Any]):
+async def get_histogram_plot_multiple(
+    request: Dict[str, Any],
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
     """
     Get raw data for a histogram/distribution plot from multiple runs.
 

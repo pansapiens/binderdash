@@ -31,6 +31,11 @@ ALLOWED_USERS="user1@example.com,user2@example.com"  # Optional; Google OAuth al
 LOCAL_USERS="user1:$2b$...,user2:$2b$..."           # Optional dev fallback; bcrypt password hashes
 ```
 
+Generate password hashes for LOCAL_USERS:
+```bash
+python backend/scripts/encrypt_password.py username  # Interactive password prompt
+```
+
 ### Quick start (development)
 
 1) Ensure any active conda environment is deactivated:

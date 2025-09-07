@@ -31,6 +31,7 @@
   - `ALLOWED_USERS="user1@example.com,user2@example.com"` (optional; Google OAuth allowlist)
   - `LOCAL_USERS="user1:$2b$...,user2:$2b$..."` (optional dev fallback; bcrypt hashes)
 - When adding new env vars, update `.env.example` accordingly
+- Do not delete `.env`, but ensure it is in `.gitignore`
 
 ## Frontend guidelines (Vite + Vue 3 + PrimeVue)
 

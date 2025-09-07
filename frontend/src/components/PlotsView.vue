@@ -164,13 +164,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, nextTick } from 'vue'
+import { ref, onMounted, computed, nextTick, watch } from 'vue'
 import Button from 'primevue/button'
 import Dropdown from 'primevue/dropdown'
 import MultiSelect from 'primevue/multiselect'
 import { useToast } from 'primevue/usetoast'
 import embed from 'vega-embed'
-import { usePlotsStore, useRunsStore, useAppStore } from '../stores'
+import { usePlotsStore, useRunsStore, useAppStore, useAuthStore } from '../stores'
 
 const toast = useToast()
 
@@ -178,6 +178,7 @@ const toast = useToast()
 const plotsStore = usePlotsStore()
 const runsStore = useRunsStore()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 
 // Local UI state (not shared across components)
 const selectedProject = ref<string | null>(null)
@@ -296,6 +297,12 @@ const createHistogramSpec = (data: any, col: any, title = 'Distribution'): any =
 
 // Methods
 const loadRunData = async () => {
+  // Only load runs if authentication allows it
+  if (!authStore.canLoadData) {
+    console.log('Authentication required - skipping runs load')
+    return
+  }
+
   try {
     await runsStore.fetchRuns()
     
@@ -305,14 +312,17 @@ const loadRunData = async () => {
       await onRunsSelected()
     }
     
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error loading run data:', error)
-    toast.add({
-      severity: 'error',
-      summary: 'Error',
-      detail: 'Failed to load run data',
-      life: 3000
-    })
+    // Don't show toast for authentication errors - user will be redirected to login
+    if (error?.message !== 'Authentication required') {
+      toast.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: 'Failed to load run data',
+        life: 3000
+      })
+    }
   }
 }
 
@@ -557,9 +567,19 @@ const updateYHistogramPlot = async () => {
   }
 }
 
+// Watchers
+watch(() => authStore.canLoadData, (canLoad) => {
+  if (canLoad && runsStore.availableRuns.length === 0) {
+    loadRunData()
+  }
+}, { immediate: true })
+
 // Lifecycle
 onMounted(() => {
-  loadRunData()
+  // Only load if authentication allows it
+  if (authStore.canLoadData) {
+    loadRunData()
+  }
 })
 </script>
 

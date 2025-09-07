@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import TabView from 'primevue/tabview'
 import TabPanel from 'primevue/tabpanel'
 import Toast from 'primevue/toast'
+import Button from 'primevue/button'
 import RunsView from './components/DesignsView.vue'
 import PlotsView from './components/PlotsView.vue'
 import FolderBrowser from './components/FolderBrowser.vue'
-import { useDesignsStore, usePlotsStore, useRunsStore } from './stores'
+import LoginView from './components/LoginView.vue'
+import { useDesignsStore, usePlotsStore, useRunsStore, useAuthStore } from './stores'
 
 // Use Pinia stores
 const designsStore = useDesignsStore()
 const plotsStore = usePlotsStore()
 const runsStore = useRunsStore()
+const authStore = useAuthStore()
 
 // Create refs to components so we can call their methods
 const runsViewRef = ref<any>(null)
@@ -31,30 +34,64 @@ const handleTabChange = (event: any): void => {
     runsStore.fetchRuns()
   }
 }
+
+// Initialize authentication on app start
+onMounted(async () => {
+  await authStore.initializeAuth()
+})
+
+// Computed property to check if we should show the main app
+const shouldShowMainApp = computed(() => {
+  // Show main app if auth is disabled or user is authenticated
+  return authStore.isAuthDisabled || authStore.isAuthenticated
+})
 </script>
 
 <template>
   <div id="app">
-    <header class="app-header">
-      <div class="banner-overlay">
-        <h1>Binderdash</h1>
-        <p>De novo protein binder design results viewer</p>
+    <!-- Show login page if authentication is required and user is not authenticated -->
+    <LoginView v-if="authStore.shouldShowLogin" />
+    
+    <!-- Show loading state while authentication is being initialized -->
+    <div v-else-if="authStore.isLoading" class="loading-container">
+      <div class="loading-content">
+        <i class="pi pi-spinner pi-spin" style="font-size: 2rem; color: #667eea;"></i>
+        <p>Initializing...</p>
       </div>
-    </header>
+    </div>
+    
+    <!-- Show main app if authentication is disabled or user is authenticated -->
+    <template v-else-if="shouldShowMainApp">
+      <header class="app-header">
+        <!-- Show logout button if authenticated -->
+        <Button 
+          v-if="authStore.isAuthenticated"
+          label="Logout" 
+          severity="primary" 
+          size="small" 
+          @click="authStore.logout"
+          class="logout-button"
+        />
+        <div class="banner-overlay">
+          <h1>Binderdash</h1>
+          <p>De novo protein binder design results viewer</p>
+        </div>
+      </header>
 
-    <main class="app-main">
-      <TabView @tab-change="handleTabChange">
-        <TabPanel header="Designs" value="designs">
-          <RunsView ref="runsViewRef" />
-        </TabPanel>
-        <TabPanel header="Plots" value="plots">
-          <PlotsView ref="plotsViewRef" />
-        </TabPanel>
-        <TabPanel header="Configure Source Folders" value="folders">
-          <FolderBrowser @runs-scanned="handleRunsScanned" />
-        </TabPanel>
-      </TabView>
-    </main>
+      <main class="app-main">
+        <TabView @tab-change="handleTabChange">
+          <TabPanel header="Designs" value="designs">
+            <RunsView ref="runsViewRef" />
+          </TabPanel>
+          <TabPanel header="Plots" value="plots">
+            <PlotsView ref="plotsViewRef" />
+          </TabPanel>
+          <TabPanel header="Configure Source Folders" value="folders">
+            <FolderBrowser @runs-scanned="handleRunsScanned" />
+          </TabPanel>
+        </TabView>
+      </main>
+    </template>
 
     <Toast />
   </div>
@@ -126,6 +163,33 @@ body {
   font-size: 1rem;
   color: white;
   text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
+.logout-button {
+  position: absolute !important;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1000;
+  font-size: 0.8rem !important;
+  padding: 0.4rem 0.8rem !important;
+}
+
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: #f8f9fa;
+}
+
+.loading-content {
+  text-align: center;
+  color: #6c757d;
+}
+
+.loading-content p {
+  margin: 1rem 0 0 0;
+  font-size: 1rem;
 }
 
 .app-main {

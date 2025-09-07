@@ -8,6 +8,7 @@ interface ApiRequestOptions {
     method?: string;
     headers?: Record<string, string>;
     body?: string;
+    requireAuth?: boolean;
 }
 
 interface Folder {
@@ -60,20 +61,53 @@ interface MessageResponse {
 
 const API_BASE = ''
 
+// Token management
+let authToken: string | null = null
+
+export const setAuthToken = (token: string | null) => {
+    authToken = token
+}
+
+export const getAuthToken = (): string | null => {
+    return authToken
+}
+
 /**
- * Generic fetch wrapper with error handling
+ * Generic fetch wrapper with error handling and authentication
  */
 async function apiRequest<T = any>(url: string, options: ApiRequestOptions = {}): Promise<T> {
     try {
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            ...options.headers
+        }
+
+        // Add authentication header if token is available and auth is required
+        if (options.requireAuth !== false && authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`
+        }
+
         const response = await fetch(url, {
-            headers: {
-                'Content-Type': 'application/json',
-                ...options.headers
-            },
+            headers,
             ...options
         })
 
         if (!response.ok) {
+            // Handle authentication errors
+            if (response.status === 401) {
+                // Clear token on authentication failure
+                setAuthToken(null)
+                localStorage.removeItem('binderdash_token')
+                // Clear auth store state if available
+                try {
+                    const { useAuthStore } = await import('./stores/auth')
+                    const authStore = useAuthStore()
+                    authStore.clearToken()
+                } catch (error) {
+                    // Auth store might not be available yet, ignore
+                }
+                throw new Error('Authentication required')
+            }
             throw new Error(`HTTP error! status: ${response.status}`)
         }
 
@@ -120,7 +154,7 @@ export const runsApi = {
      * @returns Promise with all cached runs
      */
     async listRuns(): Promise<RunsResponse> {
-        return await apiRequest<RunsResponse>(`${API_BASE}/api/runs`)
+        return await apiRequest<RunsResponse>(`${API_BASE}/api/runs`, { requireAuth: true })
     },
 
     /**
@@ -136,10 +170,17 @@ export const runsApi = {
      * Get PDB file URL for a specific run and filename
      * @param runId - Unique identifier for the run
      * @param filename - Name of the PDB file
-     * @returns URL to the PDB file
+     * @returns URL to the PDB file with authentication token if available
      */
     getPdbFileUrl(runId: string, filename: string): string {
-        return `${API_BASE}/api/runs/${runId}/files/pdb/${filename}`
+        const baseUrl = `${API_BASE}/api/runs/${runId}/files/pdb/${filename}`
+
+        // Add authentication token as query parameter if available
+        if (authToken) {
+            return `${baseUrl}?token=${encodeURIComponent(authToken)}`
+        }
+
+        return baseUrl
     },
 
     /**
@@ -149,7 +190,8 @@ export const runsApi = {
      */
     async deleteRun(runId: string): Promise<MessageResponse> {
         return await apiRequest<MessageResponse>(`${API_BASE}/api/runs/${runId}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            requireAuth: true
         })
     },
 
@@ -159,7 +201,8 @@ export const runsApi = {
      */
     async clearRuns(): Promise<MessageResponse> {
         return await apiRequest<MessageResponse>(`${API_BASE}/api/runs`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            requireAuth: true
         })
     }
 }
@@ -173,7 +216,7 @@ export const designsApi = {
      * @returns Promise with all designs
      */
     async listDesigns(): Promise<DesignsResponse> {
-        return await apiRequest<DesignsResponse>(`${API_BASE}/api/designs`)
+        return await apiRequest<DesignsResponse>(`${API_BASE}/api/designs`, { requireAuth: true })
     },
 
     /**
@@ -182,7 +225,8 @@ export const designsApi = {
      */
     async clearDesigns(): Promise<MessageResponse> {
         return await apiRequest<MessageResponse>(`${API_BASE}/api/designs`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            requireAuth: true
         })
     }
 }
@@ -240,11 +284,55 @@ export const plotsApi = {
 }
 
 /**
+ * Authentication APIs
+ */
+export const authApi = {
+    /**
+     * Login with username and password
+     * @param username - Username
+     * @param password - Password
+     * @returns Promise with access token
+     */
+    async login(username: string, password: string): Promise<{ access_token: string, token_type: string }> {
+        return await apiRequest<{ access_token: string, token_type: string }>(`${API_BASE}/api/auth/login`, {
+            method: 'POST',
+            body: JSON.stringify({ username, password }),
+            requireAuth: false
+        })
+    },
+
+    /**
+     * Get current user information
+     * @returns Promise with user data
+     */
+    async getMe(): Promise<{ username: string }> {
+        return await apiRequest<{ username: string }>(`${API_BASE}/api/auth/me`, { requireAuth: true })
+    },
+
+    /**
+     * Check authentication status
+     * @returns Promise with auth status
+     */
+    async getStatus(): Promise<{
+        auth_enabled: boolean,
+        disable_authentication: boolean,
+        local_users_count: number
+    }> {
+        return await apiRequest<{
+            auth_enabled: boolean,
+            disable_authentication: boolean,
+            local_users_count: number
+        }>(`${API_BASE}/api/auth/status`, { requireAuth: false })
+    }
+}
+
+/**
  * Default export with all API modules
  */
 export default {
     tree: treeApi,
     runs: runsApi,
     designs: designsApi,
-    plots: plotsApi
+    plots: plotsApi,
+    auth: authApi
 }

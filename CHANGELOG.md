@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Local username/password authentication**: Implemented comprehensive authentication system
+  - Added JWT token-based authentication with configurable expiration (30 minutes default)
+  - Created password encryption utility script (`backend/scripts/encrypt_password.py`) for generating bcrypt hashes
+  - Added authentication endpoints: `/api/auth/login`, `/api/auth/me`, `/api/auth/status`
+  - Implemented `DISABLE_AUTHENTICATION` environment variable to completely disable auth when set to 'true'
+  - Protected all previously unsecured endpoints: runs management, designs management, and plotting APIs
+  - Added Vue.js login component with modern UI using PrimeVue components
+  - Implemented secure token storage in browser localStorage with automatic cleanup on auth failure
+  - Added authentication state management with Pinia store
+  - Updated webapi.ts to automatically include authentication headers for protected endpoints
+  - Added user info display and logout functionality in the main app header
+  - Authentication is optional - only enforced when `LOCAL_USERS` is configured and `DISABLE_AUTHENTICATION` is not 'true'
+  - Fixed PDB file access authentication by supporting token-based authentication via query parameters for external viewers like Mol*
+  - Fixed frontend authentication flow to prevent premature data loading before authentication is complete
+  - Added proper loading states and authentication-aware data fetching to prevent "Failed to load designs" errors on login page
+  - Improved logout button styling and positioning - now uses primary styling and positioned in top right of header
+  - Enhanced authentication error handling - expired tokens now automatically redirect to login page without showing error toasts
+  - Fixed logout button positioning to properly appear in top right corner of header
+- **Configurable CORS origins**: Added support for `CORS_ALLOWED_ORIGINS` environment variable
+  - Allows specifying comma-separated list of allowed origins for CORS requests
+  - Defaults to `*` (allow all origins) if not configured
+  - Supports both development (localhost) and production (domain) origins
+  - Updated `.env.example` with configuration examples
+- **Improved password encryption utility**: Enhanced `encrypt_password.py` script usability
+  - Made interactive mode the default (username as positional argument)
+  - Added support for password input via stdin (useful for scripts)
+  - Simplified command-line interface with `--password` option
+  - Updated documentation and examples throughout
 - **Protocol filtering in Plots tab**: Added "Filter by Protocol" dropdown to allow filtering runs by binding protocol (bindcraft/rfd) before plotting
 
 ### Changed
