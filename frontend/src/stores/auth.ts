@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useToast } from 'primevue/usetoast'
-import { authApi, setAuthToken } from '../webapi'
+import { authApi, setCsrfToken } from '../webapi'
 
 interface AuthStatus {
     auth_enabled: boolean
@@ -14,36 +14,36 @@ interface User {
 }
 
 interface LoginResponse {
-    access_token: string
-    token_type: string
+    message: string
+    user: {
+        username: string
+    }
+    csrf_token: string
 }
 
 export const useAuthStore = defineStore('auth', () => {
     // State
-    const token = ref<string | null>(null)
     const user = ref<User | null>(null)
     const authStatus = ref<AuthStatus | null>(null)
     const isLoading = ref(false)
+    const csrfToken = ref<string | null>(null)
 
     // Getters
-    const isAuthenticated = computed(() => !!token.value)
+    const isAuthenticated = computed(() => !!user.value)
     const isAuthEnabled = computed(() => authStatus.value?.auth_enabled ?? false)
     const isAuthDisabled = computed(() => authStatus.value?.disable_authentication ?? false)
     const shouldShowLogin = computed(() => isAuthEnabled.value && !isAuthenticated.value)
 
     // Actions
-    const setToken = (newToken: string) => {
-        token.value = newToken
-        setAuthToken(newToken) // Update webapi token
-        // Store in localStorage for persistence
-        localStorage.setItem('binderdash_token', newToken)
+    const setCsrfTokenLocal = (token: string) => {
+        csrfToken.value = token
+        setCsrfToken(token) // Update webapi token
     }
 
-    const clearToken = () => {
-        token.value = null
+    const clearAuth = () => {
         user.value = null
-        setAuthToken(null) // Clear webapi token
-        localStorage.removeItem('binderdash_token')
+        csrfToken.value = null
+        setCsrfToken(null) // Clear webapi token
     }
 
     const setUser = (userData: User) => {
@@ -72,13 +72,11 @@ export const useAuthStore = defineStore('auth', () => {
 
         try {
             const data = await authApi.login(username, password)
-            setToken(data.access_token)
-
-            // Get user info
-            await fetchUserInfo()
+            setUser(data.user)
+            setCsrfTokenLocal(data.csrf_token)
 
         } catch (error: any) {
-            clearToken()
+            clearAuth()
             throw error
         } finally {
             isLoading.value = false
@@ -87,48 +85,48 @@ export const useAuthStore = defineStore('auth', () => {
 
     // Get user info
     const fetchUserInfo = async () => {
-        if (!token.value) return
+        if (!isAuthenticated.value) return
 
         try {
             const userData = await authApi.getMe()
             setUser(userData)
         } catch (error: any) {
             console.error('Failed to fetch user info:', error)
-            // If we get a 401, the token is invalid - clear it
+            // If we get a 401, the session is invalid - clear auth
             if (error?.response?.status === 401) {
-                clearToken()
+                clearAuth()
             }
             throw error
         }
     }
 
     // Logout
-    const logout = () => {
-        clearToken()
+    const logout = async () => {
+        try {
+            await authApi.logout()
+        } catch (error) {
+            console.error('Logout error:', error)
+        } finally {
+            clearAuth()
+        }
     }
 
-    // Initialize auth state from localStorage
+    // Initialize auth state
     const initializeAuth = async () => {
         // Check auth status first
         await checkAuthStatus()
 
-        // If auth is disabled, no need to check token
+        // If auth is disabled, no need to check session
         if (isAuthDisabled.value) {
             return
         }
 
-        // Check for existing token
-        const storedToken = localStorage.getItem('binderdash_token')
-        if (storedToken) {
-            token.value = storedToken
-            setAuthToken(storedToken) // Update webapi token
-            // Verify token is still valid by fetching user info
-            try {
-                await fetchUserInfo()
-            } catch (error) {
-                // Token is invalid, clear it
-                clearToken()
-            }
+        // Try to fetch user info to check if session is valid
+        try {
+            await fetchUserInfo()
+        } catch (error) {
+            // Session is invalid or doesn't exist, clear auth
+            clearAuth()
         }
     }
 
@@ -137,18 +135,18 @@ export const useAuthStore = defineStore('auth', () => {
         return isAuthDisabled.value || isAuthenticated.value
     })
 
-    // Get authorization header for API requests
-    const getAuthHeader = () => {
-        if (!token.value) return {}
-        return { 'Authorization': `Bearer ${token.value}` }
+    // Get CSRF token for API requests
+    const getCsrfHeader = () => {
+        if (!csrfToken.value) return {}
+        return { 'X-CSRF-Token': csrfToken.value }
     }
 
     return {
         // State
-        token,
         user,
         authStatus,
         isLoading,
+        csrfToken,
 
         // Getters
         isAuthenticated,
@@ -162,6 +160,7 @@ export const useAuthStore = defineStore('auth', () => {
         logout,
         initializeAuth,
         checkAuthStatus,
-        getAuthHeader,
+        getCsrfHeader,
+        clearAuth,
     }
 })

@@ -61,19 +61,19 @@ interface MessageResponse {
 
 const API_BASE = ''
 
-// Token management
-let authToken: string | null = null
+// CSRF token management
+let csrfToken: string | null = null
 
-export const setAuthToken = (token: string | null) => {
-    authToken = token
+export const setCsrfToken = (token: string | null) => {
+    csrfToken = token
 }
 
-export const getAuthToken = (): string | null => {
-    return authToken
+export const getCsrfToken = (): string | null => {
+    return csrfToken
 }
 
 /**
- * Generic fetch wrapper with error handling and authentication
+ * Generic fetch wrapper with error handling and CSRF protection
  */
 async function apiRequest<T = any>(url: string, options: ApiRequestOptions = {}): Promise<T> {
     try {
@@ -82,27 +82,25 @@ async function apiRequest<T = any>(url: string, options: ApiRequestOptions = {})
             ...options.headers
         }
 
-        // Add authentication header if token is available and auth is required
-        if (options.requireAuth !== false && authToken) {
-            headers['Authorization'] = `Bearer ${authToken}`
+        // Add CSRF token for state-changing operations
+        if (options.requireAuth !== false && csrfToken && options.method && options.method !== 'GET') {
+            headers['X-CSRF-Token'] = csrfToken
         }
 
         const response = await fetch(url, {
             headers,
+            credentials: 'include', // Include cookies for authentication
             ...options
         })
 
         if (!response.ok) {
             // Handle authentication errors
             if (response.status === 401) {
-                // Clear token on authentication failure
-                setAuthToken(null)
-                localStorage.removeItem('binderdash_token')
                 // Clear auth store state if available
                 try {
                     const { useAuthStore } = await import('./stores/auth')
                     const authStore = useAuthStore()
-                    authStore.clearToken()
+                    authStore.clearAuth()
                 } catch (error) {
                     // Auth store might not be available yet, ignore
                 }
@@ -170,17 +168,10 @@ export const runsApi = {
      * Get PDB file URL for a specific run and filename
      * @param runId - Unique identifier for the run
      * @param filename - Name of the PDB file
-     * @returns URL to the PDB file with authentication token if available
+     * @returns URL to the PDB file (authentication via cookies)
      */
     getPdbFileUrl(runId: string, filename: string): string {
-        const baseUrl = `${API_BASE}/api/runs/${runId}/files/pdb/${filename}`
-
-        // Add authentication token as query parameter if available
-        if (authToken) {
-            return `${baseUrl}?token=${encodeURIComponent(authToken)}`
-        }
-
-        return baseUrl
+        return `${API_BASE}/api/runs/${runId}/files/pdb/${filename}`
     },
 
     /**
@@ -291,14 +282,35 @@ export const authApi = {
      * Login with username and password
      * @param username - Username
      * @param password - Password
-     * @returns Promise with access token
+     * @returns Promise with login response including CSRF token
      */
-    async login(username: string, password: string): Promise<{ access_token: string, token_type: string }> {
-        return await apiRequest<{ access_token: string, token_type: string }>(`${API_BASE}/api/auth/login`, {
+    async login(username: string, password: string): Promise<{ message: string, user: { username: string }, csrf_token: string }> {
+        const response = await apiRequest<{ message: string, user: { username: string }, csrf_token: string }>(`${API_BASE}/api/auth/login`, {
             method: 'POST',
             body: JSON.stringify({ username, password }),
             requireAuth: false
         })
+
+        // Store CSRF token for future requests
+        setCsrfToken(response.csrf_token)
+
+        return response
+    },
+
+    /**
+     * Logout user
+     * @returns Promise with logout message
+     */
+    async logout(): Promise<{ message: string }> {
+        const response = await apiRequest<{ message: string }>(`${API_BASE}/api/auth/logout`, {
+            method: 'POST',
+            requireAuth: true
+        })
+
+        // Clear CSRF token
+        setCsrfToken(null)
+
+        return response
     },
 
     /**

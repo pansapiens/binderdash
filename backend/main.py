@@ -1,7 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,7 +15,7 @@ import io
 import re
 import bcrypt
 from jose import JWTError, jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 
 # Configure logging
@@ -69,9 +68,8 @@ class TokenData(BaseModel):
 # Authentication configuration
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
-# Security scheme
-security = HTTPBearer(auto_error=False)
+COOKIE_NAME = "binderdash_session"
+CSRF_COOKIE_NAME = "binderdash_csrf"
 
 
 class ScanRequest(BaseModel):
@@ -135,27 +133,85 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create a JWT access token."""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+def set_auth_cookie(
+    response: Response, token: str, expires_delta: Optional[timedelta] = None
 ):
-    """Get the current authenticated user from JWT token."""
+    """Set secure HttpOnly authentication cookie."""
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(
+            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+        )
+
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        expires=expire,  # Use datetime object directly
+        httponly=True,  # Prevent XSS attacks
+        secure=False,  # Set to False for HTTP testing
+        samesite="lax",  # CSRF protection
+        path="/",
+    )
+
+
+def clear_auth_cookie(response: Response):
+    """Clear authentication cookie."""
+    response.delete_cookie(
+        key=COOKIE_NAME, path="/", httponly=True, secure=False, samesite="lax"
+    )
+
+
+def get_token_from_cookie(request: Request) -> Optional[str]:
+    """Extract JWT token from HttpOnly cookie."""
+    return request.cookies.get(COOKIE_NAME)
+
+
+def generate_csrf_token() -> str:
+    """Generate a CSRF token."""
+    return secrets.token_urlsafe(32)
+
+
+def set_csrf_cookie(response: Response, token: str):
+    """Set CSRF token cookie."""
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=token,
+        httponly=False,  # CSRF tokens need to be accessible to JavaScript
+        secure=False,
+        samesite="lax",
+        path="/",
+    )
+
+
+def clear_csrf_cookie(response: Response):
+    """Clear CSRF token cookie."""
+    response.delete_cookie(key=CSRF_COOKIE_NAME, path="/", secure=False, samesite="lax")
+
+
+async def get_current_user(request: Request):
+    """Get the current authenticated user from JWT token in cookie."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    # Get token from cookie
+    token = get_token_from_cookie(request)
+    if not token:
+        raise credentials_exception
+
     try:
-        payload = jwt.decode(
-            credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM]
-        )
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username = payload.get("sub")
         if username is None:
             raise credentials_exception
@@ -180,9 +236,7 @@ async def get_current_active_user(current_user: LocalUser = Depends(get_current_
     return current_user
 
 
-async def get_current_user_optional(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-):
+async def get_current_user_optional(request: Request):
     """Get the current user if authentication is enabled, otherwise return None."""
     if settings.disable_authentication:
         return None  # Authentication disabled
@@ -190,23 +244,25 @@ async def get_current_user_optional(
     if not settings.local_users:
         return None  # No authentication required
 
-    if not credentials:
+    # Get token from cookie
+    token = get_token_from_cookie(request)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return await get_current_user(credentials)
+    return await get_current_user(request)
 
 
 async def get_current_user_optional_with_query(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    request: Request,
     token: Optional[str] = None,
 ):
     """
     Get the current user if authentication is enabled, supporting both
-    header and query parameter auth.
+    cookie and query parameter auth (for backward compatibility with PDB files).
     """
     if settings.disable_authentication:
         return None  # Authentication disabled
@@ -214,28 +270,49 @@ async def get_current_user_optional_with_query(
     if not settings.local_users:
         return None  # No authentication required
 
-    # Try query parameter token first, then header credentials
-    if token:
+    # Try cookie first, then query parameter token (for backward compatibility)
+    cookie_token = get_token_from_cookie(request)
+    if cookie_token:
         try:
-            # Create a mock credentials object for the query token
-            from fastapi.security import HTTPAuthorizationCredentials
-
-            mock_credentials = HTTPAuthorizationCredentials(
-                scheme="Bearer", credentials=token
-            )
-            return await get_current_user(mock_credentials)
+            return await get_current_user(request)
         except Exception:
-            # If query token fails, fall back to header credentials
             pass
 
-    if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # Try query parameter token (for backward compatibility with PDB files)
+    if token:
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            username = payload.get("sub")
+            if username is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authentication required",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            token_data = TokenData(username=username)
 
-    return await get_current_user(credentials)
+            # Find the user in local users
+            user = None
+            for local_user in settings.local_users:
+                if local_user.username == token_data.username:
+                    user = local_user
+                    break
+
+            if user is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authentication required",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            return user
+        except JWTError:
+            pass
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 raw_settings = RawSettings()
@@ -274,6 +351,48 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# CSRF Protection Middleware
+@app.middleware("http")
+async def csrf_protection(request: Request, call_next):
+    """CSRF protection middleware for state-changing operations."""
+    # Skip CSRF check for GET, HEAD, OPTIONS requests
+    if request.method in ["GET", "HEAD", "OPTIONS"]:
+        response = await call_next(request)
+        return response
+
+    # Skip CSRF check for auth endpoints (login doesn't need CSRF)
+    if request.url.path in ["/api/auth/login", "/api/auth/status"]:
+        response = await call_next(request)
+        return response
+
+    # Skip CSRF check if authentication is disabled
+    if settings.disable_authentication or not settings.local_users:
+        response = await call_next(request)
+        return response
+
+    # Check for CSRF token in header
+    csrf_token = request.headers.get("X-CSRF-Token")
+    if not csrf_token:
+        return Response(
+            content="CSRF token missing",
+            status_code=403,
+            headers={"Content-Type": "text/plain"},
+        )
+
+    # Verify CSRF token matches cookie
+    cookie_csrf_token = request.cookies.get(CSRF_COOKIE_NAME)
+    if not cookie_csrf_token or csrf_token != cookie_csrf_token:
+        return Response(
+            content="CSRF token mismatch",
+            status_code=403,
+            headers={"Content-Type": "text/plain"},
+        )
+
+    response = await call_next(request)
+    return response
+
 
 # Mount the frontend static files
 app.mount("/assets", StaticFiles(directory="backend/static/assets"), name="assets")
@@ -733,9 +852,9 @@ async def serve_frontend():
 
 
 # Authentication endpoints
-@app.post("/api/auth/login", response_model=Token)
-async def login(login_request: LoginRequest):
-    """Authenticate user and return JWT token."""
+@app.post("/api/auth/login")
+async def login(login_request: LoginRequest, response: Response):
+    """Authenticate user and set secure HttpOnly cookie."""
     user = authenticate_user(login_request.username, login_request.password)
     if not user:
         raise HTTPException(
@@ -743,11 +862,32 @@ async def login(login_request: LoginRequest):
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+
+    # Set secure HttpOnly cookie
+    set_auth_cookie(response, access_token, access_token_expires)
+
+    # Generate and set CSRF token
+    csrf_token = generate_csrf_token()
+    set_csrf_cookie(response, csrf_token)
+
+    return {
+        "message": "Login successful",
+        "user": {"username": user.username},
+        "csrf_token": csrf_token,
+    }
+
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    """Logout user and clear authentication cookies."""
+    clear_auth_cookie(response)
+    clear_csrf_cookie(response)
+    return {"message": "Logout successful"}
 
 
 @app.get("/api/auth/me")

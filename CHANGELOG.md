@@ -7,17 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security Improvements
+- **Migrated to secure HttpOnly cookies**: Replaced localStorage token storage with industry-standard secure cookie authentication
+  - **XSS Protection**: Authentication tokens now stored in HttpOnly cookies, preventing JavaScript access and XSS token theft
+  - **CSRF Protection**: Added comprehensive CSRF protection middleware with token validation
+  - **Secure Cookie Attributes**: Implemented `HttpOnly`, `Secure`, and `SameSite` cookie attributes for maximum security
+  - **Automatic Cookie Management**: Browser automatically handles cookie transmission, eliminating manual Authorization header management
+  - **PDB File Security**: Removed insecure query parameter authentication for PDB file access, now uses secure cookies
+  - **Backward Compatibility**: Maintained support for both cookie and header-based authentication during transition
+
 ### Added
 - **Local username/password authentication**: Implemented comprehensive authentication system
   - Added JWT token-based authentication with configurable expiration (30 minutes default)
   - Created password encryption utility script (`backend/scripts/encrypt_password.py`) for generating bcrypt hashes
-  - Added authentication endpoints: `/api/auth/login`, `/api/auth/me`, `/api/auth/status`
+  - Added authentication endpoints: `/api/auth/login`, `/api/auth/me`, `/api/auth/status`, `/api/auth/logout`
   - Implemented `DISABLE_AUTHENTICATION` environment variable to completely disable auth when set to 'true'
   - Protected all previously unsecured endpoints: runs management, designs management, and plotting APIs
   - Added Vue.js login component with modern UI using PrimeVue components
-  - Implemented secure token storage in browser localStorage with automatic cleanup on auth failure
   - Added authentication state management with Pinia store
-  - Updated webapi.ts to automatically include authentication headers for protected endpoints
+  - Updated webapi.ts to use secure cookie-based authentication with CSRF token support
   - Added user info display and logout functionality in the main app header
   - Authentication is optional - only enforced when `LOCAL_USERS` is configured and `DISABLE_AUTHENTICATION` is not 'true'
   - Fixed PDB file access authentication by supporting token-based authentication via query parameters for external viewers like Mol*
