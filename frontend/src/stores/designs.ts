@@ -39,40 +39,39 @@ export const useDesignsStore = defineStore('designs', () => {
             return null
         }
 
-        let structureIndex = 0
-        for (const design of selectedDesigns.value) {
-            if (design.pdb_file) {
-                if (structureIndex === currentStructureIndex.value) {
-                    return {
-                        design,
-                        filename: design.pdb_file.split('/').pop() || '',
-                        pdbPath: design.pdb_file
-                    }
-                }
-                structureIndex++
-            }
+        // Get all designs with PDB files from the filtered designs
+        const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
+
+        if (designsWithPdb.length === 0 || currentStructureIndex.value >= designsWithPdb.length) {
+            return null
         }
-        return null
+
+        const design = designsWithPdb[currentStructureIndex.value]
+        if (!design.pdb_file) {
+            return null
+        }
+
+        return {
+            design,
+            filename: design.pdb_file.split('/').pop() || '',
+            pdbPath: design.pdb_file
+        }
     })
 
     const canNavigatePrevious = computed(() => {
         if (selectedDesigns.value.length === 0) return false
-        const currentDesign = selectedDesigns.value[currentStructureIndex.value]
-        const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
-        return currentIndex > 0
+        const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
+        return currentStructureIndex.value > 0 && designsWithPdb.length > 0
     })
 
     const canNavigateNext = computed(() => {
         if (selectedDesigns.value.length === 0) return false
-        const currentDesign = selectedDesigns.value[currentStructureIndex.value]
-        const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
-        return currentIndex < filteredDesigns.value.length - 1
+        const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
+        return currentStructureIndex.value < designsWithPdb.length - 1 && designsWithPdb.length > 0
     })
 
     const totalStructures = computed(() => {
-        return selectedDesigns.value.reduce((total, design) => {
-            return total + (design.pdb_file ? 1 : 0)
-        }, 0)
+        return filteredDesigns.value.filter(d => d.pdb_file).length
     })
 
     // Actions
@@ -136,7 +135,9 @@ export const useDesignsStore = defineStore('designs', () => {
     }
 
     const navigateStructure = (direction: 'next' | 'previous') => {
-        if (direction === 'next' && currentStructureIndex.value < totalStructures.value - 1) {
+        const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
+
+        if (direction === 'next' && currentStructureIndex.value < designsWithPdb.length - 1) {
             currentStructureIndex.value++
         } else if (direction === 'previous' && currentStructureIndex.value > 0) {
             currentStructureIndex.value--
@@ -157,22 +158,21 @@ export const useDesignsStore = defineStore('designs', () => {
 
     const viewDesign = (design: Design) => {
         selectedDesigns.value = [design]
-        currentStructureIndex.value = 0
+
+        // Find the position of this design among all designs with PDB files
+        const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
+        const index = designsWithPdb.findIndex(d => d.design_id === design.design_id)
+        currentStructureIndex.value = index >= 0 ? index : 0
     }
 
     const getCurrentRowPosition = () => {
         if (selectedDesigns.value.length === 0) return '0 / 0'
 
-        const currentDesign = selectedDesigns.value[currentStructureIndex.value]
-        const currentIndex = filteredDesigns.value.findIndex(d => d.design_id === currentDesign.design_id)
-
-        if (currentIndex === -1) return '0 / 0'
-
-        // Find the position among designs with PDB files
         const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
-        const pdbIndex = designsWithPdb.findIndex(d => d.design_id === currentDesign.design_id)
 
-        return `${pdbIndex + 1} / ${designsWithPdb.length}`
+        if (designsWithPdb.length === 0) return '0 / 0'
+
+        return `${currentStructureIndex.value + 1} / ${designsWithPdb.length}`
     }
 
     // Helper function to build columns from data

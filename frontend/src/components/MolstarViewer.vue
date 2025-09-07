@@ -24,7 +24,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick, readonly } from 'vue'
 
 // Extend Window interface for PDBeMolstarPlugin
 declare global {
@@ -37,6 +37,9 @@ declare global {
 const props = defineProps<{
   pdbUrl: string
   structureInfo?: any
+  autoFocus?: boolean
+  showControls?: boolean
+  backgroundColor?: { r: number, g: number, b: number }
 }>()
 
 // State
@@ -44,6 +47,7 @@ const molstarContainer = ref<HTMLElement | null>(null)
 const viewerInstance = ref<any>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
+const isSpinning = ref(false)
 
 // Methods
 const loadMolstarResources = () => {
@@ -68,7 +72,6 @@ const loadMolstarResources = () => {
     script.onload = () => {
       // Wait a bit for the plugin to fully initialize
       setTimeout(() => {
-        console.log('PDBe Molstar plugin loaded successfully')
         resolve()
       }, 200)
     }
@@ -88,22 +91,8 @@ const loadStructure = async () => {
     loading.value = true
     error.value = null
     
-    console.log('Loading structure from:', props.pdbUrl)
     
-    // Clear previous viewer
-    if (viewerInstance.value) {
-      try {
-        // Clean up previous instance if it exists
-        viewerInstance.value = null
-      } catch (e) {
-        console.warn('Error cleaning up previous viewer:', e)
-      }
-    }
-    
-    // Clear container
-    molstarContainer.value.innerHTML = ''
-    
-    // Load Molstar resources
+    // Load Molstar resources if not already loaded
     await loadMolstarResources()
     
     // Check if plugin is available
@@ -111,51 +100,126 @@ const loadStructure = async () => {
       throw new Error('PDBeMolstarPlugin not available after loading resources')
     }
     
-    // Create plugin instance
-    const viewer = new window.PDBeMolstarPlugin()
-    console.log('Created PDBe Molstar plugin instance')
-    
-    // Set options following the documentation pattern
-    const options = {
-      customData: {
-        url: props.pdbUrl,
-        format: 'pdb',
-        binary: false
-      },
-      // APPEARANCE
-      visualStyle: 'cartoon',
-      hideStructure: ['water'],
-      bgColor: { r: 255, g: 255, b: 255 },
+    // If viewer instance exists, use update method for better performance
+    if (viewerInstance.value) {
       
-      // BEHAVIOR
-      selectInteraction: true,
+      // Store current control panel state before update
+      let controlsVisible = true
+      try {
+        // Try to get current control panel state (this might not be available in all versions)
+        controlsVisible = viewerInstance.value.canvas?.controlsVisible ?? true
+      } catch (e) {
+        console.warn('Could not determine control panel state:', e)
+      }
       
-      // INTERFACE
-      hideControls: false,
-      sequencePanel: false,
-      pdbeLink: false,
-      loadingOverlay: false,
-      expanded: false,
-      landscape: false,
-      reactive: true
+      const updateOptions = {
+        customData: {
+          url: props.pdbUrl,
+          format: 'pdb',
+          binary: false
+        },
+        // Preserve essential visual settings to maintain consistent theme
+        visualStyle: 'cartoon',
+        hideStructure: ['water'],
+        bgColor: props.backgroundColor || { r: 255, g: 255, b: 255 },
+        // Explicitly preserve control panel settings
+        hideControls: controlsVisible,
+      }
+      
+      // Use the update method to load new structure
+      const success = await viewerInstance.value.visual.update(updateOptions, true)
+      
+      if (success) {
+        
+        // Restore control panel state after update
+        try {
+          if (controlsVisible) {
+            viewerInstance.value.canvas.toggleControls(true)
+          }
+        } catch (e) {
+          console.warn('Could not restore control panel state:', e)
+        }
+ 
+        // Auto-focus on the new structure if enabled
+        if (props.autoFocus !== false) {
+          await focusOnStructure()
+        }
+        
+        loading.value = false
+        return
+      } else {
+        // Fall back to full reload if update fails
+        await fullReload()
+      }
+    } else {
+      // First time loading - create new instance
+      await fullReload()
     }
-    
-    console.log('Rendering with options:', options)
-    
-    // Call render method to display the 3D view
-    await viewer.render(molstarContainer.value, options)
-    
-    console.log('PDBe Molstar rendered successfully')
-    
-    // Store reference
-    viewerInstance.value = viewer
-    loading.value = false
 
   } catch (err) {
     console.error('Error loading Molstar viewer:', err)
     error.value = (err as Error).message || 'Failed to load structure'
     loading.value = false
   }
+}
+
+const fullReload = async () => {
+  // Clear previous viewer
+  if (viewerInstance.value) {
+    try {
+      viewerInstance.value = null
+    } catch (e) {
+      console.warn('Error cleaning up previous viewer:', e)
+    }
+  }
+  
+  // Clear container
+  if (molstarContainer.value) {
+    molstarContainer.value.innerHTML = ''
+  }
+  
+  // Create plugin instance
+  const viewer = new window.PDBeMolstarPlugin()
+  
+  // Set options following the documentation pattern
+  const options = {
+    customData: {
+      url: props.pdbUrl,
+      format: 'pdb',
+      binary: false
+    },
+    // APPEARANCE
+    visualStyle: 'cartoon',
+    hideStructure: ['water'],
+    bgColor: props.backgroundColor || { r: 255, g: 255, b: 255 },
+    
+    // BEHAVIOR
+    selectInteraction: true,
+    
+    // INTERFACE
+    hideControls: props.showControls === false,
+    sequencePanel: false,
+    pdbeLink: false,
+    loadingOverlay: false,
+    expanded: false,
+    landscape: false,
+    reactive: true
+  }
+  
+  
+  // Call render method to display the 3D view
+  await viewer.render(molstarContainer.value, options)
+  
+  
+  // Store reference
+  viewerInstance.value = viewer
+  
+  // Auto-focus on the new structure if enabled
+  if (props.autoFocus !== false) {
+    await focusOnStructure()
+  }
+  
+  loading.value = false
 }
 
 // Watchers
@@ -185,9 +249,81 @@ onUnmounted(() => {
   }
 })
 
-// Expose methods
+// Helper methods for controlling the viewer
+const focusOnStructure = async () => {
+  if (viewerInstance.value) {
+    try {
+      await viewerInstance.value.visual.reset({ camera: true })
+    } catch (e) {
+      console.warn('Error focusing on structure:', e)
+    }
+  }
+}
+
+const toggleSpin = async (forceState?: boolean) => {
+  if (viewerInstance.value) {
+    try {
+      // If forceState is provided, use it; otherwise toggle current state
+      const newState = forceState !== undefined ? forceState : !isSpinning.value
+      await viewerInstance.value.visual.toggleSpin(newState)
+      isSpinning.value = newState
+    } catch (e) {
+      console.warn('Error toggling spin:', e)
+    }
+  }
+}
+
+const setBackgroundColor = async (color: { r: number, g: number, b: number }) => {
+  if (viewerInstance.value) {
+    try {
+      await viewerInstance.value.canvas.setBgColor(color)
+    } catch (e) {
+      console.warn('Error setting background color:', e)
+    }
+  }
+}
+
+const toggleControls = (isVisible?: boolean) => {
+  if (viewerInstance.value) {
+    try {
+      viewerInstance.value.canvas.toggleControls(isVisible)
+    } catch (e) {
+      console.warn('Error toggling controls:', e)
+    }
+  }
+}
+
+
+const highlightResidues = async (data: any[]) => {
+  if (viewerInstance.value) {
+    try {
+      await viewerInstance.value.visual.highlight({ data })
+    } catch (e) {
+      console.warn('Error highlighting residues:', e)
+    }
+  }
+}
+
+const clearHighlight = async () => {
+  if (viewerInstance.value) {
+    try {
+      await viewerInstance.value.visual.clearHighlight()
+    } catch (e) {
+      console.warn('Error clearing highlight:', e)
+    }
+  }
+}
+
+// Expose methods and state
 defineExpose({
   loadStructure,
+  focusOnStructure,
+  toggleSpin,
+  setBackgroundColor,
+  toggleControls,
+  highlightResidues,
+  clearHighlight,
+  isSpinning: readonly(isSpinning),
   dispose: () => {
     if (viewerInstance.value) {
       try {
@@ -203,7 +339,7 @@ defineExpose({
 <style scoped>
 .molstar-viewer-container {
   width: 100%;
-  height: 400px;
+  height: 600px;
   border: 1px solid #e9ecef;
   border-radius: 6px;
   overflow: hidden;

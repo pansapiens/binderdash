@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Enhanced Structure Viewer
+- **Improved MolstarViewer performance**: Replaced destroy/recreate approach with PDBe Molstar `update()` helper method for smoother navigation
+  - **Faster structure loading**: Uses `visual.update()` method to load new structures without recreating the entire viewer instance
+  - **Auto-focus functionality**: Automatically focuses on new structures when navigating between designs
+  - **Enhanced viewer controls**: Added focus and spin toggle buttons to the structure viewer interface
+  - **Configurable viewer options**: Added props for auto-focus, show controls, and background color customization
+  - **Helper method exposure**: Exposed useful PDBe Molstar helper methods (focus, spin, highlight, background color) for programmatic control
+  - **Better error handling**: Improved error handling with fallback to full reload if update method fails
+  - **Control panel preservation**: Fixed control panel disappearing after loading second structure by using minimal update parameters
+  - **Theme consistency**: Restored visual theme parameters (visualStyle, hideStructure, bgColor) while preserving control panel state
+  - **Improved structure details**: Enhanced structure information display with better formatted table layout
+
 ### Security Improvements
 - **Migrated to secure HttpOnly cookies**: Replaced localStorage token storage with industry-standard secure cookie authentication
   - **XSS Protection**: Authentication tokens now stored in HttpOnly cookies, preventing JavaScript access and XSS token theft

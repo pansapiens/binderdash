@@ -250,15 +250,40 @@
               text
               rounded
             />
+            <Button 
+              :icon="isSpinning ? 'pi pi-pause' : 'pi pi-play'" 
+              @click="toggleSpin"
+              text
+              rounded
+              :tooltip="isSpinning ? 'Pause Rotation' : 'Start Rotation'"
+            />
           </div>
         </div>
 
         <div class="structure-info">
           <div v-if="designsStore.currentStructure" class="structure-details">
-            <p><strong>Design:</strong> {{ designsStore.currentStructure.design.design_id }}</p>
-            <p><strong>Run:</strong> {{ designsStore.currentStructure.design.run_name }}</p>
-            <p><strong>Protocol:</strong> {{ designsStore.currentStructure.design.protocol }}</p>
-            <p><strong>File:</strong> {{ designsStore.currentStructure.filename }}</p>
+            <table class="structure-details-table">
+              <tr>
+                <th>Design</th>
+                <td>{{ designsStore.currentStructure.design.design_id }}</td>
+              </tr>
+              <tr>
+                <th>Project</th>
+                <td>{{ designsStore.currentStructure.design.project_id }}</td>
+              </tr>
+              <tr>
+                <th>Run</th>
+                <td>{{ designsStore.currentStructure.design.run_name }}</td>
+              </tr>
+              <tr>
+                <th>Protocol</th>
+                <td>{{ designsStore.currentStructure.design.protocol }}</td>
+              </tr>
+              <tr>
+                <th>File</th>
+                <td>{{ designsStore.currentStructure.filename }}</td>
+              </tr>
+            </table>
           </div>
         </div>
 
@@ -266,6 +291,9 @@
           v-if="designsStore.currentStructure"
           :pdb-url="getPdbUrl()"
           :structure-info="designsStore.currentStructure"
+          :auto-focus="true"
+          :show-controls="true"
+          ref="molstarViewerRef"
         />
       </div>
 
@@ -307,6 +335,8 @@ const authStore = useAuthStore()
 // Local UI state (not shared across components)
 const showColumnSelector = ref(false)
 const showFilterPanel = ref(false)
+const molstarViewerRef = ref<any>(null)
+const isSpinning = ref(false)
 
 // Filter options
 const protocolOptions = ref(['bindcraft', 'rfd'])
@@ -378,6 +408,14 @@ const getCurrentRowPosition = () => {
   return designsStore.getCurrentRowPosition()
 }
 
+const toggleSpin = async () => {
+  if (molstarViewerRef.value) {
+    await molstarViewerRef.value.toggleSpin()
+    // Update local state to reflect the change
+    isSpinning.value = molstarViewerRef.value.isSpinning
+  }
+}
+
 const toggleColumnSelector = () => {
   showColumnSelector.value = !showColumnSelector.value
 }
@@ -436,6 +474,13 @@ const getVisibleColumns = () => {
 watch(() => authStore.canLoadData, (canLoad) => {
   if (canLoad && designsStore.designs.length === 0) {
     loadDesigns()
+  }
+}, { immediate: true })
+
+// Sync spinning state when viewer changes
+watch(() => molstarViewerRef.value?.isSpinning, (newSpinningState) => {
+  if (newSpinningState !== undefined) {
+    isSpinning.value = newSpinningState
   }
 }, { immediate: true })
 
@@ -652,6 +697,26 @@ defineExpose({
 .structure-details p {
   margin: 0.25rem 0;
   color: #495057;
+}
+
+.structure-details-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.structure-details-table th {
+  text-align: left;
+  font-weight: 600;
+  color: #495057;
+  padding: 0.25rem 0.5rem 0.25rem 0;
+  min-width: 80px;
+}
+
+.structure-details-table td {
+  color: #6c757d;
+  padding: 0.25rem 0;
+  word-break: break-all;
 }
 
 
