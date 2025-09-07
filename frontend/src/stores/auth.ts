@@ -84,8 +84,9 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     // Get user info
-    const fetchUserInfo = async () => {
-        if (!isAuthenticated.value) return
+    const fetchUserInfo = async (skipAuthCheck = false) => {
+        // Skip auth check during initialization to allow session restoration
+        if (!skipAuthCheck && !isAuthenticated.value) return
 
         try {
             const userData = await authApi.getMe()
@@ -122,8 +123,9 @@ export const useAuthStore = defineStore('auth', () => {
         }
 
         // Try to fetch user info to check if session is valid
+        // Skip auth check during initialization to allow session restoration
         try {
-            await fetchUserInfo()
+            await fetchUserInfo(true)
         } catch (error) {
             // Session is invalid or doesn't exist, clear auth
             clearAuth()

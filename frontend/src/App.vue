@@ -35,9 +35,13 @@ const handleTabChange = (event: any): void => {
   }
 }
 
+// Track if authentication has been initialized
+const authInitialized = ref(false)
+
 // Initialize authentication on app start
 onMounted(async () => {
   await authStore.initializeAuth()
+  authInitialized.value = true
 })
 
 // Computed property to check if we should show the main app
@@ -45,20 +49,26 @@ const shouldShowMainApp = computed(() => {
   // Show main app if auth is disabled or user is authenticated
   return authStore.isAuthDisabled || authStore.isAuthenticated
 })
+
+// Computed property to check if we should show loading state
+const shouldShowLoading = computed(() => {
+  // Show loading if auth hasn't been initialized yet
+  return !authInitialized.value
+})
 </script>
 
 <template>
   <div id="app">
-    <!-- Show login page if authentication is required and user is not authenticated -->
-    <LoginView v-if="authStore.shouldShowLogin" />
-    
     <!-- Show loading state while authentication is being initialized -->
-    <div v-else-if="authStore.isLoading" class="loading-container">
+    <div v-if="shouldShowLoading" class="loading-container">
       <div class="loading-content">
         <i class="pi pi-spinner pi-spin" style="font-size: 2rem; color: #667eea;"></i>
         <p>Initializing...</p>
       </div>
     </div>
+    
+    <!-- Show login page if authentication is required and user is not authenticated -->
+    <LoginView v-else-if="authStore.shouldShowLogin" />
     
     <!-- Show main app if authentication is disabled or user is authenticated -->
     <template v-else-if="shouldShowMainApp">

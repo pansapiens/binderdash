@@ -362,8 +362,8 @@ async def csrf_protection(request: Request, call_next):
         response = await call_next(request)
         return response
 
-    # Skip CSRF check for auth endpoints (login doesn't need CSRF)
-    if request.url.path in ["/api/auth/login", "/api/auth/status"]:
+    # Skip CSRF check for auth endpoints (login and logout don't need CSRF)
+    if request.url.path in ["/api/auth/login", "/api/auth/logout", "/api/auth/status"]:
         response = await call_next(request)
         return response
 
