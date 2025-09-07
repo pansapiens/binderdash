@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Control panel preservation**: Fixed control panel disappearing after loading second structure by using minimal update parameters
   - **Theme consistency**: Restored visual theme parameters (visualStyle, hideStructure, bgColor) while preserving control panel state
   - **Improved structure details**: Enhanced structure information display with better formatted table layout
+  - **Filtered navigation**: Fixed next/prev buttons to only cycle through visible/filtered rows in the table instead of all designs
 
 ### Security Improvements
 - **Migrated to secure HttpOnly cookies**: Replaced localStorage token storage with industry-standard secure cookie authentication

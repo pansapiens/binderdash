@@ -135,7 +135,7 @@
 
         <div class="designs-table-section">
           <DataTable 
-          :value="designsStore.designs" 
+          :value="designsStore.filteredDesigns" 
           :loading="designsStore.loading"
           v-model:selection="designsStore.selectedDesigns"
           selectionMode="multiple"
@@ -146,9 +146,6 @@
           :rowsPerPageOptions="[10, 20, 50, 100]"
           paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
           currentPageReportTemplate="Showing {first} to {last} of {totalRecords} designs"
-          :filters="designsStore.filters"
-          filterDisplay="row"
-          :globalFilterFields="getGlobalFilterFields()"
           showGridlines
           :resizableColumns="true"
           columnResizeMode="fit"
@@ -445,17 +442,6 @@ const getPdbUrl = () => {
   return runsApi.getPdbFileUrl(designsStore.currentStructure.design.run_id, designsStore.currentStructure.filename)
 }
 
-const getGlobalFilterFields = () => {
-  // Base fields that are always present
-  const baseFields = ['design_id', 'project_id', 'run_name', 'protocol']
-  
-  // Add score columns that are currently visible
-  const scoreFields = designsStore.visibleColumns.filter((col: string) => 
-    ['pae_interaction', 'Average_i_pTM', 'pLDDT', 'i_pTM', 'ipTM'].includes(col)
-  )
-  
-  return [...baseFields, ...scoreFields]
-}
 
 const getVisibleColumns = () => {
   // If columns haven't been loaded yet, return empty array

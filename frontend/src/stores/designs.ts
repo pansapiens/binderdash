@@ -4,7 +4,7 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { designsApi } from '../webapi'
 import type { Design, FilterState, ColumnConfig, StructureInfo, DesignsState } from '../types/store'
 
@@ -28,11 +28,90 @@ export const useDesignsStore = defineStore('designs', () => {
 
     // Getters
     const filteredDesigns = computed(() => {
-        // This will be enhanced with actual filtering logic
-        return designs.value
+        let filtered = designs.value
+
+        // Apply global filter
+        if (filters.value.global.value) {
+            const globalValue = filters.value.global.value.toLowerCase()
+            filtered = filtered.filter(design => {
+                return getGlobalFilterFields().some(field => {
+                    const value = design[field]
+                    return value && value.toString().toLowerCase().includes(globalValue)
+                })
+            })
+        }
+
+        // Apply individual column filters
+        if (filters.value.design_id.value) {
+            filtered = filtered.filter(design =>
+                design.design_id && design.design_id.toLowerCase().includes(filters.value.design_id.value.toLowerCase())
+            )
+        }
+
+        if (filters.value.project_id.value) {
+            filtered = filtered.filter(design =>
+                design.project_id && design.project_id.toLowerCase().includes(filters.value.project_id.value.toLowerCase())
+            )
+        }
+
+        if (filters.value.run_name.value) {
+            filtered = filtered.filter(design =>
+                design.run_name && design.run_name.toLowerCase().includes(filters.value.run_name.value.toLowerCase())
+            )
+        }
+
+        if (filters.value.protocol.value) {
+            filtered = filtered.filter(design =>
+                design.protocol === filters.value.protocol.value
+            )
+        }
+
+        // Apply score range filters
+        if (filters.value.score_min.value !== null) {
+            filtered = filtered.filter(design => {
+                // Check all possible score fields
+                const scoreFields = ['pae_interaction', 'Average_i_pTM', 'pLDDT', 'i_pTM', 'ipTM']
+                return scoreFields.some(field => {
+                    const value = design[field]
+                    return value !== null && value !== undefined && value >= filters.value.score_min.value
+                })
+            })
+        }
+
+        if (filters.value.score_max.value !== null) {
+            filtered = filtered.filter(design => {
+                // Check all possible score fields
+                const scoreFields = ['pae_interaction', 'Average_i_pTM', 'pLDDT', 'i_pTM', 'ipTM']
+                return scoreFields.some(field => {
+                    const value = design[field]
+                    return value !== null && value !== undefined && value <= filters.value.score_max.value
+                })
+            })
+        }
+
+        return filtered
     })
 
     const totalDesigns = computed(() => designs.value.length)
+
+    // Helper function for global filtering
+    const getGlobalFilterFields = () => {
+        // Base fields that are always present
+        const baseFields = ['design_id', 'project_id', 'run_name', 'protocol']
+
+        // Add score columns that are currently visible
+        const scoreFields = visibleColumns.value.filter((col: string) =>
+            ['pae_interaction', 'Average_i_pTM', 'pLDDT', 'i_pTM', 'ipTM'].includes(col)
+        )
+
+        return [...baseFields, ...scoreFields]
+    }
+
+    // Watch for filter changes and reset navigation index
+    watch(() => filters.value, () => {
+        // Reset to first structure when filters change
+        currentStructureIndex.value = 0
+    }, { deep: true })
 
     const currentStructure = computed((): StructureInfo | null => {
         if (selectedDesigns.value.length === 0) {
@@ -159,7 +238,7 @@ export const useDesignsStore = defineStore('designs', () => {
     const viewDesign = (design: Design) => {
         selectedDesigns.value = [design]
 
-        // Find the position of this design among all designs with PDB files
+        // Find the position of this design among filtered designs with PDB files
         const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
         const index = designsWithPdb.findIndex(d => d.design_id === design.design_id)
         currentStructureIndex.value = index >= 0 ? index : 0
