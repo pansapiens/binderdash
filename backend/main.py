@@ -399,6 +399,12 @@ app.mount("/assets", StaticFiles(directory="backend/static/assets"), name="asset
 app.mount("/static", StaticFiles(directory="backend/static"), name="static")
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Docker and load balancers."""
+    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
 @app.get("/favicon.ico")
 async def get_favicon():
     """Serve the favicon."""

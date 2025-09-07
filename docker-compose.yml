@@ -1,0 +1,32 @@
+services:
+  binderdash:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # Mount the run base directories as read-only volumes
+      - ./example_runs:/app/example_runs:ro
+      # Mount .env file inside the container if it exists
+      - ./.env:/app/.env:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    # Security: run as non-root user
+    user: "1000:1000"
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'

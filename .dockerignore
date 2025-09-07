@@ -1,0 +1,71 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+AGENTS.md
+AUTHENTICATION.md
+PLAN.md
+TODO.md
+CHANGELOG.md
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Node modules (will be installed during build)
+node_modules
+frontend/node_modules
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv
+venv/
+env/
+ENV/
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Test files
+tests/
+test-results/
+playwright-report/
+coverage/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Example data
+example_runs/
+
+# Prototypes
+prototypes/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore

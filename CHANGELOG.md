@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docker Containerization
+- **Complete Docker setup**: Added full containerization support for production deployment
+  - **Multi-stage Dockerfile**: Backend Dockerfile that builds frontend and serves static files via FastAPI
+  - **Docker Compose configuration**: Complete setup with environment variables, volume mounts, and health checks
+  - **Health check endpoint**: Added `/health` endpoint for container health monitoring
+  - **Security hardening**: Non-root user, read-only data volumes, resource limits
+  - **Comprehensive documentation**: Added DOCKER.md with setup instructions, troubleshooting, and production deployment guidance
+  - **Environment configuration**: Simplified `.env` file handling using Docker Compose's `env_file` directive
+  - **Data volume mounting**: Secure mounting of `RUN_BASE_DIRS` as read-only volumes
+  - **Build optimization**: Added `.dockerignore` for efficient builds and smaller image sizes
+
 ### Enhanced Structure Viewer
 - **Improved MolstarViewer performance**: Replaced destroy/recreate approach with PDBe Molstar `update()` helper method for smoother navigation
   - **Faster structure loading**: Uses `visual.update()` method to load new structures without recreating the entire viewer instance

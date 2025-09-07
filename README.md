@@ -115,6 +115,8 @@ Build and run using Docker Compose:
 docker compose up --build
 ```
 
+For detailed Docker setup instructions, troubleshooting, and production deployment guidance, see [DOCKER.md](DOCKER.md).
+
 Tip: Provide environment variables via an `.env` file or `docker compose --env-file` override.
 
 ### Testing and quality
