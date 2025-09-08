@@ -56,6 +56,7 @@
 
 ## Code style
 
+- Do not write extraneous comments in the code; comment where code deviates from typical patterns or is particularly complex / cryptic. Don't comment on lines that would be self-explanatory to a junior developer.
 - Python: type hints, guard clauses, meaningful names, log to stderr; import order: stdlib → common externals → other externals → internal
 - Vue: Composition API, minimal comments, Australian English spelling in comments
 - Secrets: never hardcode; always use environment variables

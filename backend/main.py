@@ -394,7 +394,7 @@ async def csrf_protection(request: Request, call_next):
     return response
 
 
-# Mount the frontend static files
+# Mount the frontend static files (consistent paths for dev/prod)
 app.mount("/assets", StaticFiles(directory="backend/static/assets"), name="assets")
 app.mount("/static", StaticFiles(directory="backend/static"), name="static")
 

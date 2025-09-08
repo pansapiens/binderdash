@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Environment configuration**: Simplified `.env` file handling using Docker Compose's `env_file` directive
   - **Data volume mounting**: Secure mounting of `RUN_BASE_DIRS` as read-only volumes
   - **Build optimization**: Added `.dockerignore` for efficient builds and smaller image sizes
+  - **Development mode**: Added `docker-compose.dev.yml` with live reloading and source code watching
+    - **Backend auto-reload**: FastAPI server automatically restarts when Python code changes
+    - **Frontend watch mode**: Vite automatically rebuilds when Vue/TypeScript files change
+    - **Full project mounting**: Entire project directory mounted for access to all files (playwright.config.js, etc.)
+    - **Two-container setup**: Separate containers for backend and frontend watcher
+    - **Single Dockerfile**: Unified Dockerfile with conditional frontend building for both production and development
 
 ### Enhanced Structure Viewer
 - **Improved MolstarViewer performance**: Replaced destroy/recreate approach with PDBe Molstar `update()` helper method for smoother navigation

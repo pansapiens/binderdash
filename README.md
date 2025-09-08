@@ -109,11 +109,33 @@ Open `http://localhost:8000` to access the app.
 
 ### Running with Docker (optional)
 
+#### Production Mode
 Build and run using Docker Compose:
 
 ```bash
 docker compose up --build
 ```
+
+#### Development Mode
+For development with live reloading and source code watching:
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+
+# Watch the logs for the backend
+docker compose -f docker-compose.dev.yml logs -f binderdash
+
+# Watch the logs for the frontend
+docker compose -f docker-compose.dev.yml logs -f frontend-watcher
+
+# Stop the development environment
+docker compose -f docker-compose.dev.yml down
+```
+
+This development setup includes:
+- Backend auto-reload when Python code changes
+- Frontend watch mode that rebuilds when Vue/TypeScript files change
+- Source code mounted from your local filesystem
 
 For detailed Docker setup instructions, troubleshooting, and production deployment guidance, see [DOCKER.md](DOCKER.md).
 

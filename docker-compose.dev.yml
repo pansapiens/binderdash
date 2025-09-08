@@ -1,0 +1,57 @@
+services:
+  binderdash:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        BUILD_FRONTEND: "false"
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - RUN_BASE_DIRS=/example_runs
+    volumes:
+      - ./:/app:ro
+      - ./example_runs:/example_runs:ro
+    working_dir: /app
+    command: ["uvicorn", "backend.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    user: "1000:1000"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+
+  frontend-watcher:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        BUILD_FRONTEND: "false"
+    volumes:
+      - ./:/app:ro
+      - ./frontend:/app/frontend
+      - ./backend/static:/app/backend/static
+    working_dir: /app/frontend
+    command: ["pnpm", "run", "watch:build"]
+    restart: unless-stopped
+    user: "1000:1000"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
