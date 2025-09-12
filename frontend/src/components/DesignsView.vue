@@ -3,18 +3,7 @@
     <div class="designs-header">
       <h2>Designs</h2>
       <div class="designs-controls">
-        <Button 
-          label="Refresh Designs" 
-          icon="pi pi-refresh" 
-          @click="loadDesigns"
-          :loading="designsStore.loading"
-        />
-        <Button 
-          label="Clear Cache" 
-          icon="pi pi-trash" 
-          @click="clearCache"
-          severity="danger"
-        />
+        <!-- Controls removed - designs now auto-sync with selected runs -->
       </div>
     </div>
 
@@ -135,6 +124,7 @@
 
         <div class="designs-table-section">
           <DataTable 
+          :key="`designs-table-${designsStore.selectedRunIds.length}-${designsStore.filteredDesigns.length}`"
           :value="designsStore.filteredDesigns" 
           :loading="designsStore.loading"
           v-model:selection="designsStore.selectedDesigns"
@@ -142,7 +132,7 @@
           dataKey="design_id"
           stripedRows
           paginator
-          :rows="20"
+          :rows="10"
           :rowsPerPageOptions="[10, 20, 50, 100]"
           paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
           currentPageReportTemplate="Showing {first} to {last} of {totalRecords} designs"
@@ -153,7 +143,7 @@
           :reorderableRows="true"
           :rowHover="true"
           :scrollable="true"
-          scrollHeight="400px"
+          scrollHeight="800px"
         >
           <template #header>
             <div class="flex justify-content-between align-items-center">
@@ -181,7 +171,7 @@
             <div class="text-center p-4">
               <i class="pi pi-table" style="font-size: 3rem; color: #6c757d;"></i>
               <h3>No Designs Found</h3>
-              <p>Scan some folders to discover designs</p>
+              <p>Scan some folders and select runs to see designs here</p>
             </div>
           </template>
 
@@ -276,6 +266,15 @@
                 <th>Protocol</th>
                 <td>{{ designsStore.currentStructure.design.protocol }}</td>
               </tr>
+              <template 
+                v-for="scoreField in primaryScores" 
+                :key="scoreField"
+              >
+                <tr v-if="hasValidValue(designsStore.currentStructure.design[scoreField])">
+                  <th>{{ formatScoreHeader(scoreField) }}</th>
+                  <td>{{ formatScore(designsStore.currentStructure.design[scoreField]) }}</td>
+                </tr>
+              </template>
               <tr>
                 <th>File</th>
                 <td>{{ designsStore.currentStructure.filename }}</td>
@@ -320,7 +319,7 @@ import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import MolstarViewer from './MolstarViewer.vue'
 import { runsApi } from '../webapi'
-import { useDesignsStore, useAppStore, useAuthStore } from '../stores'
+import { useDesignsStore, useAppStore, useAuthStore, useFolderStore } from '../stores'
 
 const toast = useToast()
 
@@ -328,6 +327,7 @@ const toast = useToast()
 const designsStore = useDesignsStore()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const folderStore = useFolderStore()
 
 // Local UI state (not shared across components)
 const showColumnSelector = ref(false)
@@ -338,6 +338,15 @@ const isSpinning = ref(false)
 // Filter options
 const protocolOptions = ref(['bindcraft', 'rfd'])
 
+// Primary scores to display in structure details
+const primaryScores = ref(['Average_i_pTM', 'pae_interaction'])
+
+// Human-readable field name mapping
+const niceFieldNames: Record<string, string> = {
+  'Average_i_pTM': 'Average i-pTM',
+  'pae_interaction': 'PAE Interaction'
+}
+
 // Computed properties using store
 const isColumnVisible = (field: string): boolean => {
   return designsStore.visibleColumns.includes(field)
@@ -345,6 +354,7 @@ const isColumnVisible = (field: string): boolean => {
 
 
 // Methods
+
 const loadDesigns = async () => {
   // Only load designs if authentication allows it
   if (!authStore.canLoadData) {
@@ -365,27 +375,6 @@ const loadDesigns = async () => {
         life: 3000
       })
     }
-  }
-}
-
-const clearCache = async () => {
-  try {
-    await designsStore.clearDesigns()
-    
-    toast.add({
-      severity: 'success',
-      summary: 'Cache Cleared',
-      detail: 'All designs have been removed from cache',
-      life: 3000
-    })
-  } catch (error) {
-    console.error('Error clearing cache:', error)
-    toast.add({
-      severity: 'error',
-      summary: 'Error',
-      detail: 'Failed to clear cache',
-      life: 3000
-    })
   }
 }
 
@@ -442,6 +431,21 @@ const getPdbUrl = () => {
   return runsApi.getPdbFileUrl(designsStore.currentStructure.design.run_id, designsStore.currentStructure.filename)
 }
 
+const hasValidValue = (value: any): boolean => {
+  return value !== null && value !== undefined && value !== '' && !isNaN(Number(value))
+}
+
+const formatScore = (value: any): string => {
+  if (!hasValidValue(value)) return ''
+  const num = Number(value)
+  return num.toFixed(3)
+}
+
+const formatScoreHeader = (fieldName: string): string => {
+  // Convert field names to user-friendly headers
+  return niceFieldNames[fieldName] || fieldName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+}
+
 
 const getVisibleColumns = () => {
   // If columns haven't been loaded yet, return empty array
@@ -462,6 +466,18 @@ watch(() => authStore.canLoadData, (canLoad) => {
     loadDesigns()
   }
 }, { immediate: true })
+
+// Watch for changes in selected runs and update designs store
+watch(() => folderStore.selectedRuns, (newSelectedRuns) => {
+  if (newSelectedRuns && newSelectedRuns.length > 0) {
+    // Update the designs store with the selected run IDs
+    const runIds = newSelectedRuns.map(run => run.run_id)
+    designsStore.setSelectedRunIds(runIds)
+  } else {
+    // Clear the run filter if no runs are selected
+    designsStore.setSelectedRunIds([])
+  }
+}, { deep: true, immediate: true })
 
 // Sync spinning state when viewer changes
 watch(() => molstarViewerRef.value?.isSpinning, (newSpinningState) => {

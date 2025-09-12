@@ -4,6 +4,14 @@
       <h2>Folder Browser</h2>
       <div class="browser-controls">
         <Button 
+          label="Refresh" 
+          icon="pi pi-refresh" 
+          @click="refreshTree"
+          :loading="folderStore.loading"
+          severity="secondary"
+          outlined
+        />
+        <Button 
           label="Scan Selected Folders" 
           icon="pi pi-search" 
           @click="scanSelectedFolders"
@@ -56,18 +64,6 @@
       </TreeTable>
     </div>
 
-    <div v-if="selectedFolderNodes.length > 0" class="selection-summary">
-      <h3>Selected Folders ({{ selectedFolderNodes.length }})</h3>
-      <div class="selected-folders">
-        <Chip 
-          v-for="folder in selectedFolderNodes" 
-          :key="folder.path"
-          :label="folder.name"
-          :removable="true"
-          @remove="removeSelectedFolder(folder)"
-        />
-      </div>
-    </div>
 
     <div v-if="folderStore.scanResults.length > 0" class="scan-results">
       <div class="scan-results-header">
@@ -86,13 +82,6 @@
             @click="deselectAllRuns"
             size="small"
             outlined
-          />
-          <Button 
-            label="Include Selected Runs" 
-            icon="pi pi-plus" 
-            @click="includeSelectedRuns"
-            :disabled="folderStore.selectedRuns.length === 0"
-            size="small"
           />
         </div>
       </div>
@@ -176,7 +165,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import TreeTable from 'primevue/treetable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
@@ -239,6 +228,32 @@ const loadFolders = async (path = '') => {
       severity: 'error',
       summary: 'Error',
       detail: 'Failed to load folders',
+      life: 3000
+    })
+  }
+}
+
+const refreshTree = async () => {
+  try {
+    // Clear current selection and expanded state to start fresh
+    folderStore.clearSelection()
+    expandedKeys.value = {}
+    
+    // Reload the root folders
+    await folderStore.fetchFolders()
+    
+    toast.add({
+      severity: 'success',
+      summary: 'Tree Refreshed',
+      detail: 'File tree has been refreshed',
+      life: 2000
+    })
+  } catch (error) {
+    console.error('Error refreshing tree:', error)
+    toast.add({
+      severity: 'error',
+      summary: 'Error',
+      detail: 'Failed to refresh file tree',
       life: 3000
     })
   }
@@ -326,23 +341,15 @@ const deselectAllRuns = () => {
   folderStore.deselectAllRuns()
 }
 
-const includeSelectedRuns = () => {
-  if (folderStore.selectedRuns.length === 0) return
-  
-  toast.add({
-    severity: 'success',
-    summary: 'Runs Included',
-    detail: `${folderStore.selectedRuns.length} runs have been included for processing`,
-    life: 3000
-  })
-  
-  // Emit event with selected runs
-  emit('runs-scanned', folderStore.selectedRuns)
-}
+// Auto-sync selected runs - no need for manual include button
+// Watch for changes in selected runs and automatically emit the event
+watch(() => folderStore.selectedRuns, (newSelectedRuns, oldSelectedRuns) => {
+  // Only emit if there are actually selected runs and the selection has changed
+  if (newSelectedRuns.length > 0 && newSelectedRuns !== oldSelectedRuns) {
+    emit('runs-scanned', newSelectedRuns)
+  }
+}, { deep: true })
 
-const removeSelectedFolder = (folder: any): void => {
-  folderStore.removeSelectedFolder(folder.key)
-}
 
 const onNodeSelect = (event: any): void => {
   console.log('Node selected:', event.node)
@@ -431,7 +438,7 @@ onMounted(() => {
 }
 
 .browser-content {
-  min-height: 400px;
+  min-height: 100px;
 }
 
 .folder-node {
@@ -480,23 +487,6 @@ onMounted(() => {
   word-break: break-all;
 }
 
-.selection-summary {
-  background: #f8f9fa;
-  padding: 1rem;
-  border-radius: 8px;
-  border: 1px solid #e9ecef;
-}
-
-.selection-summary h3 {
-  margin: 0 0 1rem 0;
-  color: #495057;
-}
-
-.selected-folders {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
 
 .scan-results {
   background: #f8f9fa;

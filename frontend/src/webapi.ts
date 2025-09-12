@@ -106,6 +106,28 @@ async function apiRequest<T = any>(url: string, options: ApiRequestOptions = {})
                 }
                 throw new Error('Authentication required')
             }
+            
+            // Handle forbidden errors (403) - check if user is authenticated
+            if (response.status === 403) {
+                try {
+                    const { useAuthStore } = await import('./stores/auth')
+                    const authStore = useAuthStore()
+                    
+                    // If auth is enabled and user is not authenticated, logout and show login page
+                    if (authStore.isAuthEnabled && !authStore.isAuthenticated) {
+                        // User is not authenticated, logout and show login page
+                        await authStore.logout()
+                        throw new Error('Authentication required')
+                    }
+                } catch (error) {
+                    // If we can't check auth status or logout fails, just throw the original error
+                    if (error instanceof Error && error.message === 'Authentication required') {
+                        throw error
+                    }
+                }
+                throw new Error(`Access forbidden: ${response.status}`)
+            }
+            
             throw new Error(`HTTP error! status: ${response.status}`)
         }
 
@@ -143,7 +165,8 @@ export const runsApi = {
     async scanRuns(folders: string[]): Promise<RunsResponse> {
         return await apiRequest<RunsResponse>(`${API_BASE}/api/runs/scan`, {
             method: 'POST',
-            body: JSON.stringify({ folders })
+            body: JSON.stringify({ folders }),
+            requireAuth: true
         })
     },
 
@@ -161,7 +184,7 @@ export const runsApi = {
      * @returns Promise with table data
      */
     async getRunTable(runId: string): Promise<any> {
-        return await apiRequest(`${API_BASE}/api/runs/${runId}/table`)
+        return await apiRequest(`${API_BASE}/api/runs/${runId}/table`, { requireAuth: true })
     },
 
     /**

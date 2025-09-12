@@ -96,7 +96,7 @@ const shouldShowLoading = computed(() => {
           <TabPanel header="Plots" value="plots">
             <PlotsView ref="plotsViewRef" />
           </TabPanel>
-          <TabPanel header="Configure Source Folders" value="folders">
+          <TabPanel header="Select Projects/Runs" value="folders">
             <FolderBrowser @runs-scanned="handleRunsScanned" />
           </TabPanel>
         </TabView>

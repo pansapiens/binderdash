@@ -12,6 +12,7 @@ export const useDesignsStore = defineStore('designs', () => {
     // State
     const designs = ref<Design[]>([])
     const selectedDesigns = ref<Design[]>([])
+    const selectedRunIds = ref<string[]>([]) // Track selected run IDs for filtering
     const filters = ref<FilterState>({
         global: { value: null, matchMode: 'contains' },
         design_id: { value: null, matchMode: 'contains' },
@@ -87,6 +88,16 @@ export const useDesignsStore = defineStore('designs', () => {
                     return value !== null && value !== undefined && value <= filters.value.score_max.value
                 })
             })
+        }
+
+        // Filter by selected run IDs - show only selected runs, or nothing if none selected
+        if (selectedRunIds.value.length > 0) {
+            filtered = filtered.filter(design => 
+                selectedRunIds.value.includes(design.run_id)
+            )
+        } else {
+            // If no runs are selected, show no designs
+            filtered = []
         }
 
         return filtered
@@ -235,6 +246,14 @@ export const useDesignsStore = defineStore('designs', () => {
         }
     }
 
+    const setSelectedRunIds = (runIds: string[]) => {
+        selectedRunIds.value = runIds
+        // Clear any selected designs that are no longer in the filtered list
+        selectedDesigns.value = selectedDesigns.value.filter(design => 
+            runIds.length === 0 || runIds.includes(design.run_id)
+        )
+    }
+
     const viewDesign = (design: Design) => {
         selectedDesigns.value = [design]
 
@@ -334,6 +353,7 @@ export const useDesignsStore = defineStore('designs', () => {
         // State
         designs,
         selectedDesigns,
+        selectedRunIds,
         filters,
         columns,
         visibleColumns,
@@ -356,6 +376,7 @@ export const useDesignsStore = defineStore('designs', () => {
         toggleColumn,
         navigateStructure,
         clearDesigns,
+        setSelectedRunIds,
         viewDesign,
         getCurrentRowPosition
     }
