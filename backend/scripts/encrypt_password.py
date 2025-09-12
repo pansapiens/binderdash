@@ -142,10 +142,10 @@ Examples:
         password_hash = get_password_hash(password)
 
         print(f"\nAdd this to your .env file:")
-        print(f'LOCAL_USERS="{args.username}:{password_hash}"')
+        print(f"LOCAL_USERS='{args.username}:{password_hash}'")
 
         print(f"\nTo add multiple users, separate with commas:")
-        print(f'LOCAL_USERS="user1:hash1,user2:hash2,user3:hash3"')
+        print(f"LOCAL_USERS='user1:hash1,user2:hash2,user3:hash3'")
 
         return 0
 
