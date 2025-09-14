@@ -45,6 +45,8 @@ export interface FilterState {
     protocol: { value: any; matchMode: string };
     score_min: { value: any; matchMode: string };
     score_max: { value: any; matchMode: string };
+    length_min: { value: any; matchMode: string };
+    length_max: { value: any; matchMode: string };
 }
 
 export interface ColumnConfig {

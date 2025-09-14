@@ -20,7 +20,9 @@ export const useDesignsStore = defineStore('designs', () => {
         run_name: { value: null, matchMode: 'contains' },
         protocol: { value: null, matchMode: 'equals' },
         score_min: { value: null, matchMode: 'gte' },
-        score_max: { value: null, matchMode: 'lte' }
+        score_max: { value: null, matchMode: 'lte' },
+        length_min: { value: null, matchMode: 'gte' },
+        length_max: { value: null, matchMode: 'lte' }
     })
     const columns = ref<ColumnConfig[]>([])
     const visibleColumns = ref<string[]>(['design_id', 'project_id', 'run_name', 'protocol'])
@@ -92,7 +94,7 @@ export const useDesignsStore = defineStore('designs', () => {
 
         // Filter by selected run IDs - show only selected runs, or nothing if none selected
         if (selectedRunIds.value.length > 0) {
-            filtered = filtered.filter(design => 
+            filtered = filtered.filter(design =>
                 selectedRunIds.value.includes(design.run_id)
             )
         } else {
@@ -206,7 +208,9 @@ export const useDesignsStore = defineStore('designs', () => {
             run_name: { value: null, matchMode: 'contains' },
             protocol: { value: null, matchMode: 'equals' },
             score_min: { value: null, matchMode: 'gte' },
-            score_max: { value: null, matchMode: 'lte' }
+            score_max: { value: null, matchMode: 'lte' },
+            length_min: { value: null, matchMode: 'gte' },
+            length_max: { value: null, matchMode: 'lte' }
         }
     }
 
@@ -249,7 +253,7 @@ export const useDesignsStore = defineStore('designs', () => {
     const setSelectedRunIds = (runIds: string[]) => {
         selectedRunIds.value = runIds
         // Clear any selected designs that are no longer in the filtered list
-        selectedDesigns.value = selectedDesigns.value.filter(design => 
+        selectedDesigns.value = selectedDesigns.value.filter(design =>
             runIds.length === 0 || runIds.includes(design.run_id)
         )
     }

@@ -106,6 +106,34 @@
                 />
               </div>
             </div>
+            <div class="filter-row">
+              <label>Length Range:</label>
+              <div class="length-range">
+                <InputNumber 
+                  v-model="lengthMin" 
+                  :min="lengthRange[0]"
+                  :max="lengthRange[1]"
+                  @update:modelValue="updateLengthFromInputs"
+                  placeholder="Min"
+                  class="filter-input-small"
+                />
+                <Slider 
+                  v-model="lengthRangeValue"
+                  :min="lengthRange[0]"
+                  :max="lengthRange[1]"
+                  range
+                  class="length-slider"
+                />
+                <InputNumber 
+                  v-model="lengthMax" 
+                  :min="lengthRange[0]"
+                  :max="lengthRange[1]"
+                  @update:modelValue="updateLengthFromInputs"
+                  placeholder="Max"
+                  class="filter-input-small"
+                />
+              </div>
+            </div>
             <div class="filter-actions">
               <Button 
                 label="Clear Filters" 
@@ -317,6 +345,7 @@ import Checkbox from 'primevue/checkbox'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Dropdown from 'primevue/dropdown'
+import Slider from 'primevue/slider'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import MolstarViewer from './MolstarViewer.vue'
@@ -340,6 +369,11 @@ const isSpinning = ref(false)
 // Filter options
 const protocolOptions = ref(['bindcraft', 'rfd'])
 
+// Length filter state
+const lengthRange = ref([0, 300]) // Default range, will be updated based on data
+const lengthMin = ref(0)
+const lengthMax = ref(300)
+
 // Primary scores to display in structure details
 const primaryScores = ref(['Average_i_pTM', 'pae_interaction'])
 
@@ -353,6 +387,17 @@ const niceFieldNames: Record<string, string> = {
 const isColumnVisible = (field: string): boolean => {
   return designsStore.visibleColumns.includes(field)
 }
+
+// Computed properties for length filtering
+const lengthRangeValue = computed({
+  get: () => [designsStore.filters.length_min.value || lengthMin.value, designsStore.filters.length_max.value || lengthMax.value],
+  set: (value: number[]) => {
+    designsStore.filters.length_min.value = value[0]
+    designsStore.filters.length_max.value = value[1]
+    lengthMin.value = value[0]
+    lengthMax.value = value[1]
+  }
+})
 
 
 // Methods
@@ -428,6 +473,38 @@ const applyFilters = () => {
   console.log('Filters applied:', designsStore.filters)
 }
 
+// Length filter methods
+const updateLengthFromInputs = () => {
+  designsStore.filters.length_min.value = lengthMin.value
+  designsStore.filters.length_max.value = lengthMax.value
+}
+
+const updateLengthRange = () => {
+  // Update the length range based on available data
+  if (designsStore.designs.length > 0) {
+    const lengths = designsStore.designs
+      .map(design => design.Length || design.length)
+      .filter(length => length != null && !isNaN(Number(length)))
+      .map(length => Number(length))
+    
+    if (lengths.length > 0) {
+      const minLength = Math.min(...lengths)
+      const maxLength = Math.max(...lengths)
+      lengthRange.value = [minLength, maxLength]
+      
+      // Set initial values if not already set
+      if (designsStore.filters.length_min.value == null) {
+        lengthMin.value = minLength
+        designsStore.filters.length_min.value = minLength
+      }
+      if (designsStore.filters.length_max.value == null) {
+        lengthMax.value = maxLength
+        designsStore.filters.length_max.value = maxLength
+      }
+    }
+  }
+}
+
 const getPdbUrl = () => {
   if (!designsStore.currentStructure) return ''
   return runsApi.getPdbFileUrl(designsStore.currentStructure.design.run_id, designsStore.currentStructure.filename)
@@ -487,6 +564,11 @@ watch(() => molstarViewerRef.value?.isSpinning, (newSpinningState) => {
     isSpinning.value = newSpinningState
   }
 }, { immediate: true })
+
+// Update length range when designs are loaded
+watch(() => designsStore.designs, () => {
+  updateLengthRange()
+}, { deep: true, immediate: true })
 
 // Lifecycle
 onMounted(() => {
@@ -627,6 +709,19 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.length-range {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  max-width: 400px;
+}
+
+.length-slider {
+  flex: 1;
+  min-width: 120px;
 }
 
 .range-separator {
