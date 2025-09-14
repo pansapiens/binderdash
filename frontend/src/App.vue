@@ -40,8 +40,13 @@ const authInitialized = ref(false)
 
 // Initialize authentication on app start
 onMounted(async () => {
-  await authStore.initializeAuth()
-  authInitialized.value = true
+  try {
+    await authStore.initializeAuth()
+  } catch (error) {
+    console.error('Auth initialization failed:', error)
+  } finally {
+    authInitialized.value = true
+  }
 })
 
 // Computed property to check if we should show the main app

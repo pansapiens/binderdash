@@ -95,8 +95,8 @@ export const useAuthStore = defineStore('auth', () => {
             return status
         } catch (error) {
             console.error('Failed to check auth status:', error)
+            throw error // Re-throw to prevent silent failures
         }
-        return null
     }
 
     // Login
@@ -154,21 +154,26 @@ export const useAuthStore = defineStore('auth', () => {
 
     // Initialize auth state
     const initializeAuth = async () => {
-        // Check auth status first
-        await checkAuthStatus()
-
-        // If auth is disabled, no need to check session
-        if (isAuthDisabled.value) {
-            return
-        }
-
-        // Try to fetch user info to check if session is valid
-        // Skip auth check during initialization to allow session restoration
         try {
-            await fetchUserInfo(true)
+            // Check auth status first
+            await checkAuthStatus()
+
+            // If auth is disabled, no need to check session
+            if (isAuthDisabled.value) {
+                return
+            }
+
+            // Try to fetch user info to check if session is valid
+            // Skip auth check during initialization to allow session restoration
+            try {
+                await fetchUserInfo(true)
+            } catch (error) {
+                // Session is invalid or doesn't exist, clear auth
+                clearAuth()
+            }
         } catch (error) {
-            // Session is invalid or doesn't exist, clear auth
-            clearAuth()
+            console.error('Auth initialization failed:', error)
+            throw error
         }
     }
 
