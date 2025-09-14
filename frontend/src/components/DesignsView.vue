@@ -109,28 +109,31 @@
             <div class="filter-row">
               <label>Length Range:</label>
               <div class="length-range">
-                <InputNumber 
-                  v-model="lengthMin" 
-                  :min="lengthRange[0]"
-                  :max="lengthRange[1]"
-                  @update:modelValue="updateLengthFromInputs"
-                  placeholder="Min"
-                  class="filter-input-small"
-                />
+                <div class="length-inputs">
+                  <InputNumber 
+                    v-model="lengthMin" 
+                    :min="lengthRange[0]"
+                    :max="lengthRange[1]"
+                    @update:modelValue="updateLengthFromInputs"
+                    placeholder="Min"
+                    class="filter-input-small"
+                  />
+                  <span class="range-separator">to</span>
+                  <InputNumber 
+                    v-model="lengthMax" 
+                    :min="lengthRange[0]"
+                    :max="lengthRange[1]"
+                    @update:modelValue="updateLengthFromInputs"
+                    placeholder="Max"
+                    class="filter-input-small"
+                  />
+                </div>
                 <Slider 
                   v-model="lengthRangeValue"
                   :min="lengthRange[0]"
                   :max="lengthRange[1]"
                   range
                   class="length-slider"
-                />
-                <InputNumber 
-                  v-model="lengthMax" 
-                  :min="lengthRange[0]"
-                  :max="lengthRange[1]"
-                  @update:modelValue="updateLengthFromInputs"
-                  placeholder="Max"
-                  class="filter-input-small"
                 />
               </div>
             </div>
@@ -713,15 +716,20 @@ defineExpose({
 
 .length-range {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 0.5rem;
   flex: 1;
   max-width: 400px;
 }
 
+.length-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .length-slider {
-  flex: 1;
-  min-width: 120px;
+  width: 100%;
 }
 
 .range-separator {

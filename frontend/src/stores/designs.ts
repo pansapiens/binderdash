@@ -25,7 +25,7 @@ export const useDesignsStore = defineStore('designs', () => {
         length_max: { value: null, matchMode: 'lte' }
     })
     const columns = ref<ColumnConfig[]>([])
-    const visibleColumns = ref<string[]>(['design_id', 'project_id', 'run_name', 'protocol'])
+    const visibleColumns = ref<string[]>(['design_id', 'project_id', 'run_name', 'protocol', 'Length'])
     const loading = ref(false)
     const currentStructureIndex = ref(0)
 
@@ -73,7 +73,7 @@ export const useDesignsStore = defineStore('designs', () => {
         if (filters.value.score_min.value !== null) {
             filtered = filtered.filter(design => {
                 // Check all possible score fields
-                const scoreFields = ['pae_interaction', 'Average_i_pTM', 'pLDDT', 'i_pTM', 'ipTM']
+                const scoreFields = ['pae_interaction', 'Average_i_pTM', 'i_pTM', 'ipTM']
                 return scoreFields.some(field => {
                     const value = design[field]
                     return value !== null && value !== undefined && value >= filters.value.score_min.value
@@ -84,11 +84,26 @@ export const useDesignsStore = defineStore('designs', () => {
         if (filters.value.score_max.value !== null) {
             filtered = filtered.filter(design => {
                 // Check all possible score fields
-                const scoreFields = ['pae_interaction', 'Average_i_pTM', 'pLDDT', 'i_pTM', 'ipTM']
+                const scoreFields = ['pae_interaction', 'Average_i_pTM', 'i_pTM', 'ipTM']
                 return scoreFields.some(field => {
                     const value = design[field]
                     return value !== null && value !== undefined && value <= filters.value.score_max.value
                 })
+            })
+        }
+
+        // Apply length range filters
+        if (filters.value.length_min.value !== null) {
+            filtered = filtered.filter(design => {
+                const length = design.Length || design.length
+                return length !== null && length !== undefined && Number(length) >= filters.value.length_min.value
+            })
+        }
+
+        if (filters.value.length_max.value !== null) {
+            filtered = filtered.filter(design => {
+                const length = design.Length || design.length
+                return length !== null && length !== undefined && Number(length) <= filters.value.length_max.value
             })
         }
 
@@ -110,11 +125,11 @@ export const useDesignsStore = defineStore('designs', () => {
     // Helper function for global filtering
     const getGlobalFilterFields = () => {
         // Base fields that are always present
-        const baseFields = ['design_id', 'project_id', 'run_name', 'protocol']
+        const baseFields = ['design_id', 'project_id', 'run_name', 'protocol', 'Length']
 
         // Add score columns that are currently visible
         const scoreFields = visibleColumns.value.filter((col: string) =>
-            ['pae_interaction', 'Average_i_pTM', 'pLDDT', 'i_pTM', 'ipTM'].includes(col)
+            ['pae_interaction', 'Average_i_pTM', 'i_pTM', 'ipTM', 'plddt_binder', 'Average_Binder_pLDDT'].includes(col)
         )
 
         return [...baseFields, ...scoreFields]
@@ -179,8 +194,13 @@ export const useDesignsStore = defineStore('designs', () => {
             // Update default visible columns to include score columns if they exist
             const newDefaultColumns = ['design_id', 'project_id', 'run_name', 'protocol']
 
+            // Add Length column if it exists in the data
+            if (data.designs.some(d => 'Length' in d && d['Length'] != null)) {
+                newDefaultColumns.push('Length')
+            }
+
             // Dynamically add score columns that exist in the data
-            const scoreColumns = ['pae_interaction', 'Average_i_pTM', 'pLDDT', 'i_pTM', 'ipTM']
+            const scoreColumns = ['pae_interaction', 'Average_i_pTM', 'i_pTM', 'ipTM']
             scoreColumns.forEach(scoreCol => {
                 if (data.designs.some(d => scoreCol in d && d[scoreCol] != null)) {
                     newDefaultColumns.push(scoreCol)
