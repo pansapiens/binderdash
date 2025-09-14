@@ -21,6 +21,7 @@ test-results/
 /frontend/public
 
 /backend/static/assets/
+/backend/static/index.html
 
 /example_runs
 
