@@ -16,23 +16,24 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 WORKDIR /app
 
+# Copy backend dependencies first
 COPY backend/pyproject.toml backend/requirements.txt ./
 COPY backend/scripts/ ./scripts/
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy frontend files and install dependencies
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 COPY frontend/ ./
 RUN pnpm install
 
+# Copy backend files
 COPY backend/ ./
 
+# Build frontend after backend files are in place
 ARG BUILD_FRONTEND=true
 RUN if [ "$BUILD_FRONTEND" = "true" ]; then \
-        pnpm run build && \
-        if [ -d "static" ]; then \
-            mkdir -p backend/static && \
-            cp -r static/* backend/static/; \
-        fi; \
+        mkdir -p backend/static && \
+        cd /app && pnpm run build; \
     fi
 
 RUN useradd --create-home --shell /bin/bash app \
