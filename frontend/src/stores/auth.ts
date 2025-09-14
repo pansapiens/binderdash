@@ -30,9 +30,9 @@ export const useAuthStore = defineStore('auth', () => {
     // Getters
     const isAuthenticated = computed(() => !!user.value)
     const isAuthEnabled = computed(() => {
-        // If authStatus is not loaded yet, return false to avoid showing login during initialization
+        // If authStatus is unknown, prefer showing the login (treat as enabled)
         if (authStatus.value === null) {
-            return false
+            return true
         }
         return !authStatus.value.auth_disabled
     })
@@ -107,7 +107,10 @@ export const useAuthStore = defineStore('auth', () => {
             return status
         } catch (error) {
             console.error('Failed to check auth status:', error)
-            throw error // Re-throw to prevent silent failures
+            // Default to auth enabled (auth_disabled: false) so the login can be shown
+            const fallback = { auth_disabled: false }
+            setAuthStatus(fallback)
+            return fallback
         }
     }
 
