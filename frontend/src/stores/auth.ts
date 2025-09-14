@@ -4,9 +4,7 @@ import { useToast } from 'primevue/usetoast'
 import { authApi, setCsrfToken } from '../webapi'
 
 interface AuthStatus {
-    auth_enabled: boolean
-    disable_authentication: boolean
-    local_users_count: number
+    auth_disabled: boolean
 }
 
 interface User {
@@ -27,11 +25,12 @@ export const useAuthStore = defineStore('auth', () => {
     const authStatus = ref<AuthStatus | null>(null)
     const isLoading = ref(false)
     const csrfToken = ref<string | null>(null)
+    const authPollingInterval = ref<number | null>(null)
 
     // Getters
     const isAuthenticated = computed(() => !!user.value)
-    const isAuthEnabled = computed(() => authStatus.value?.auth_enabled ?? false)
-    const isAuthDisabled = computed(() => authStatus.value?.disable_authentication ?? false)
+    const isAuthEnabled = computed(() => !(authStatus.value?.auth_disabled ?? false))
+    const isAuthDisabled = computed(() => authStatus.value?.auth_disabled ?? false)
     const shouldShowLogin = computed(() => isAuthEnabled.value && !isAuthenticated.value)
 
     // Actions
@@ -44,6 +43,7 @@ export const useAuthStore = defineStore('auth', () => {
         user.value = null
         csrfToken.value = null
         setCsrfToken(null) // Clear webapi token
+        stopAuthPolling()
     }
 
     const setUser = (userData: User) => {
@@ -52,6 +52,39 @@ export const useAuthStore = defineStore('auth', () => {
 
     const setAuthStatus = (status: AuthStatus) => {
         authStatus.value = status
+    }
+
+    // Start polling for auth status every minute
+    const startAuthPolling = () => {
+        // Only start polling if auth is enabled and user is authenticated
+        if (!isAuthEnabled.value || !isAuthenticated.value) {
+            return
+        }
+
+        // Clear any existing interval
+        stopAuthPolling()
+
+        // Poll every minute (60000ms)
+        authPollingInterval.value = window.setInterval(async () => {
+            try {
+                await authApi.getMe()
+                // If successful, user is still authenticated
+            } catch (error: any) {
+                // If we get a 401, the session has expired - logout
+                if (error?.response?.status === 401) {
+                    console.log('Session expired, logging out...')
+                    clearAuth()
+                }
+            }
+        }, 60000)
+    }
+
+    // Stop polling for auth status
+    const stopAuthPolling = () => {
+        if (authPollingInterval.value) {
+            clearInterval(authPollingInterval.value)
+            authPollingInterval.value = null
+        }
     }
 
     // Check auth status from server
@@ -75,6 +108,9 @@ export const useAuthStore = defineStore('auth', () => {
             setUser(data.user)
             setCsrfTokenLocal(data.csrf_token)
 
+            // Start polling after successful login
+            startAuthPolling()
+
         } catch (error: any) {
             clearAuth()
             throw error
@@ -91,6 +127,10 @@ export const useAuthStore = defineStore('auth', () => {
         try {
             const userData = await authApi.getMe()
             setUser(userData)
+
+            // Start polling after successful user info fetch
+            startAuthPolling()
+
         } catch (error: any) {
             console.error('Failed to fetch user info:', error)
             // If we get a 401, the session is invalid - clear auth
@@ -149,6 +189,7 @@ export const useAuthStore = defineStore('auth', () => {
         authStatus,
         isLoading,
         csrfToken,
+        authPollingInterval,
 
         // Getters
         isAuthenticated,
@@ -164,5 +205,7 @@ export const useAuthStore = defineStore('auth', () => {
         checkAuthStatus,
         getCsrfHeader,
         clearAuth,
+        startAuthPolling,
+        stopAuthPolling,
     }
 })

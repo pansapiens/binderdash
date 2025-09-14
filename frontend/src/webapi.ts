@@ -106,13 +106,13 @@ async function apiRequest<T = any>(url: string, options: ApiRequestOptions = {})
                 }
                 throw new Error('Authentication required')
             }
-            
+
             // Handle forbidden errors (403) - check if user is authenticated
             if (response.status === 403) {
                 try {
                     const { useAuthStore } = await import('./stores/auth')
                     const authStore = useAuthStore()
-                    
+
                     // If auth is enabled and user is not authenticated, logout and show login page
                     if (authStore.isAuthEnabled && !authStore.isAuthenticated) {
                         // User is not authenticated, logout and show login page
@@ -127,7 +127,7 @@ async function apiRequest<T = any>(url: string, options: ApiRequestOptions = {})
                 }
                 throw new Error(`Access forbidden: ${response.status}`)
             }
-            
+
             throw new Error(`HTTP error! status: ${response.status}`)
         }
 
@@ -349,14 +349,10 @@ export const authApi = {
      * @returns Promise with auth status
      */
     async getStatus(): Promise<{
-        auth_enabled: boolean,
-        disable_authentication: boolean,
-        local_users_count: number
+        auth_disabled: boolean
     }> {
         return await apiRequest<{
-            auth_enabled: boolean,
-            disable_authentication: boolean,
-            local_users_count: number
+            auth_disabled: boolean
         }>(`${API_BASE}/api/auth/status`, { requireAuth: false })
     }
 }

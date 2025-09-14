@@ -36,6 +36,7 @@ class RawSettings(BaseSettings):
     secret_key: str = ""
     cors_allowed_origins: str = ""
     disable_authentication: str = ""
+    access_token_expire_minutes: int = 60 * 24
 
 
 class LocalUser(BaseModel):
@@ -47,7 +48,8 @@ class AppSettings(BaseModel):
     run_base_dirs: List[str] = []
     allowed_users: List[str] = []
     local_users: List[LocalUser] = []
-    disable_authentication: bool = False
+    auth_disabled: bool = False
+    access_token_expire_minutes: int = 60 * 24
 
 
 # Authentication models
@@ -67,7 +69,6 @@ class TokenData(BaseModel):
 
 # Authentication configuration
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
 COOKIE_NAME = "binderdash_session"
 CSRF_COOKIE_NAME = "binderdash_csrf"
 
@@ -149,7 +150,7 @@ def set_auth_cookie(
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(
-            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+            minutes=settings.access_token_expire_minutes
         )
 
     response.set_cookie(
@@ -238,11 +239,8 @@ async def get_current_active_user(current_user: LocalUser = Depends(get_current_
 
 async def get_current_user_optional(request: Request):
     """Get the current user if authentication is enabled, otherwise return None."""
-    if settings.disable_authentication:
+    if settings.auth_disabled:
         return None  # Authentication disabled
-
-    if not settings.local_users:
-        return None  # No authentication required
 
     # Get token from cookie
     token = get_token_from_cookie(request)
@@ -264,11 +262,8 @@ async def get_current_user_optional_with_query(
     Get the current user if authentication is enabled, supporting both
     cookie and query parameter auth (for backward compatibility with PDB files).
     """
-    if settings.disable_authentication:
+    if settings.auth_disabled:
         return None  # Authentication disabled
-
-    if not settings.local_users:
-        return None  # No authentication required
 
     # Try cookie first, then query parameter token (for backward compatibility)
     cookie_token = get_token_from_cookie(request)
@@ -328,7 +323,8 @@ settings = AppSettings(
         else []
     ),
     local_users=parse_local_users(raw_settings.local_users),
-    disable_authentication=raw_settings.disable_authentication.lower() == "true",
+    auth_disabled=raw_settings.disable_authentication.lower() == "true",
+    access_token_expire_minutes=raw_settings.access_token_expire_minutes,
 )
 
 # Set up secret key
@@ -368,7 +364,7 @@ async def csrf_protection(request: Request, call_next):
         return response
 
     # Skip CSRF check if authentication is disabled
-    if settings.disable_authentication or not settings.local_users:
+    if settings.auth_disabled:
         response = await call_next(request)
         return response
 
@@ -869,7 +865,7 @@ async def login(login_request: LoginRequest, response: Response):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
@@ -906,10 +902,7 @@ async def read_users_me(current_user: LocalUser = Depends(get_current_active_use
 async def auth_status():
     """Check if authentication is enabled."""
     return {
-        "auth_enabled": not settings.disable_authentication
-        and len(settings.local_users) > 0,
-        "disable_authentication": settings.disable_authentication,
-        "local_users_count": len(settings.local_users),
+        "auth_disabled": settings.auth_disabled,
     }
 
 
