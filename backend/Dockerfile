@@ -20,22 +20,22 @@ RUN useradd --create-home --shell /bin/bash app
 WORKDIR /app
 
 # Copy backend dependencies first
-COPY --chown=app:app backend/pyproject.toml backend/requirements.txt ./
-COPY --chown=app:app backend/scripts/ ./scripts/
-RUN pip install --no-cache-dir -r requirements.txt
+COPY --chown=app:app backend/pyproject.toml backend/requirements.txt ./backend/
+COPY --chown=app:app backend/scripts/ ./backend/scripts/
+RUN pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy frontend files and install dependencies
-COPY --chown=app:app frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
-COPY --chown=app:app frontend/ ./
-RUN pnpm install
+COPY --chown=app:app frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./frontend/
+COPY --chown=app:app frontend/ ./frontend/
+RUN cd frontend && pnpm install
 
-# Copy backend files
-COPY --chown=app:app backend/ ./
+# Copy remaining backend files
+COPY --chown=app:app backend/ ./backend/
 
 # Build frontend after backend files are in place
 ARG BUILD_FRONTEND=true
 RUN if [ "$BUILD_FRONTEND" = "true" ]; then \
-        mkdir -p backend/static && \
+        cd frontend && \
         pnpm run build; \
     fi
 
@@ -46,4 +46,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

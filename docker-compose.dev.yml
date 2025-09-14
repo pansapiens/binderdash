@@ -12,8 +12,8 @@ services:
     environment:
       - RUN_BASE_DIRS=/example_runs
     volumes:
-      - ./:/app:ro
-      - ./example_runs:/example_runs:ro
+      - ./:/app
+      - ./example_runs:/example_runs
     working_dir: /app
     command: ["uvicorn", "backend.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
@@ -40,9 +40,7 @@ services:
       args:
         BUILD_FRONTEND: "false"
     volumes:
-      - ./:/app:ro
-      - ./frontend:/app/frontend
-      - ./backend/static:/app/backend/static
+      - ./:/app
     working_dir: /app/frontend
     command: ["pnpm", "run", "watch:build"]
     restart: unless-stopped
