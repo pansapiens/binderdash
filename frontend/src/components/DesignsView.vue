@@ -250,35 +250,37 @@
         <div class="structure-info">
           <div v-if="designsStore.currentStructure" class="structure-details">
             <table class="structure-details-table">
-              <tr>
-                <th>Design</th>
-                <td>{{ designsStore.currentStructure.design.design_id }}</td>
-              </tr>
-              <tr>
-                <th>Project</th>
-                <td>{{ designsStore.currentStructure.design.project_id }}</td>
-              </tr>
-              <tr>
-                <th>Run</th>
-                <td>{{ designsStore.currentStructure.design.run_name }}</td>
-              </tr>
-              <tr>
-                <th>Protocol</th>
-                <td>{{ designsStore.currentStructure.design.protocol }}</td>
-              </tr>
-              <template 
-                v-for="scoreField in primaryScores" 
-                :key="scoreField"
-              >
-                <tr v-if="hasValidValue(designsStore.currentStructure.design[scoreField])">
-                  <th>{{ formatScoreHeader(scoreField) }}</th>
-                  <td>{{ formatScore(designsStore.currentStructure.design[scoreField]) }}</td>
+              <tbody>
+                <tr>
+                  <th>Design</th>
+                  <td>{{ designsStore.currentStructure.design.design_id }}</td>
                 </tr>
-              </template>
-              <tr>
-                <th>File</th>
-                <td>{{ designsStore.currentStructure.filename }}</td>
-              </tr>
+                <tr>
+                  <th>Project</th>
+                  <td>{{ designsStore.currentStructure.design.project_id }}</td>
+                </tr>
+                <tr>
+                  <th>Run</th>
+                  <td>{{ designsStore.currentStructure.design.run_name }}</td>
+                </tr>
+                <tr>
+                  <th>Protocol</th>
+                  <td>{{ designsStore.currentStructure.design.protocol }}</td>
+                </tr>
+                <template 
+                  v-for="scoreField in primaryScores" 
+                  :key="scoreField"
+                >
+                  <tr v-if="hasValidValue(designsStore.currentStructure.design[scoreField])">
+                    <th>{{ formatScoreHeader(scoreField) }}</th>
+                    <td>{{ formatScore(designsStore.currentStructure.design[scoreField]) }}</td>
+                  </tr>
+                </template>
+                <tr>
+                  <th>File</th>
+                  <td>{{ designsStore.currentStructure.filename }}</td>
+                </tr>
+              </tbody>
             </table>
           </div>
         </div>
