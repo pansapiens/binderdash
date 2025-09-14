@@ -30,14 +30,14 @@ export const useAuthStore = defineStore('auth', () => {
     // Getters
     const isAuthenticated = computed(() => !!user.value)
     const isAuthEnabled = computed(() => {
-        // If authStatus is unknown, prefer showing the login (treat as enabled)
+        // If authStatus is unknown, assume auth is enabled (show login by default)
         if (authStatus.value === null) {
             return true
         }
         return !authStatus.value.auth_disabled
     })
     const isAuthDisabled = computed(() => {
-        // If authStatus is not loaded yet, return false (assume auth is enabled until we know otherwise)
+        // If authStatus is not loaded yet, assume auth is enabled (not disabled)
         if (authStatus.value === null) {
             return false
         }

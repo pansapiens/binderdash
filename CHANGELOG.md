@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed auth store logic to properly handle initialization state when `authStatus` is `null`
   - Ensured `shouldShowLogin` correctly evaluates to `false` when authentication is disabled
   - Verified `DISABLE_AUTHENTICATION="true"` properly bypasses login page and shows main app directly
+- **App.vue template logic**: Fixed template rendering logic to properly use `shouldShowLogin` computed property
+  - Updated template to use `authStore.shouldShowLogin` instead of `shouldShowMainApp` for login page display
+  - Removed unused `shouldShowMainApp` computed property
+  - Ensured proper fallback behavior: show login by default until auth status is determined
 
 ### Docker Containerization
 - **Complete Docker setup**: Added full containerization support for production deployment

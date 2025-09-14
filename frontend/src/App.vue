@@ -49,12 +49,6 @@ onMounted(async () => {
   }
 })
 
-// Computed property to check if we should show the main app
-const shouldShowMainApp = computed(() => {
-  // Show main app if auth is disabled or user is authenticated
-  return authStore.isAuthDisabled || authStore.isAuthenticated
-})
-
 // Computed property to check if we should show loading state
 const shouldShowLoading = computed(() => {
   // Show loading if auth hasn't been initialized yet
@@ -71,12 +65,12 @@ const shouldShowLoading = computed(() => {
         <p>Initializing...</p>
       </div>
     </div>
-    
+        
     <!-- Show login page if authentication is required and user is not authenticated -->
     <LoginView v-else-if="authStore.shouldShowLogin" />
     
     <!-- Show main app if authentication is disabled or user is authenticated -->
-    <template v-else-if="shouldShowMainApp">
+    <template v-else>
       <header class="app-header">
         <!-- Show logout button if authenticated -->
         <Button 
