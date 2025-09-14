@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Frontend Vite proxy now reads `API_BASE` environment variable to determine backend target
   - Defaults to `http://localhost:8000` if not set
   - Allows flexible configuration for different development environments
+
+### Fixed
+- **Authentication logic fix**: Fixed issue where login page wasn't showing correctly in production
+  - Fixed auth store logic to properly handle initialization state when `authStatus` is `null`
+  - Ensured `shouldShowLogin` correctly evaluates to `false` when authentication is disabled
+  - Verified `DISABLE_AUTHENTICATION="true"` properly bypasses login page and shows main app directly
+
 ### Docker Containerization
 - **Complete Docker setup**: Added full containerization support for production deployment
   - **Multi-stage Dockerfile**: Backend Dockerfile that builds frontend and serves static files via FastAPI
