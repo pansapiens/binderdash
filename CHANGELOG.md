@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Configurable API proxy target**: Added `API_BASE` environment variable for frontend development
+  - Frontend Vite proxy now reads `API_BASE` environment variable to determine backend target
+  - Defaults to `http://localhost:8000` if not set
+  - Allows flexible configuration for different development environments
 ### Docker Containerization
 - **Complete Docker setup**: Added full containerization support for production deployment
   - **Multi-stage Dockerfile**: Backend Dockerfile that builds frontend and serves static files via FastAPI
