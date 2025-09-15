@@ -8,8 +8,8 @@
 	reverse_proxy binderdash:8000 {
 		# Health check
 		health_uri /health
-		health_interval 60s
-		health_timeout 10s
+		health_interval 30s
+		health_timeout 5s
 	}
 
 	# Logging
