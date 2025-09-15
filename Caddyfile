@@ -1,0 +1,35 @@
+# Caddyfile for BinderDash production deployment
+# Provides automatic HTTPS and reverse proxy to FastAPI backend
+
+# Main site configuration
+{$DOMAIN:localhost} {
+	# Reverse proxy all requests to the FastAPI backend
+	# FastAPI will handle both API endpoints and static file serving
+	reverse_proxy binderdash:8000 {
+		# Health check
+		health_uri /health
+		health_interval 60s
+		health_timeout 10s
+	}
+
+	# Logging
+	log {
+		output stdout
+		format console
+		level INFO
+	}
+
+	# Security headers
+	header {
+		# Enable HSTS
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		# Prevent MIME type sniffing
+		X-Content-Type-Options "nosniff"
+		# Enable XSS protection
+		X-XSS-Protection "1; mode=block"
+		# Prevent clickjacking
+		X-Frame-Options "DENY"
+		# Referrer policy
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+}

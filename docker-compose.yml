@@ -1,10 +1,35 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file:
+      - .env
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    depends_on:
+      - binderdash
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
   binderdash:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    ports:
-      - "8000:8000"
+    # Remove port exposure - Caddy will handle external access
+    expose:
+      - "8000"
     env_file:
       - .env
     volumes:
@@ -30,3 +55,7 @@ services:
         reservations:
           memory: 512M
           cpus: '0.5'
+
+volumes:
+  caddy_data:
+  caddy_config:

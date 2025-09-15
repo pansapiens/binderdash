@@ -37,6 +37,7 @@ class RawSettings(BaseSettings):
     cors_allowed_origins: str = ""
     disable_authentication: str = ""
     access_token_expire_minutes: int = 60 * 24
+    domain: str = ""
 
 
 class LocalUser(BaseModel):
