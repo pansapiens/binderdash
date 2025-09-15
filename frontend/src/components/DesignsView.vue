@@ -159,7 +159,6 @@
           :value="designsStore.filteredDesigns" 
           :loading="designsStore.loading"
           v-model:selection="designsStore.selectedDesigns"
-          selectionMode="multiple"
           dataKey="design_id"
           stripedRows
           paginator
@@ -175,6 +174,8 @@
           :rowHover="true"
           :scrollable="true"
           scrollHeight="800px"
+          :selectOnClick="false"
+          @row-click="onRowClick"
         >
           <template #header>
             <div class="flex justify-content-between align-items-center">
@@ -213,6 +214,9 @@
             </div>
           </template>
 
+          <!-- Selection column -->
+          <Column selectionMode="multiple" headerStyle="width: 3rem"></Column>
+
           <!-- Dynamic columns based on available data -->
           <Column 
             v-for="col in getVisibleColumns()" 
@@ -231,16 +235,24 @@
             </template>
           </Column>
 
-          <Column header="Actions" style="width: 120px" :exportable="false">
+          <Column header="Actions" style="width: 180px" :exportable="false">
             <template #body="{ data }">
-              <Button 
-                icon="pi pi-eye" 
-                size="small"
-                @click="viewDesign(data)"
-                text
-                rounded
-                tooltip="View Structure"
-              />
+              <div class="action-buttons">
+                <Button 
+                  icon="pi pi-eye" 
+                  size="small"
+                  @click="viewDesign(data)"
+                  rounded
+                  tooltip="View Structure"
+                />
+                <Button 
+                  icon="pi pi-download" 
+                  size="small"
+                  @click="downloadPdb(data)"
+                  rounded
+                  tooltip="Download PDB"
+                />
+              </div>
             </template>
           </Column>
         </DataTable>
@@ -430,6 +442,63 @@ const loadDesigns = async () => {
 
 const viewDesign = (design: any): void => {
   designsStore.viewDesign(design)
+}
+
+const onRowClick = (event: any): void => {
+  // Only trigger view if the click wasn't on a button or checkbox
+  const target = event.originalEvent.target as HTMLElement
+  const isButton = target.closest('button') || target.closest('.p-button')
+  const isCheckbox = target.closest('.p-checkbox') || target.closest('input[type="checkbox"]')
+  
+  // Don't trigger view if clicking on buttons or checkboxes
+  if (!isButton && !isCheckbox) {
+    // Prevent the default row selection behavior
+    event.originalEvent.preventDefault()
+    event.originalEvent.stopPropagation()
+    
+    // Just view the design without affecting selection
+    viewDesign(event.data)
+  }
+}
+
+const downloadPdb = async (design: any): Promise<void> => {
+  try {
+    // Use the store's helper function to extract filename
+    const filename = designsStore.extractFilename(design.pdb_file)
+    
+    if (!filename) {
+      throw new Error('No PDB file found for this design')
+    }
+    
+    // Get the PDB URL for this design
+    const pdbUrl = runsApi.getPdbFileUrl(design.run_id, filename)
+    
+    // Create a temporary anchor element to trigger download
+    const link = document.createElement('a')
+    link.href = pdbUrl
+    link.download = filename
+    link.target = '_blank'
+    
+    // Append to body, click, and remove
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    
+    toast.add({
+      severity: 'success',
+      summary: 'Download Started',
+      detail: `Downloading ${filename}`,
+      life: 3000
+    })
+  } catch (error: any) {
+    console.error('Error downloading PDB:', error)
+    toast.add({
+      severity: 'error',
+      summary: 'Download Failed',
+      detail: error.message || 'Failed to download PDB file',
+      life: 3000
+    })
+  }
 }
 
 const navigateToNextRow = () => {
@@ -868,6 +937,14 @@ defineExpose({
   background: #f8f9fa;
 }
 
+:deep(.p-datatable .p-datatable-tbody > tr) {
+  cursor: pointer;
+}
+
+:deep(.p-datatable .p-datatable-tbody > tr > td) {
+  user-select: none;
+}
+
 /* Pagination spacing improvements */
 :deep(.p-datatable .p-paginator) {
   padding: 1rem 0;
@@ -895,5 +972,12 @@ defineExpose({
 
 :deep(.p-datatable .p-paginator .p-dropdown) {
   margin-left: 0.5rem;
+}
+
+/* Action buttons styling */
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
 }
 </style>

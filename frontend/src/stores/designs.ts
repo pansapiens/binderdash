@@ -160,7 +160,7 @@ export const useDesignsStore = defineStore('designs', () => {
 
         return {
             design,
-            filename: design.pdb_file.split('/').pop() || '',
+            filename: extractFilename(design.pdb_file),
             pdbPath: design.pdb_file
         }
     })
@@ -297,6 +297,12 @@ export const useDesignsStore = defineStore('designs', () => {
         return `${currentStructureIndex.value + 1} / ${designsWithPdb.length}`
     }
 
+    // Helper function to extract filename from pdb_file path
+    const extractFilename = (pdbFile: string | undefined): string => {
+        if (!pdbFile) return ''
+        return pdbFile.split('/').pop() || ''
+    }
+
     // Helper function to build columns from data
     const buildColumnsFromData = (designs: Design[]): ColumnConfig[] => {
         if (!designs || designs.length === 0) return columns.value
@@ -402,6 +408,7 @@ export const useDesignsStore = defineStore('designs', () => {
         clearDesigns,
         setSelectedRunIds,
         viewDesign,
-        getCurrentRowPosition
+        getCurrentRowPosition,
+        extractFilename
     }
 })
