@@ -16,6 +16,7 @@ import re
 import bcrypt
 from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
+import math
 import secrets
 
 # Configure logging
@@ -415,6 +416,70 @@ run_cache: Dict[str, Dict[str, Any]] = {}
 designs_cache: List[Dict[str, Any]] = []
 
 
+def _standardise_dataframe_columns(df: pd.DataFrame, protocol: str) -> pd.DataFrame:
+    """Normalise column names and coalesce equivalents to avoid duplicate fields across runs.
+
+    This ensures that common fields like Sequence/sequence and Length/length are merged into
+    a single canonical column so that downstream aggregation (designs list, run tables) presents
+    one column per concept regardless of original casing/source.
+    """
+    if df is None or df.empty:
+        return df
+
+    # Define canonicalisation groups (case-insensitive matching)
+    canonical_groups: Dict[str, List[str]] = {
+        "Sequence": [
+            "Sequence",
+            "sequence",
+            "AA_sequence",
+            "aa_sequence",
+            "binder_sequence",
+            "binder_seq",
+        ],
+        "Length": ["Length", "length", "len", "binder_length"],
+    }
+
+    # Build a mapping from lower-case to original for quick lookup
+    lower_to_original: Dict[str, str] = {col.lower(): col for col in df.columns}
+
+    result_df = df.copy()
+
+    for target, variants in canonical_groups.items():
+        source_cols: List[str] = []
+        for v in variants:
+            original = lower_to_original.get(v.lower())
+            if original and original not in source_cols:
+                source_cols.append(original)
+
+        if not source_cols:
+            continue
+
+        # If the target already exists and is among sources, prioritise it; else create it
+        if target in result_df.columns:
+            # Fill missing values in the target from other source columns
+            for src in source_cols:
+                if src == target:
+                    continue
+                result_df[target] = result_df[target].fillna(result_df[src])
+        else:
+            # Create target by coalescing first non-null across sources
+            series = None
+            for idx, src in enumerate(source_cols):
+                if idx == 0:
+                    series = result_df[src]
+                else:
+                    series = series.where(series.notna(), result_df[src])  # type: ignore
+            if series is not None:
+                result_df[target] = series
+
+        # Drop duplicate sources except the target
+        for src in source_cols:
+            if src != target and src in result_df.columns:
+                result_df = result_df.drop(columns=[src])
+
+    return result_df
+
+
 def guess_project_id(path: Path) -> str:
     """
     Guess the project ID based on the path, avoiding disallowed names.
@@ -641,6 +706,11 @@ def load_run_table(run_metadata: Dict[str, Any]) -> Optional[pd.DataFrame]:
                     logger.warning(f"Unsupported table format: {table_path}")
                     continue
 
+                # Standardise and coalesce equivalent column names to avoid duplicates across runs
+                df = _standardise_dataframe_columns(
+                    df, run_metadata.get("protocol", "")
+                )
+
                 # Add a column to identify which path this data came from
                 df["source_path"] = str(path)
                 all_dfs.append(df)
@@ -777,8 +847,12 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                     col: row[col]
                     for col in df.columns
                     if col != design_id_col
-                    and not (
-                        pd.isna(row[col]) if hasattr(pd, "isna") else row[col] is None
+                    and not bool(
+                        (
+                            pd.isna(row[col])
+                            if hasattr(pd, "isna")
+                            else (row[col] is None)
+                        )
                     )
                 },
             }
@@ -1107,9 +1181,15 @@ async def get_run_table(
         # Replace NaN and infinite values with None (which becomes null in JSON)
         df_clean = df.replace({np.nan: None, np.inf: None, -np.inf: None})
 
+        # Convert DataFrame rows to list of dicts without relying on pandas stubs for to_dict overloads
+        data_records = [
+            {col: row[col] for col in df_clean.columns}
+            for _, row in df_clean.iterrows()
+        ]
+
         return {
             "columns": df.columns.tolist(),
-            "data": df_clean.to_dict(orient="records"),
+            "data": data_records,
             "total_rows": len(df),
         }
 
@@ -1345,7 +1425,10 @@ def create_scatter_plot_spec(
 ) -> Dict:
     """Create a Vega-Lite specification for a scatter plot."""
     # Convert DataFrame to the format Vega-Lite expects
-    data_values = df[[x_col, y_col]].to_dict(orient="records")
+    data_values = [
+        {x_col: row[x_col], y_col: row[y_col]}
+        for _, row in df[[x_col, y_col]].iterrows()
+    ]
 
     spec = {
         "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
@@ -1381,7 +1464,7 @@ def create_histogram_spec(
     df: pd.DataFrame, col: str, title: str = "Distribution"
 ) -> Dict:
     """Create a Vega-Lite specification for a histogram/density plot."""
-    data_values = df[[col]].to_dict(orient="records")
+    data_values = [{col: row[col]} for _, row in df[[col]].iterrows()]
 
     spec = {
         "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
@@ -1563,7 +1646,9 @@ async def get_scatter_plot_multiple(
             )
 
         # Convert to the format expected by Vega-Lite
-        data_values = clean_df.to_dict(orient="records")
+        data_values = [
+            {c: row[c] for c in clean_df.columns} for _, row in clean_df.iterrows()
+        ]
 
         return {
             "data": data_values,
@@ -1642,7 +1727,9 @@ async def get_histogram_plot_multiple(
             )
 
         # Convert to the format expected by Vega-Lite
-        data_values = clean_df.to_dict(orient="records")
+        data_values = [
+            {c: row[c] for c in clean_df.columns} for _, row in clean_df.iterrows()
+        ]
 
         return {
             "data": data_values,

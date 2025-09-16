@@ -182,7 +182,7 @@
               <span class="text-xl font-bold">All Designs</span>
               <div class="flex gap-2">
                 <Button 
-                  icon="pi pi-columns" 
+                  icon="pi pi-table" 
                   @click="toggleColumnSelector"
                   text
                   rounded

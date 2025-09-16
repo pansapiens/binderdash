@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Normalised run table columns on the backend to coalesce equivalent fields (e.g., `Sequence`/`sequence`, `Length`/`length`) during ingestion. This prevents duplicate columns appearing in `DesignsView` when mixing RFD and BindCraft runs.
+
 ### Added
 - **Folder selection persistence**: Added localStorage persistence for folder browser selections
   - Installed and configured `pinia-plugin-persistedstate` for Pinia store persistence
