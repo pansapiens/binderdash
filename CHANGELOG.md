@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Folder selection persistence**: Added localStorage persistence for folder browser selections
+  - Installed and configured `pinia-plugin-persistedstate` for Pinia store persistence
+  - Selected folders, expanded tree nodes, and folder selection state now persist across page reloads
+  - Only persists user preferences (selectedFolders, selectedKeys, expandedKeys) - not the entire folder tree or scan results
+  - Improved user experience by maintaining folder browser state between sessions
 - **Configurable API proxy target**: Added `API_BASE` environment variable for frontend development
   - Frontend Vite proxy now reads `API_BASE` environment variable to determine backend target
   - Defaults to `http://localhost:8000` if not set

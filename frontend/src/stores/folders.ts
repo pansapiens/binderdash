@@ -221,4 +221,9 @@ export const useFolderStore = defineStore('folders', () => {
         isNodeSelected,
         getFolderIcon
     }
+}, {
+    persist: {
+        // Persist only the selected folders and keys, not the entire folder tree or scan results
+        paths: ['selectedFolders', 'selectedKeys', 'expandedKeys']
+    }
 })

@@ -34,7 +34,7 @@
         :loading="folderStore.loading"
         @node-expand="onNodeExpand"
         @node-collapse="onNodeCollapse"
-        v-model:expandedKeys="expandedKeys"
+        v-model:expandedKeys="folderStore.expandedKeys"
         dataKey="key"
         lazy
         :loadingIcon="'pi pi-spinner'"
@@ -187,7 +187,6 @@ const folderStore = useFolderStore()
 const runsStore = useRunsStore()
 
 // Local UI state (not shared across components)
-const expandedKeys = ref<Record<string, any>>({})
 const filters = ref<any>(null)
 
 // Computed
@@ -237,7 +236,7 @@ const refreshTree = async () => {
   try {
     // Clear current selection and expanded state to start fresh
     folderStore.clearSelection()
-    expandedKeys.value = {}
+    folderStore.expandedKeys = {}
     
     // Reload the root folders
     await folderStore.fetchFolders()
