@@ -121,6 +121,7 @@ For development with live reloading and source code watching:
 
 ```bash
 docker compose -f docker-compose.dev.yml up --build
+# Connect to http://localhost:8001
 
 # Watch the logs for the backend
 docker compose -f docker-compose.dev.yml logs -f binderdash
@@ -131,6 +132,7 @@ docker compose -f docker-compose.dev.yml logs -f frontend-watcher
 # Stop the development environment
 docker compose -f docker-compose.dev.yml down
 ```
+The development server is available at: http://localhost:8001
 
 This development setup includes:
 - Backend auto-reload when Python code changes
