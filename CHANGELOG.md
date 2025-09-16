@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Normalised run table columns on the backend to coalesce equivalent fields (e.g., `Sequence`/`sequence`, `Length`/`length`) during ingestion. This prevents duplicate columns appearing in `DesignsView` when mixing RFD and BindCraft runs.
 
 ### Added
+- Designs table exports and PDBs archive download
+  - Added SplitButton in `DesignsView.vue` with actions: Download TSV (default), Download CSV, Download PDBs
+  - Checkbox "Include all columns" to export all columns or only currently visible columns
+  - CSV/TSV export respects selection (exports selected rows, or all filtered rows if none selected)
+  - Backend endpoint `POST /api/pdbs/tar` streams a tarball of requested PDBs without loading all files into memory
+  - Frontend integrates tar download, packaging selected (or all filtered) PDBs into a single `.tar`
+
+### Added
 - **Folder selection persistence**: Added localStorage persistence for folder browser selections
   - Installed and configured `pinia-plugin-persistedstate` for Pinia store persistence
   - Selected folders, expanded tree nodes, and folder selection state now persist across page reloads

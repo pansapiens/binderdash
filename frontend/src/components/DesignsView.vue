@@ -180,7 +180,7 @@
           <template #header>
             <div class="flex justify-content-between align-items-center">
               <span class="text-xl font-bold">All Designs</span>
-              <div class="flex gap-2">
+              <div class="flex gap-2 align-items-center">
                 <Button 
                   icon="pi pi-table" 
                   @click="toggleColumnSelector"
@@ -195,6 +195,25 @@
                   rounded
                   :class="{ 'p-button-outlined': showFilterPanel }"
                 />
+                <div class="flex align-items-center gap-2">
+                  <SplitButton 
+                    :model="exportMenuItems"
+                    label="Download TSV"
+                    icon="pi pi-download"
+                    dropdownIcon="pi pi-chevron-down"
+                    @click="onDownloadTsv"
+                    size="small"
+                  />
+                  <div class="flex align-items-center gap-1">
+                    <Checkbox 
+                      :modelValue="exportIncludeAllColumns"
+                      @update:modelValue="val => exportIncludeAllColumns = !!val"
+                      :binary="true"
+                      inputId="include-all-cols"
+                    />
+                    <label for="include-all-cols" class="ml-1">Include all columns</label>
+                  </div>
+                </div>
               </div>
             </div>
           </template>
@@ -361,6 +380,7 @@ import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Dropdown from 'primevue/dropdown'
 import Slider from 'primevue/slider'
+import SplitButton from 'primevue/splitbutton'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import MolstarViewer from './MolstarViewer.vue'
@@ -380,6 +400,11 @@ const showColumnSelector = ref(false)
 const showFilterPanel = ref(false)
 const molstarViewerRef = ref<any>(null)
 const isSpinning = ref(false)
+const exportIncludeAllColumns = ref(false)
+const exportMenuItems = ref([
+  { label: 'Download CSV', icon: 'pi pi-download', command: () => onDownloadCsv() },
+  { label: 'Download PDBs', icon: 'pi pi-box', command: () => onDownloadPdbs() }
+])
 
 // Filter options
 const protocolOptions = ref(['bindcraft', 'rfd'])
@@ -543,6 +568,83 @@ const applyFilters = () => {
   // Filters are automatically applied through the DataTable's filter system
   // This method can be used for additional custom filtering logic if needed
   console.log('Filters applied:', designsStore.filters)
+}
+
+// Export helpers
+const getRowsToExport = () => {
+  const selected = designsStore.selectedDesigns
+  return (selected && selected.length > 0) ? selected : designsStore.filteredDesigns
+}
+
+const getColumnsToExport = () => {
+  const replaceRunId = (cols: string[]) => {
+    return cols.map(c => (c === 'run_id' ? 'binderdash_run_id' : c)).filter((v, i, a) => a.indexOf(v) === i)
+  }
+
+  if (exportIncludeAllColumns.value) {
+    // All distinct keys across rows
+    const rows = getRowsToExport()
+    const keySet = new Set<string>()
+    rows.forEach((r: any) => Object.keys(r).forEach(k => keySet.add(k)))
+    return replaceRunId(Array.from(keySet))
+  }
+  return replaceRunId(designsStore.visibleColumns)
+}
+
+const toSeparatedValues = (rows: any[], cols: string[], sep: string): string => {
+  const esc = (v: any) => {
+    if (v == null) return ''
+    const s = String(v)
+    return sep === ',' && /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+  }
+  const header = cols.join(sep)
+  const valueFor = (r: any, c: string) => {
+    if (c === 'binderdash_run_id') return r['run_id']
+    return r[c]
+  }
+  const lines = rows.map(r => cols.map(c => esc(valueFor(r, c))).join(sep))
+  return [header, ...lines].join('\n')
+}
+
+const downloadBlob = (blob: Blob, filename: string) => {
+  const link = document.createElement('a')
+  const url = URL.createObjectURL(blob)
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+const onDownloadCsv = () => {
+  const rows = getRowsToExport()
+  const cols = getColumnsToExport()
+  const content = toSeparatedValues(rows as any[], cols as string[], ',')
+  downloadBlob(new Blob([content], { type: 'text/csv;charset=utf-8' }), 'designs.csv')
+}
+
+const onDownloadTsv = () => {
+  const rows = getRowsToExport()
+  const cols = getColumnsToExport()
+  const content = toSeparatedValues(rows as any[], cols as string[], '\t')
+  downloadBlob(new Blob([content], { type: 'text/tab-separated-values;charset=utf-8' }), 'designs.tsv')
+}
+
+const onDownloadPdbs = async () => {
+  try {
+    const rows = getRowsToExport().filter((d: any) => d.pdb_file)
+    if (rows.length === 0) {
+      toast.add({ severity: 'warn', summary: 'No PDBs', detail: 'No PDB files to download', life: 2500 })
+      return
+    }
+    const items = rows.map((d: any) => ({ run_id: d.run_id, filename: designsStore.extractFilename(d.pdb_file) }))
+    const blob = await runsApi.downloadPdbsTar(items)
+    downloadBlob(blob, 'designs_pdbs.tar')
+  } catch (err: any) {
+    console.error('Error downloading PDBs tar:', err)
+    toast.add({ severity: 'error', summary: 'Download Failed', detail: err?.message || 'Failed to download PDBs', life: 3000 })
+  }
 }
 
 // Length filter methods

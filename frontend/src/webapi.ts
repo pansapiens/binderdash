@@ -198,6 +198,40 @@ export const runsApi = {
     },
 
     /**
+     * Download a tar archive of multiple PDB files.
+     * @param items - Array of { run_id, filename }
+     * @returns Blob of the tar file
+     */
+    async downloadPdbsTar(items: Array<{ run_id: string; filename: string }>): Promise<Blob> {
+        const url = `${API_BASE}/api/pdbs/tar`
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json'
+        }
+        // Attach CSRF for POST requests if available
+        try {
+            const { getCsrfToken } = await import('./webapi')
+            const token = getCsrfToken()
+            if (token) headers['X-CSRF-Token'] = token
+        } catch (_) {
+            // ignore
+        }
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ items }),
+            credentials: 'include'
+        })
+
+        if (!response.ok) {
+            if (response.status === 401) throw new Error('Authentication required')
+            throw new Error(`HTTP error! status: ${response.status}`)
+        }
+
+        return await response.blob()
+    },
+
+    /**
      * Remove a run from the cache
      * @param runId - Unique identifier for the run
      * @returns Promise with success message
