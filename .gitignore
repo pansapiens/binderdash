@@ -18,7 +18,6 @@ test-results/
 /frontend/.pnp.*
 /frontend/.DS_Store
 /frontend/coverage
-/frontend/public
 
 /backend/static/assets/
 /backend/static/index.html
