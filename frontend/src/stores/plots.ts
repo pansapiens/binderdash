@@ -170,6 +170,43 @@ export const usePlotsStore = defineStore('plots', () => {
         })
     }
 
+    // Accept rows directly from the designs store (keeps plots in sync with table)
+    const setDataFromDesigns = (rows: any[]) => {
+        if (!rows || rows.length === 0) {
+            combinedData.value = []
+            numericColumns.value = []
+            return
+        }
+
+        // Coerce numeric-like strings
+        const coerced = rows.map((row: any) => {
+            const copy: any = { ...row }
+            for (const key of Object.keys(copy)) {
+                const v = copy[key]
+                if (v == null || typeof v === 'number') continue
+                const n = Number(v)
+                if (Number.isFinite(n)) copy[key] = n
+            }
+            return copy
+        })
+        combinedData.value = coerced
+
+        // Derive numeric columns from current data
+        const keys = new Set<string>()
+        coerced.forEach(r => Object.keys(r).forEach(k => keys.add(k)))
+        numericColumns.value = Array.from(keys).filter(col =>
+            coerced.some(r => Number.isFinite(r[col]))
+        )
+
+        // If axes not set yet, choose columns with highest valid coverage
+        if (!scatterXCol.value || !scatterYCol.value) {
+            const coverage = (col: string) => coerced.reduce((acc: number, r: any) => acc + (Number.isFinite(r[col]) ? 1 : 0), 0)
+            const sorted = [...numericColumns.value].sort((a, b) => coverage(b) - coverage(a))
+            if (!scatterXCol.value && sorted.length > 0) scatterXCol.value = sorted[0]
+            if (!scatterYCol.value && sorted.length > 1) scatterYCol.value = sorted[1]
+        }
+    }
+
     return {
         // State
         selectedRunIds,
@@ -201,5 +238,7 @@ export const usePlotsStore = defineStore('plots', () => {
         selectDataPoints,
         selectDataRange,
         getFilteredDataForColumn
+        ,
+        setDataFromDesigns
     }
 })

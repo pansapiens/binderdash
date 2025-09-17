@@ -2,14 +2,7 @@
   <div class="plots-view">
     <div class="plots-header">
       <h2>Plots & Analytics</h2>
-      <div class="plots-controls">
-        <Button 
-          label="Refresh Data" 
-          icon="pi pi-refresh" 
-          @click="loadRunData"
-          :loading="runsStore.loading"
-        />
-      </div>
+      <div class="plots-controls"></div>
     </div>
 
     <div class="plots-content">
@@ -165,12 +158,11 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed, nextTick, watch } from 'vue'
-import Button from 'primevue/button'
 import Dropdown from 'primevue/dropdown'
 import MultiSelect from 'primevue/multiselect'
 import { useToast } from 'primevue/usetoast'
 import embed from 'vega-embed'
-import { usePlotsStore, useRunsStore, useAppStore, useAuthStore } from '../stores'
+import { usePlotsStore, useRunsStore, useAppStore, useAuthStore, useDesignsStore } from '../stores'
 
 const toast = useToast()
 
@@ -179,6 +171,7 @@ const plotsStore = usePlotsStore()
 const runsStore = useRunsStore()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const designsStore = useDesignsStore()
 
 // Local UI state (not shared across components)
 const selectedProject = ref<string | null>(null)
@@ -575,6 +568,14 @@ watch(() => authStore.canLoadData, (canLoad) => {
     loadRunData()
   }
 }, { immediate: true })
+
+// Keep plots data in sync with the designs table filtered rows
+watch(() => [designsStore.filteredDesigns, plotsStore.selectedRunIds, plotsStore.scatterXCol, plotsStore.scatterYCol], () => {
+  // Only plot designs from selected runs
+  const rows = designsStore.filteredDesigns.filter((d: any) => plotsStore.selectedRunIds.includes(d.run_id))
+  plotsStore.setDataFromDesigns(rows as any[])
+  updateAllPlots()
+}, { deep: true })
 
 // Lifecycle
 onMounted(() => {
