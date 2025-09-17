@@ -19,6 +19,7 @@ from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
 import math
 import secrets
+import stat
 import tarfile
 import tempfile
 
@@ -1588,6 +1589,48 @@ async def get_plot_columns_multiple(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def stream_tar_archive(file_entries: List[tuple[str, Path]]):
+    """Generator to stream a tar archive on the fly."""
+    for arcname, fpath in file_entries:
+        try:
+            fstat = fpath.stat()
+            if not stat.S_ISREG(fstat.st_mode):
+                logger.warning(f"Skipping non-regular file: {fpath}")
+                continue
+
+            tarinfo = tarfile.TarInfo(name=arcname)
+            tarinfo.size = fstat.st_size
+            tarinfo.mtime = int(fstat.st_mtime)
+            tarinfo.mode = fstat.st_mode
+            tarinfo.type = tarfile.REGTYPE
+
+            # Write header
+            yield tarinfo.tobuf()
+
+            # Write file content in chunks
+            with fpath.open("rb") as f:
+                while True:
+                    chunk = f.read(65536)  # 64KB chunks
+                    if not chunk:
+                        break
+                    yield chunk
+
+            # Add padding to align to 512-byte blocks
+            padding_size = (512 - (fstat.st_size % 512)) % 512
+            if padding_size > 0:
+                yield b"\0" * padding_size
+
+        except FileNotFoundError:
+            logger.warning(f"File not found for tar archive: {fpath}")
+            continue
+        except Exception as e:
+            logger.error(f"Error processing file {fpath} for tar: {e}")
+            continue
+
+    # End of archive is two 512-byte null blocks
+    yield b"\0" * 1024
+
+
 @app.post("/api/pdbs/tar")
 async def download_pdbs_tar(
     request: PdbTarRequest,
@@ -1597,8 +1640,8 @@ async def download_pdbs_tar(
     Create and stream a tar archive of requested PDB files.
 
     The request contains a list of {run_id, filename}. Each filename must match
-    a PDB in the run's recorded pdb_files. The tarball is produced to a temp file
-    to avoid memory accumulation and streamed back to the client.
+    a PDB in the run's recorded pdb_files. The tarball is streamed on the fly
+    without creating a temporary file or accumulating in memory.
     """
     try:
         if not request.items:
@@ -1631,41 +1674,11 @@ async def download_pdbs_tar(
         if not file_entries:
             raise HTTPException(status_code=404, detail="No valid PDB files found")
 
-        # Create tar in a temporary file and stream it. This avoids loading all files into memory.
-        tmp = tempfile.NamedTemporaryFile(
-            prefix="binderdash_pdbs_", suffix=".tar", delete=False
-        )
-        tmp_path = Path(tmp.name)
-        tmp.close()
-
-        # Write tar file contents
-        with tarfile.open(tmp_path, mode="w") as tar:
-            for arcname, fpath in file_entries:
-                tar.add(str(fpath), arcname=arcname)
-
-        def file_iterator(chunk_size: int = 1024 * 1024):
-            with open(tmp_path, "rb") as f:
-                while True:
-                    chunk = f.read(chunk_size)
-                    if not chunk:
-                        break
-                    yield chunk
-
         headers = {"Content-Disposition": "attachment; filename=designs_pdbs.tar"}
-
-        # Ensure cleanup happens after response is sent
-        def cleanup_tmp():
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except Exception as e:
-                logger.warning(f"Failed to remove temp tar file {tmp_path}: {e}")
-
         return StreamingResponse(
-            file_iterator(),
+            stream_tar_archive(file_entries),
             media_type="application/x-tar",
             headers=headers,
-            background=BackgroundTask(cleanup_tmp),
         )
     except HTTPException:
         raise

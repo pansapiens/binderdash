@@ -211,7 +211,7 @@
                       :binary="true"
                       inputId="include-all-cols"
                     />
-                    <label for="include-all-cols" class="ml-1">Include all columns</label>
+                    <label for="include-all-cols" class="ml-1">&nbsp;Include all columns</label>
                   </div>
                 </div>
               </div>
