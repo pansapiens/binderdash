@@ -11,6 +11,82 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Run folder signatures for declarative run detection
+# Each signature defines the structure required to identify a run type
+run_folder_signatures = [
+    {
+        "method": "bindcraft",
+        "submethod": "nf-binder-design",
+        "priority": 1,  # Higher priority = checked first
+        "required_files": ["results/bindcraft/final_design_stats.csv"],
+        "required_dirs": ["results/bindcraft/accepted"],
+        "results_table": "results/bindcraft/final_design_stats.csv",
+        "pdb_pattern": "results/bindcraft/accepted/*.pdb",
+        "skip_dirs": ["results/bindcraft/batches"],  # Skip walking into batches
+        # Design parsing configuration
+        "design_id_columns": ["Design"],
+        "primary_score_columns": ["Average_i_pTM"],
+        "sort_ascending": False,
+        "pdb_search_patterns": [
+            "{design_id}.pdb",
+            "{design_id}_*.pdb",
+            "{design_id}*.pdb",
+        ],
+    },
+    {
+        "method": "rfd",
+        "submethod": "nf-binder-design",
+        "priority": 2,
+        "required_files": ["results/combined_scores.tsv"],
+        "required_dirs": [
+            "results/af2_initial_guess",
+            "results/proteinmpnn",
+            "results/rfdiffusion",
+        ],
+        "results_table": "results/combined_scores.tsv",
+        "pdb_pattern": "results/af2_initial_guess/pdbs/*.pdb",
+        "skip_dirs": [],
+        # Design parsing configuration
+        "design_id_columns": ["description"],
+        "primary_score_columns": ["pae_interaction"],
+        "sort_ascending": True,
+        "pdb_search_patterns": ["{design_id}.pdb"],
+    },
+    {
+        "method": "bindcraft",
+        "submethod": "regular",
+        "priority": 3,
+        "required_files": ["final_design_stats.csv"],
+        "required_dirs": ["Accepted"],
+        "results_table": "final_design_stats.csv",
+        "pdb_pattern": "Accepted/*.pdb",
+        "skip_dirs": [],
+        # Design parsing configuration
+        "design_id_columns": ["Design"],
+        "primary_score_columns": ["Average_i_pTM"],
+        "sort_ascending": False,
+        "pdb_search_patterns": [
+            "{design_id}.pdb",
+            "{design_id}_*.pdb",
+            "{design_id}*.pdb",
+        ],
+    },
+    {
+        "method": "rfd",
+        "submethod": "regular",
+        "priority": 4,
+        "required_dirs": ["af2_initial_guess"],
+        "results_table": "combined_scores.tsv",
+        "pdb_pattern": "af2_initial_guess/pdbs/*.pdb",
+        "skip_dirs": [],
+        # Design parsing configuration
+        "design_id_columns": ["description"],
+        "primary_score_columns": ["pae_interaction"],
+        "sort_ascending": True,
+        "pdb_search_patterns": ["{design_id}.pdb"],
+    },
+]
+
 
 def guess_project_id(path: Path) -> str:
     run_name = guess_run_name(path)
@@ -53,74 +129,92 @@ def guess_run_name(path: Path) -> str:
     return path.name
 
 
-def is_bindcraft_results(path: Path) -> bool:
-    if not path.is_dir():
-        return False
-    return (path / "final_design_stats.csv").is_file() and (path / "Accepted").is_dir()
+def _check_required_files(path: Path, required_files: List[str]) -> bool:
+    """Check if all required files exist for the given run signature."""
+    for file_path_str in required_files:
+        file_path = path / file_path_str
+        if not file_path.is_file():
+            return False
+    return True
 
 
-def is_rfd_results(path: Path) -> bool:
-    if not path.is_dir():
-        return False
-    combined_file = path / "combined_scores.tsv"
-    if combined_file.is_file():
-        return True
-    cs_files = list((path / "af2_initial_guess" / "scores").glob("*.cs"))
-    if cs_files:
-        return True
-    cs_files = list((path / "af2_initial_guess").glob("*.cs"))
-    return len(cs_files) > 0
+def _check_required_dirs(path: Path, required_dirs: List[str]) -> bool:
+    """Check if all required directories exist for the given run signature."""
+    for dir_path_str in required_dirs:
+        dir_path = path / dir_path_str
+        if not dir_path.is_dir():
+            return False
+    return True
 
 
-def is_nf_binder_design_bindcraft_run(path: Path) -> bool:
-    """Detect if this is an nf-binder-design bindcraft run.
+def _check_required_patterns(path: Path, required_patterns: List[str]) -> bool:
+    """Check if any files match the required patterns for the given run signature."""
+    for pattern in required_patterns:
+        matches = list(path.glob(pattern))
+        if matches:
+            return True
+    return False
 
-    These runs have the structure:
-    {run_name}/results/bindcraft/final_design_stats.csv
-    {run_name}/results/bindcraft/accepted/
+
+def _find_pdb_file_for_design(
+    run_path: Path, design_id: str, pdb_search_patterns: List[str], pdb_base_dir: str
+) -> Optional[str]:
+    """Find the PDB file for a design using the search patterns."""
+    pdb_dir = run_path / pdb_base_dir
+    if not pdb_dir.exists():
+        return None
+
+    for pattern in pdb_search_patterns:
+        search_pattern = pattern.format(design_id=design_id)
+        matches = list(pdb_dir.glob(search_pattern))
+        if matches:
+            return str(matches[0])
+    return None
+
+
+def detect_run_type(path: Path) -> Optional[Dict[str, Any]]:
+    """Detect the run type using declarative signatures.
+
+    Returns the matching signature with run_name extracted, or None if no match.
     """
     if not path.is_dir():
-        return False
+        return None
 
-    # Check for the nf-binder-design bindcraft structure
-    bindcraft_dir = path / "results" / "bindcraft"
-    if not bindcraft_dir.is_dir():
-        return False
+    # Sort signatures by priority (higher priority first)
+    sorted_signatures = sorted(run_folder_signatures, key=lambda x: x["priority"])
 
-    final_stats = bindcraft_dir / "final_design_stats.csv"
-    accepted_dir = bindcraft_dir / "accepted"
+    for signature in sorted_signatures:
+        # The current directory is the run_name
+        run_name = path.name
 
-    return final_stats.is_file() and accepted_dir.is_dir()
+        # Check required files
+        if "required_files" in signature:
+            if not _check_required_files(path, signature["required_files"]):
+                continue
 
+        # Check required directories
+        if "required_dirs" in signature:
+            if not _check_required_dirs(path, signature["required_dirs"]):
+                continue
 
-def is_nf_binder_design_rfd_run(path: Path) -> bool:
-    """Detect if this is an nf-binder-design RFD run.
+        # Check required patterns (alternative to required_files for some cases)
+        if "required_patterns" in signature:
+            if not _check_required_patterns(path, signature["required_patterns"]):
+                continue
 
-    These runs have the structure:
-    {run_name}/results/combined_scores.tsv
-    {run_name}/results/af2_initial_guess/
-    {run_name}/results/proteinmpnn/
-    {run_name}/results/rfdiffusion/
-    """
-    if not path.is_dir():
-        return False
+        # Special case for regular RFD: check if combined_scores.tsv exists OR .cs files exist
+        if signature["method"] == "rfd" and signature["submethod"] == "regular":
+            combined_file = path / "combined_scores.tsv"
+            cs_files_scores = list((path / "af2_initial_guess" / "scores").glob("*.cs"))
+            cs_files_root = list((path / "af2_initial_guess").glob("*.cs"))
 
-    # Check for the nf-binder-design RFD structure
-    results_dir = path / "results"
-    if not results_dir.is_dir():
-        return False
+            if not (combined_file.is_file() or cs_files_scores or cs_files_root):
+                continue
 
-    combined_scores = results_dir / "combined_scores.tsv"
-    af2_dir = results_dir / "af2_initial_guess"
-    proteinmpnn_dir = results_dir / "proteinmpnn"
-    rfdiffusion_dir = results_dir / "rfdiffusion"
+        # If we get here, this signature matches
+        return {**signature, "run_name": run_name, "detected_path": str(path)}
 
-    return (
-        combined_scores.is_file()
-        and af2_dir.is_dir()
-        and proteinmpnn_dir.is_dir()
-        and rfdiffusion_dir.is_dir()
-    )
+    return None
 
 
 def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
@@ -149,67 +243,54 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
             except ValueError:
                 pass  # "batches" not found in path_parts
 
-        method: Optional[str] = None
-        results_table: Optional[str] = None
-        pdb_files: List[str] = []
-        is_nf_binder_design = False
-
-        # Check for nf-binder-design runs first (these take precedence)
-        if is_nf_binder_design_bindcraft_run(current_dir):
-            method = "bindcraft"
-            results_table = "results/bindcraft/final_design_stats.csv"
-            accepted_dir = current_dir / "results" / "bindcraft" / "accepted"
-            if accepted_dir.is_dir():
-                pdb_files = [str(p) for p in accepted_dir.glob("*.pdb")]
-            is_nf_binder_design = True
-        elif is_nf_binder_design_rfd_run(current_dir):
-            method = "rfd"
-            results_table = "results/combined_scores.tsv"
-            pdbs_dir = current_dir / "results" / "af2_initial_guess" / "pdbs"
-            if pdbs_dir.is_dir():
-                pdb_files = [str(p) for p in pdbs_dir.glob("*.pdb")]
-            is_nf_binder_design = True
-        elif is_bindcraft_results(current_dir):
-            method = "bindcraft"
-            results_table = "final_design_stats.csv"
-            accepted_dir = current_dir / "Accepted"
-            if accepted_dir.is_dir():
-                pdb_files = [str(p) for p in accepted_dir.glob("*.pdb")]
-        elif is_rfd_results(current_dir):
-            method = "rfd"
-            combined_file = current_dir / "combined_scores.tsv"
-            if combined_file.is_file():
-                results_table = "combined_scores.tsv"
-            pdbs_dir = current_dir / "af2_initial_guess" / "pdbs"
-            if pdbs_dir.is_dir():
-                pdb_files = [str(p) for p in pdbs_dir.glob("*.pdb")]
-
-        if method:
+        # Use declarative detection
+        detected_run = detect_run_type(current_dir)
+        if detected_run:
             run_id = str(uuid.uuid4())
             guessed_project_id = guess_project_id(current_dir)
-            guessed_name = guess_run_name(current_dir)
+            run_name = detected_run["run_name"]
+
+            # Use the results table and PDB pattern directly from the signature
+            results_table = detected_run["results_table"]
+            pdb_pattern = detected_run["pdb_pattern"]
+
+            # Find PDB files using the pattern
+            pdb_files = [str(p) for p in current_dir.glob(pdb_pattern)]
+
+            # Determine if this is an nf-binder-design run
+            is_nf_binder_design = detected_run["submethod"] == "nf-binder-design"
+
             runs.append(
                 {
                     "run_id": run_id,
                     "project_id": guessed_project_id,
                     "path": str(current_dir),
-                    "method": method,
+                    "method": detected_run["method"],
+                    "submethod": detected_run["submethod"],
                     "results_table": results_table,
                     "pdb_files": pdb_files,
                     "is_nf_binder_design": is_nf_binder_design,
+                    "signature": detected_run,  # Store the full signature for use in parse_designs_from_run
                     "metadata": {
-                        "name": guessed_name,
+                        "name": run_name,
                         "original_name": current_dir.name,
                         "parent_path": str(current_dir.parent),
                         "pdb_count": len(pdb_files),
                     },
                 }
             )
-            # For nf-binder-design runs, skip walking into batches subdirectories
-            if is_nf_binder_design and method == "bindcraft":
-                # Remove 'batches' from dirnames to prevent recursive walking
-                dirnames[:] = [d for d in dirnames if d != "batches"]
+
+            # Handle directory skipping based on signature
+            if "skip_dirs" in detected_run and detected_run["skip_dirs"]:
+                # Remove directories that should be skipped from dirnames
+                skip_dir_names = []
+                for skip_path_str in detected_run["skip_dirs"]:
+                    skip_path = current_dir / skip_path_str
+                    if skip_path.is_dir():
+                        skip_dir_names.append(skip_path.name)
+                dirnames[:] = [d for d in dirnames if d not in skip_dir_names]
             else:
+                # Stop walking this directory tree since we found a run
                 dirnames[:] = []
     return runs
 
@@ -313,43 +394,54 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
         df = load_run_table(run_metadata)
         if df is None or df.empty:
             return []
+
         designs: List[Dict[str, Any]] = []
-        method = run_metadata["method"]
         run_path = run_metadata["path"]
         run_name = run_metadata["metadata"]["name"]
+        signature = run_metadata.get("signature", {})
 
-        if method == "bindcraft":
-            design_id_col = "Design" if "Design" in df.columns else None
-            primary_score_col = (
-                "Average_i_pTM" if "Average_i_pTM" in df.columns else None
-            )
-            sort_ascending = False
-        elif method == "rfd":
-            design_id_col = "description" if "description" in df.columns else None
-            primary_score_col = (
-                "pae_interaction" if "pae_interaction" in df.columns else None
-            )
-            sort_ascending = True
-        else:
-            design_id_col = None
-            primary_score_col = None
-            sort_ascending = True
+        # Get configuration from signature
+        design_id_columns = signature.get("design_id_columns", [])
+        primary_score_columns = signature.get("primary_score_columns", [])
+        sort_ascending = signature.get("sort_ascending", True)
+        pdb_search_patterns = signature.get("pdb_search_patterns", ["{design_id}.pdb"])
 
+        # Find design ID column
+        design_id_col = None
+        for col_name in design_id_columns:
+            if col_name in df.columns:
+                design_id_col = col_name
+                break
+
+        # Fallback: look for common design ID column names
         if not design_id_col:
             for col in df.columns:
                 if col.lower() in ["design", "description", "name", "id"]:
                     design_id_col = col
                     break
 
+        # Find primary score column
+        primary_score_col = None
+        for col_name in primary_score_columns:
+            if col_name in df.columns:
+                primary_score_col = col_name
+                break
+
+        # Fallback: use first numeric column
         if not primary_score_col:
             numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
             if numeric_cols:
                 primary_score_col = numeric_cols[0]
 
+        # Sort by primary score if available
         if primary_score_col and primary_score_col in df.columns:
             df = df.sort_values(
                 primary_score_col, ascending=sort_ascending
             ).reset_index(drop=True)
+
+        # Determine PDB base directory from the pdb_pattern
+        pdb_pattern = signature.get("pdb_pattern", "")
+        pdb_base_dir = pdb_pattern.split("/*.pdb")[0] if "/*.pdb" in pdb_pattern else ""
 
         for index, row in df.iterrows():
             design_id = (
@@ -357,50 +449,18 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                 if design_id_col
                 else f"design_{index}"
             )
-            pdb_file: Optional[str] = None
-            is_nf_binder_design = run_metadata.get("is_nf_binder_design", False)
 
-            if method == "bindcraft":
-                if is_nf_binder_design:
-                    # For nf-binder-design runs, PDBs are in results/bindcraft/accepted/
-                    accepted_dir = Path(run_path) / "results" / "bindcraft" / "accepted"
-                else:
-                    # For regular bindcraft runs, PDBs are in Accepted/
-                    accepted_dir = Path(run_path) / "Accepted"
-
-                if accepted_dir.exists():
-                    exact_pdb = accepted_dir / f"{design_id}.pdb"
-                    if exact_pdb.exists():
-                        pdb_file = str(exact_pdb)
-                    else:
-                        potential_pdbs = list(accepted_dir.glob(f"{design_id}_*.pdb"))
-                        if potential_pdbs:
-                            pdb_file = str(potential_pdbs[0])
-                        else:
-                            potential_pdbs = list(
-                                accepted_dir.glob(f"{design_id}*.pdb")
-                            )
-                            if potential_pdbs:
-                                pdb_file = str(potential_pdbs[0])
-            elif method == "rfd":
-                if is_nf_binder_design:
-                    # For nf-binder-design runs, PDBs are in results/af2_initial_guess/pdbs/
-                    pdbs_dir = Path(run_path) / "results" / "af2_initial_guess" / "pdbs"
-                else:
-                    # For regular RFD runs, PDBs are in af2_initial_guess/pdbs/
-                    pdbs_dir = Path(run_path) / "af2_initial_guess" / "pdbs"
-
-                if pdbs_dir.exists():
-                    pdb_path = pdbs_dir / f"{design_id}.pdb"
-                    if pdb_path.exists():
-                        pdb_file = str(pdb_path)
+            # Find PDB file using signature configuration
+            pdb_file = _find_pdb_file_for_design(
+                Path(run_path), design_id, pdb_search_patterns, pdb_base_dir
+            )
 
             design: Dict[str, Any] = {
                 "design_id": design_id,
                 "run_id": run_metadata["run_id"],
                 "project_id": run_metadata.get("project_id", ""),
                 "run_name": run_name,
-                "method": method,
+                "method": run_metadata["method"],
                 "run_path": run_path,
                 "pdb_file": pdb_file,
                 **{

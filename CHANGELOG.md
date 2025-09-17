@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Refactored run discovery to use declarative signatures**
+  - Replaced hardcoded detection functions with a declarative `run_folder_signatures` configuration for parsing runs from nf-binder-design, and 'vanilla' runs
 - Added explicit support for nf-binder-design runs
   - New detection functions for nf-binder-design bindcraft and RFD runs
   - nf-binder-design bindcraft runs: `{run_name}/results/bindcraft/final_design_stats.csv` and `{run_name}/results/bindcraft/accepted/`
