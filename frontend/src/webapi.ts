@@ -24,7 +24,7 @@ interface TreeResponse {
 interface Run {
     run_id: string;
     project_id: string;
-    protocol: string;
+    method: string;
     path: string;
     metadata: {
         name: string;
@@ -41,7 +41,7 @@ interface Design {
     design_id: string;
     project_id: string;
     run_name: string;
-    protocol: string;
+    method: string;
     pae_interaction?: number;
     Average_i_pTM?: number;
     pdb_file?: string;

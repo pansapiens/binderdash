@@ -40,13 +40,13 @@
               />
             </div>
             <div class="protocol-filter">
-              <label>Filter by Protocol:</label>
+              <label>Filter by Method:</label>
               <Dropdown 
-                v-model="selectedProtocol" 
-                :options="protocolOptions" 
+                v-model="selectedMethod" 
+                :options="methodOptions" 
                 optionLabel="label"
                 optionValue="value"
-                placeholder="All Protocols"
+                placeholder="All Methods"
                 class="protocol-dropdown"
                 @change="onProtocolFilterChange"
                 showClear
@@ -182,7 +182,7 @@ const authStore = useAuthStore()
 
 // Local UI state (not shared across components)
 const selectedProject = ref<string | null>(null)
-const selectedProtocol = ref<string | null>(null)
+const selectedMethod = ref<string | null>(null)
 const scatterLoading = ref(false)
 const xHistogramLoading = ref(false)
 const yHistogramLoading = ref(false)
@@ -198,9 +198,9 @@ const projectOptions = computed(() => {
   return projects.map(project => ({ label: project, value: project }))
 })
 
-const protocolOptions = computed(() => {
-  const protocols = [...new Set(runsStore.availableRuns.map((run: any) => run.protocol))]
-  return protocols.map(protocol => ({ label: protocol, value: protocol }))
+const methodOptions = computed(() => {
+  const methods = [...new Set(runsStore.availableRuns.map((run: any) => run.method))]
+  return methods.map(method => ({ label: method, value: method }))
 })
 
 const filteredRuns = computed(() => {
@@ -210,15 +210,15 @@ const filteredRuns = computed(() => {
     filtered = filtered.filter((run: any) => run.project_id === selectedProject.value)
   }
   
-  if (selectedProtocol.value) {
-    filtered = filtered.filter((run: any) => run.protocol === selectedProtocol.value)
+  if (selectedMethod.value) {
+    filtered = filtered.filter((run: any) => run.method === selectedMethod.value)
   }
   
   // Transform runs for dropdown display
   return filtered.map((run: any) => ({
     run_id: run.run_id,
-    display_name: `${run.project_id}/${run.metadata?.name || 'unknown'} (${run.protocol})`,
-    protocol: run.protocol,
+    display_name: `${run.project_id}/${run.metadata?.name || 'unknown'} (${run.method})`,
+    method: run.method,
     project_id: run.project_id,
     path: run.path
   }))

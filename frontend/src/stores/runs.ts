@@ -22,8 +22,8 @@ export const useRunsStore = defineStore('runs', () => {
         runs.value.filter(run => run.project_id === projectId)
     )
 
-    const runsByProtocol = computed(() => (protocol: string) =>
-        runs.value.filter(run => run.protocol === protocol)
+    const runsByMethod = computed(() => (method: string) =>
+        runs.value.filter(run => (run as any).method === method)
     )
 
     const totalRuns = computed(() => runs.value.length)
@@ -104,7 +104,7 @@ export const useRunsStore = defineStore('runs', () => {
         // Getters
         availableRuns,
         runsByProject,
-        runsByProtocol,
+        runsByMethod,
         totalRuns,
 
         // Actions

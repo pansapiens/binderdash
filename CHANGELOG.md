@@ -105,7 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added support for password input via stdin (useful for scripts)
   - Simplified command-line interface with `--password` option
   - Updated documentation and examples throughout
-- **Protocol filtering in Plots tab**: Added "Filter by Protocol" dropdown to allow filtering runs by binding protocol (bindcraft/rfd) before plotting
+- Rename: Column and UI label "Protocol" → "Method" across backend and frontend to avoid clash with BindCraft's internal "Protocol" column. Update your environment and API consumers accordingly.
 
 ### Changed
 - **Simplified plotting architecture**: Removed unnecessary backend plotting API endpoints (`/api/runs/plots/scatter` and `/api/runs/plots/histogram`). Frontend now fetches raw data directly and handles all plotting logic with Vega-Lite, reducing API complexity and improving performance.

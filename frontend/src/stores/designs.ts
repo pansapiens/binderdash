@@ -18,14 +18,14 @@ export const useDesignsStore = defineStore('designs', () => {
         design_id: { value: null, matchMode: 'contains' },
         project_id: { value: null, matchMode: 'contains' },
         run_name: { value: null, matchMode: 'contains' },
-        protocol: { value: null, matchMode: 'equals' },
+        method: { value: null, matchMode: 'equals' },
         score_min: { value: null, matchMode: 'gte' },
         score_max: { value: null, matchMode: 'lte' },
         length_min: { value: null, matchMode: 'gte' },
         length_max: { value: null, matchMode: 'lte' }
     })
     const columns = ref<ColumnConfig[]>([])
-    const visibleColumns = ref<string[]>(['design_id', 'project_id', 'run_name', 'protocol', 'Length'])
+    const visibleColumns = ref<string[]>(['design_id', 'project_id', 'run_name', 'method', 'Length'])
     const loading = ref(false)
     const currentStructureIndex = ref(0)
 
@@ -63,9 +63,9 @@ export const useDesignsStore = defineStore('designs', () => {
             )
         }
 
-        if (filters.value.protocol.value) {
+        if (filters.value.method.value) {
             filtered = filtered.filter(design =>
-                design.protocol === filters.value.protocol.value
+                (design as any).method === filters.value.method.value
             )
         }
 
@@ -125,7 +125,7 @@ export const useDesignsStore = defineStore('designs', () => {
     // Helper function for global filtering
     const getGlobalFilterFields = () => {
         // Base fields that are always present
-        const baseFields = ['design_id', 'project_id', 'run_name', 'protocol', 'Length']
+        const baseFields = ['design_id', 'project_id', 'run_name', 'method', 'Length']
 
         // Add score columns that are currently visible
         const scoreFields = visibleColumns.value.filter((col: string) =>
@@ -192,7 +192,7 @@ export const useDesignsStore = defineStore('designs', () => {
             columns.value = buildColumnsFromData(data.designs)
 
             // Update default visible columns to include score columns if they exist
-            const newDefaultColumns = ['design_id', 'project_id', 'run_name', 'protocol']
+            const newDefaultColumns = ['design_id', 'project_id', 'run_name', 'method']
 
             // Add Length column if it exists in the data
             if (data.designs.some(d => 'Length' in d && d['Length'] != null)) {
@@ -226,7 +226,7 @@ export const useDesignsStore = defineStore('designs', () => {
             design_id: { value: null, matchMode: 'contains' },
             project_id: { value: null, matchMode: 'contains' },
             run_name: { value: null, matchMode: 'contains' },
-            protocol: { value: null, matchMode: 'equals' },
+            method: { value: null, matchMode: 'equals' },
             score_min: { value: null, matchMode: 'gte' },
             score_max: { value: null, matchMode: 'lte' },
             length_min: { value: null, matchMode: 'gte' },
@@ -311,7 +311,7 @@ export const useDesignsStore = defineStore('designs', () => {
             { field: 'design_id', header: 'Design ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 150px' },
             { field: 'project_id', header: 'Project ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
             { field: 'run_name', header: 'Run Name', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
-            { field: 'protocol', header: 'Protocol', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 100px' }
+            { field: 'method', header: 'Method', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 100px' }
         ]
 
         // Add score columns if they exist in the data
@@ -345,7 +345,7 @@ export const useDesignsStore = defineStore('designs', () => {
 
         // Add other columns from the data (excluding already defined ones)
         const existingFields = new Set([
-            'design_id', 'project_id', 'run_name', 'protocol',
+            'design_id', 'project_id', 'run_name', 'method',
             'pae_interaction', 'Average_i_pTM', 'pLDDT', 'i_pTM', 'ipTM',
             'pdb_file', 'run_path', 'run_id'
         ])

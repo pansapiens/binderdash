@@ -6,7 +6,7 @@
 export interface Run {
     run_id: string;
     project_id: string;
-    protocol: string;
+    method: string;
     path: string;
     metadata: {
         name: string;
@@ -19,7 +19,7 @@ export interface Design {
     design_id: string;
     project_id: string;
     run_name: string;
-    protocol: string;
+    method: string;
     pdb_file?: string;
     run_path: string;
     run_id: string;
@@ -42,7 +42,7 @@ export interface FilterState {
     design_id: { value: any; matchMode: string };
     project_id: { value: any; matchMode: string };
     run_name: { value: any; matchMode: string };
-    protocol: { value: any; matchMode: string };
+    method: { value: any; matchMode: string };
     score_min: { value: any; matchMode: string };
     score_max: { value: any; matchMode: string };
     length_min: { value: any; matchMode: string };

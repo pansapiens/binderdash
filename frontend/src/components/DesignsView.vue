@@ -81,11 +81,11 @@
               />
             </div>
             <div class="filter-row">
-              <label>Protocol:</label>
+              <label>Method:</label>
               <Dropdown 
-                v-model="designsStore.filters.protocol.value" 
-                :options="protocolOptions" 
-                placeholder="Select protocol"
+                v-model="designsStore.filters.method.value" 
+                :options="methodOptions" 
+                placeholder="Select method"
                 class="filter-input"
                 showClear
               />
@@ -326,8 +326,8 @@
                   <td>{{ designsStore.currentStructure.design.run_name }}</td>
                 </tr>
                 <tr>
-                  <th>Protocol</th>
-                  <td>{{ designsStore.currentStructure.design.protocol }}</td>
+                  <th>Method</th>
+                  <td>{{ designsStore.currentStructure.design.method }}</td>
                 </tr>
                 <template 
                   v-for="scoreField in primaryScores" 
@@ -407,7 +407,7 @@ const exportMenuItems = ref([
 ])
 
 // Filter options
-const protocolOptions = ref(['bindcraft', 'rfd'])
+const methodOptions = ref(['bindcraft', 'rfd'])
 
 // Length filter state
 const lengthRange = ref([0, 300]) // Default range, will be updated based on data

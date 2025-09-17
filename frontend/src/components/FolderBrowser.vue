@@ -99,7 +99,7 @@
         currentPageReportTemplate="Showing {first} to {last} of {totalRecords} runs"
         :filters="filters"
         filterDisplay="menu"
-        :globalFilterFields="['metadata.name', 'protocol', 'path']"
+        :globalFilterFields="['metadata.name', 'method', 'path']"
         showGridlines
         :resizableColumns="true"
         columnResizeMode="fit"
@@ -127,7 +127,7 @@
         <Column field="metadata.name" header="Name" sortable style="min-width: 150px">
           <template #body="{ data }">
             <div class="run-name">
-              <i :class="getProtocolIcon(data.protocol)" class="protocol-icon"></i>
+              <i :class="getMethodIcon(data.method)" class="protocol-icon"></i>
               {{ data.metadata.name }}
             </div>
           </template>
@@ -137,9 +137,9 @@
             <span class="project-id">{{ data.project_id || '-' }}</span>
           </template>
         </Column>
-        <Column field="protocol" header="Protocol" sortable style="min-width: 100px">
+        <Column field="method" header="Method" sortable style="min-width: 100px">
           <template #body="{ data }">
-            <Tag :value="data.protocol" :severity="getProtocolSeverity(data.protocol)" />
+            <Tag :value="data.method" :severity="getMethodSeverity(data.method)" />
           </template>
         </Column>
         <Column field="metadata.pdb_count" header="PDB Files" sortable style="min-width: 100px">
@@ -383,8 +383,8 @@ const toggleNodeSelection = (node: any): void => {
   console.log('isNodeSelected result:', isNodeSelected(node))
 }
 
-const getProtocolSeverity = (protocol: any): string => {
-  switch (protocol) {
+const getMethodSeverity = (method: any): string => {
+  switch (method) {
     case 'bindcraft':
       return 'success'
     case 'rfd':
@@ -394,8 +394,8 @@ const getProtocolSeverity = (protocol: any): string => {
   }
 }
 
-const getProtocolIcon = (protocol: any): string => {
-  switch (protocol) {
+const getMethodIcon = (method: any): string => {
+  switch (method) {
     case 'bindcraft':
       return 'pi pi-code'
     case 'rfd':
