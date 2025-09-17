@@ -72,6 +72,57 @@ def is_rfd_results(path: Path) -> bool:
     return len(cs_files) > 0
 
 
+def is_nf_binder_design_bindcraft_run(path: Path) -> bool:
+    """Detect if this is an nf-binder-design bindcraft run.
+
+    These runs have the structure:
+    {run_name}/results/bindcraft/final_design_stats.csv
+    {run_name}/results/bindcraft/accepted/
+    """
+    if not path.is_dir():
+        return False
+
+    # Check for the nf-binder-design bindcraft structure
+    bindcraft_dir = path / "results" / "bindcraft"
+    if not bindcraft_dir.is_dir():
+        return False
+
+    final_stats = bindcraft_dir / "final_design_stats.csv"
+    accepted_dir = bindcraft_dir / "accepted"
+
+    return final_stats.is_file() and accepted_dir.is_dir()
+
+
+def is_nf_binder_design_rfd_run(path: Path) -> bool:
+    """Detect if this is an nf-binder-design RFD run.
+
+    These runs have the structure:
+    {run_name}/results/combined_scores.tsv
+    {run_name}/results/af2_initial_guess/
+    {run_name}/results/proteinmpnn/
+    {run_name}/results/rfdiffusion/
+    """
+    if not path.is_dir():
+        return False
+
+    # Check for the nf-binder-design RFD structure
+    results_dir = path / "results"
+    if not results_dir.is_dir():
+        return False
+
+    combined_scores = results_dir / "combined_scores.tsv"
+    af2_dir = results_dir / "af2_initial_guess"
+    proteinmpnn_dir = results_dir / "proteinmpnn"
+    rfdiffusion_dir = results_dir / "rfdiffusion"
+
+    return (
+        combined_scores.is_file()
+        and af2_dir.is_dir()
+        and proteinmpnn_dir.is_dir()
+        and rfdiffusion_dir.is_dir()
+    )
+
+
 def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
     runs: List[Dict[str, Any]] = []
     for dirpath, dirnames, filenames in os.walk(root_path, followlinks=True):
@@ -80,11 +131,45 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
             dirnames[:] = []
             continue
 
+        # Skip directories that are inside batches subdirectories of nf-binder-design runs
+        path_parts = current_dir.parts
+        if "batches" in path_parts:
+            # Check if this is inside an nf-binder-design run by looking for the pattern
+            # {run_name}/results/bindcraft/batches/{n}/...
+            try:
+                batches_index = path_parts.index("batches")
+                if (
+                    batches_index >= 2
+                    and path_parts[batches_index - 1] == "bindcraft"
+                    and path_parts[batches_index - 2] == "results"
+                ):
+                    # This is inside a batches directory of an nf-binder-design run, skip it
+                    dirnames[:] = []
+                    continue
+            except ValueError:
+                pass  # "batches" not found in path_parts
+
         method: Optional[str] = None
         results_table: Optional[str] = None
         pdb_files: List[str] = []
+        is_nf_binder_design = False
 
-        if is_bindcraft_results(current_dir):
+        # Check for nf-binder-design runs first (these take precedence)
+        if is_nf_binder_design_bindcraft_run(current_dir):
+            method = "bindcraft"
+            results_table = "results/bindcraft/final_design_stats.csv"
+            accepted_dir = current_dir / "results" / "bindcraft" / "accepted"
+            if accepted_dir.is_dir():
+                pdb_files = [str(p) for p in accepted_dir.glob("*.pdb")]
+            is_nf_binder_design = True
+        elif is_nf_binder_design_rfd_run(current_dir):
+            method = "rfd"
+            results_table = "results/combined_scores.tsv"
+            pdbs_dir = current_dir / "results" / "af2_initial_guess" / "pdbs"
+            if pdbs_dir.is_dir():
+                pdb_files = [str(p) for p in pdbs_dir.glob("*.pdb")]
+            is_nf_binder_design = True
+        elif is_bindcraft_results(current_dir):
             method = "bindcraft"
             results_table = "final_design_stats.csv"
             accepted_dir = current_dir / "Accepted"
@@ -111,6 +196,7 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
                     "method": method,
                     "results_table": results_table,
                     "pdb_files": pdb_files,
+                    "is_nf_binder_design": is_nf_binder_design,
                     "metadata": {
                         "name": guessed_name,
                         "original_name": current_dir.name,
@@ -119,7 +205,12 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
                     },
                 }
             )
-            dirnames[:] = []
+            # For nf-binder-design runs, skip walking into batches subdirectories
+            if is_nf_binder_design and method == "bindcraft":
+                # Remove 'batches' from dirnames to prevent recursive walking
+                dirnames[:] = [d for d in dirnames if d != "batches"]
+            else:
+                dirnames[:] = []
     return runs
 
 
@@ -267,8 +358,16 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                 else f"design_{index}"
             )
             pdb_file: Optional[str] = None
+            is_nf_binder_design = run_metadata.get("is_nf_binder_design", False)
+
             if method == "bindcraft":
-                accepted_dir = Path(run_path) / "Accepted"
+                if is_nf_binder_design:
+                    # For nf-binder-design runs, PDBs are in results/bindcraft/accepted/
+                    accepted_dir = Path(run_path) / "results" / "bindcraft" / "accepted"
+                else:
+                    # For regular bindcraft runs, PDBs are in Accepted/
+                    accepted_dir = Path(run_path) / "Accepted"
+
                 if accepted_dir.exists():
                     exact_pdb = accepted_dir / f"{design_id}.pdb"
                     if exact_pdb.exists():
@@ -284,7 +383,13 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                             if potential_pdbs:
                                 pdb_file = str(potential_pdbs[0])
             elif method == "rfd":
-                pdbs_dir = Path(run_path) / "af2_initial_guess" / "pdbs"
+                if is_nf_binder_design:
+                    # For nf-binder-design runs, PDBs are in results/af2_initial_guess/pdbs/
+                    pdbs_dir = Path(run_path) / "results" / "af2_initial_guess" / "pdbs"
+                else:
+                    # For regular RFD runs, PDBs are in af2_initial_guess/pdbs/
+                    pdbs_dir = Path(run_path) / "af2_initial_guess" / "pdbs"
+
                 if pdbs_dir.exists():
                     pdb_path = pdbs_dir / f"{design_id}.pdb"
                     if pdb_path.exists():

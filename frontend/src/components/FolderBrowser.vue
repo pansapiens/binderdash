@@ -108,9 +108,9 @@
       >
         <template #header>
           <div class="flex justify-content-between align-items-center">
-            <span class="text-xl font-bold">Detected Runs</span>
+            <span class="text-xl font-bold">Detected Runs&nbsp;</span>
             <span class="text-sm text-muted">
-              {{ folderStore.selectedRuns.length }} of {{ folderStore.scanResults.length }} selected
+              ({{ folderStore.selectedRuns.length }} of {{ folderStore.scanResults.length }} selected)
             </span>
           </div>
         </template>

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Added explicit support for nf-binder-design runs
+  - New detection functions for nf-binder-design bindcraft and RFD runs
+  - nf-binder-design bindcraft runs: `{run_name}/results/bindcraft/final_design_stats.csv` and `{run_name}/results/bindcraft/accepted/`
+  - nf-binder-design RFD runs: `{run_name}/results/combined_scores.tsv` with `af2_initial_guess/`, `proteinmpnn/`, and `rfdiffusion/` directories
+  - Prevents recursive walking into `batches/` subdirectories for nf-binder-design bindcraft runs
+  - Correctly handles PDB file paths for nf-binder-design runs vs regular runs
 - Normalised run table columns on the backend to coalesce equivalent fields (e.g., `Sequence`/`sequence`, `Length`/`length`) during ingestion. This prevents duplicate columns appearing in `DesignsView` when mixing RFD and BindCraft runs.
 
 ### Fixed
