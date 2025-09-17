@@ -298,10 +298,20 @@ export const plotsApi = {
                 const runData = await runsApi.getRunTable(runId)
                 if (runData && runData.data) {
                     // Add run_id to each row for identification
-                    const enrichedData = runData.data.map((row: any) => ({
-                        ...row,
-                        run_id: runId
-                    }))
+                    // TODO: Should this be done in the backend instead ?
+                    const enrichedData = runData.data.map((row: any, idx: number) => {
+                        // Derive a stable design identifier for selections/tooltips
+                        const possibleId =
+                            row.Design ?? row.design ?? row.description ?? row.name ?? row.id ?? null
+                        const design_id = possibleId != null && String(possibleId).length > 0
+                            ? String(possibleId)
+                            : `${runId}__row_${idx}`
+                        return {
+                            ...row,
+                            run_id: runId,
+                            design_id
+                        }
+                    })
                     allData.push(...enrichedData)
 
                     // Collect all column names
@@ -316,11 +326,12 @@ export const plotsApi = {
         const numericColumns = Array.from(allColumns).filter(col => {
             if (allData.length === 0) return false
             // Check if column has numeric values (excluding null/undefined)
-            return allData.some(row =>
-                row[col] != null &&
-                typeof row[col] === 'number' &&
-                !isNaN(row[col])
-            )
+            return allData.some(row => {
+                const v = row[col]
+                if (v == null) return false
+                const n = typeof v === 'number' ? v : Number(v)
+                return Number.isFinite(n)
+            })
         })
 
         return {
@@ -328,6 +339,19 @@ export const plotsApi = {
             columns: Array.from(allColumns),
             numericColumns
         }
+    }
+
+    ,
+    /**
+     * Ask backend for numeric columns and sensible defaults across runs
+     */
+    async getPlotColumns(runIds: string[]): Promise<{ numeric_columns: string[], defaults: { x: string, y: string } }> {
+        const url = `${API_BASE}/api/runs/plots/columns`
+        return await apiRequest<{ numeric_columns: string[], defaults: { x: string, y: string } }>(url, {
+            method: 'POST',
+            body: JSON.stringify({ run_ids: runIds }),
+            requireAuth: true
+        })
     }
 }
 

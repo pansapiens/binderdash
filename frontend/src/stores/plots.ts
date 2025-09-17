@@ -69,25 +69,40 @@ export const usePlotsStore = defineStore('plots', () => {
 
         loading.value = true
         try {
-            const result = await plotsApi.getCombinedData(runIds)
-            combinedData.value = result.data
+            const [result, cols] = await Promise.all([
+                plotsApi.getCombinedData(runIds),
+                plotsApi.getPlotColumns(runIds).catch(() => null)
+            ])
+
+            // Coerce numeric-like strings to numbers for plotting
+            const coerced = result.data.map((row: any) => {
+                const copy: any = { ...row }
+                for (const key of Object.keys(copy)) {
+                    const v = copy[key]
+                    if (v == null) continue
+                    if (typeof v === 'number') continue
+                    const n = Number(v)
+                    if (Number.isFinite(n)) copy[key] = n
+                }
+                return copy
+            })
+
+            combinedData.value = coerced
             numericColumns.value = result.numericColumns
 
-            // Set default columns based on available numeric columns
-            if (numericColumns.value.length > 0) {
-                // Look for common score columns first
-                const xCol = numericColumns.value.find(col =>
-                    col.toLowerCase().includes('plddt') || col.toLowerCase().includes('confidence')
-                ) || numericColumns.value[0]
-
-                const yCol = numericColumns.value.find(col =>
-                    col.toLowerCase().includes('pae') ||
-                    col.toLowerCase().includes('iptm') ||
-                    col.toLowerCase().includes('interaction')
-                ) || (numericColumns.value.length > 1 ? numericColumns.value[1] : numericColumns.value[0])
-
-                scatterXCol.value = xCol
-                scatterYCol.value = yCol
+            // Prefer backend defaults; fallback to heuristic with max coverage
+            if (cols && cols.numeric_columns?.length) {
+                const defX = cols.defaults?.x
+                const defY = cols.defaults?.y
+                if (defX) scatterXCol.value = defX
+                if (defY) scatterYCol.value = defY
+            }
+            if (!scatterXCol.value || !scatterYCol.value) {
+                // Pick columns with most finite values
+                const coverage = (col: string) => coerced.reduce((acc: number, r: any) => acc + (Number.isFinite(r[col]) ? 1 : 0), 0)
+                const sorted = [...numericColumns.value].sort((a, b) => coverage(b) - coverage(a))
+                if (sorted.length > 0) scatterXCol.value = scatterXCol.value || sorted[0]
+                if (sorted.length > 1) scatterYCol.value = scatterYCol.value || sorted[1]
             }
         } catch (err) {
             console.error('Error loading combined data:', err)
@@ -147,10 +162,12 @@ export const usePlotsStore = defineStore('plots', () => {
     }
 
     const getFilteredDataForColumn = (column: string) => {
-        return combinedData.value.filter(row =>
-            row[column] != null &&
-            !isNaN(row[column])
-        )
+        return combinedData.value.filter(row => {
+            const v = row[column]
+            if (v == null) return false
+            const n = typeof v === 'number' ? v : Number(v)
+            return Number.isFinite(n)
+        })
     }
 
     return {

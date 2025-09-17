@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Normalised run table columns on the backend to coalesce equivalent fields (e.g., `Sequence`/`sequence`, `Length`/`length`) during ingestion. This prevents duplicate columns appearing in `DesignsView` when mixing RFD and BindCraft runs.
 
+### Fixed
+- Plots now show one datapoint per design across selected runs
+  - Frontend `plots` store now coerces numeric-like strings to numbers and derives a stable `design_id` per row
+  - Uses backend `/api/runs/plots/columns` to prefer sensible axis defaults; falls back to columns with the highest valid coverage
+  - Scatter and histogram filters now treat numeric strings correctly, preventing near-empty plots
+
 ### Added
 - Designs table exports and PDBs archive download
   - Added SplitButton in `DesignsView.vue` with actions: Download TSV (default), Download CSV, Download PDBs

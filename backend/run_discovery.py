@@ -144,6 +144,11 @@ def load_run_table(run_metadata: Dict[str, Any]) -> Optional[pd.DataFrame]:
                 else:
                     logger.warning(f"Unsupported table format: {table_path}")
                     continue
+                # Coerce numeric-like object columns to numeric dtype where fully parseable
+                # This avoids returning numbers as strings, without forcing partial coercion.
+                for col in df.columns:
+                    if df[col].dtype == object:
+                        df[col] = pd.to_numeric(df[col], errors="ignore")
                 df = _standardise_dataframe_columns(df, run_metadata.get("method", ""))
                 df["source_path"] = str(path)
                 all_dfs.append(df)

@@ -412,12 +412,14 @@ const updateScatterPlot = async () => {
   scatterLoading.value = true
   try {
     // Filter data to only include rows with valid values for both columns
-    const filteredData = plotsStore.combinedData.filter((row: any) => 
-      row[plotsStore.scatterXCol!] != null && 
-      row[plotsStore.scatterYCol!] != null &&
-      !isNaN(row[plotsStore.scatterXCol!]) && 
-      !isNaN(row[plotsStore.scatterYCol!])
-    )
+    const filteredData = plotsStore.combinedData.filter((row: any) => {
+      const vx = row[plotsStore.scatterXCol!]
+      const vy = row[plotsStore.scatterYCol!]
+      if (vx == null || vy == null) return false
+      const nx = typeof vx === 'number' ? vx : Number(vx)
+      const ny = typeof vy === 'number' ? vy : Number(vy)
+      return Number.isFinite(nx) && Number.isFinite(ny)
+    })
     
     console.log('Filtered data points:', filteredData.length)
     
