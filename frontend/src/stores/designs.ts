@@ -24,6 +24,7 @@ export const useDesignsStore = defineStore('designs', () => {
         length_min: { value: null, matchMode: 'gte' },
         length_max: { value: null, matchMode: 'lte' }
     })
+    const bestMpnnOnly = ref(false)
     const columns = ref<ColumnConfig[]>([])
     const visibleColumns = ref<string[]>(['design_id', 'project_id', 'run_name', 'method', 'Length'])
     const loading = ref(false)
@@ -117,10 +118,153 @@ export const useDesignsStore = defineStore('designs', () => {
             filtered = []
         }
 
+        // Apply best MPNN filtering if enabled
+        if (bestMpnnOnly.value) {
+            filtered = _filterBestMpnnDesigns(filtered)
+        }
+
         return filtered
     })
 
     const totalDesigns = computed(() => designs.value.length)
+
+    // Helper function to select the best design from a group using primary and secondary scores
+    const _selectBestDesign = (designs: Design[]): Design => {
+        if (designs.length === 0) return designs[0]
+        if (designs.length === 1) return designs[0]
+
+        // Define primary and secondary scores for each method
+        const scoreConfig = {
+            bindcraft: {
+                primary: 'Average_i_pTM',
+                secondary: ['Average_Binder_pLDDT'],
+                higherIsBetter: true
+            },
+            rfd: {
+                primary: 'pae_interaction',
+                secondary: ['plddt_binder'],
+                higherIsBetter: false
+            }
+        }
+
+        let bestDesign = designs[0]
+        let bestScore: number | null = null
+
+        for (const design of designs) {
+            const method = (design as any).method || ''
+            const config = scoreConfig[method as keyof typeof scoreConfig]
+
+            if (!config) {
+                // Unknown method, keep the first design
+                continue
+            }
+
+            // Get primary score
+            const primaryScore = design[config.primary as keyof Design] as number | null
+            if (primaryScore === null || primaryScore === undefined) {
+                continue
+            }
+
+            // Compare with current best
+            let isBetter = false
+            if (bestScore === null) {
+                isBetter = true
+            } else if (config.higherIsBetter) {
+                if (primaryScore > bestScore) {
+                    isBetter = true
+                } else if (primaryScore === bestScore) {
+                    // Primary scores are equal, check secondary scores
+                    isBetter = _compareSecondaryScores(design, bestDesign, config.secondary, true)
+                }
+            } else {
+                if (primaryScore < bestScore) {
+                    isBetter = true
+                } else if (primaryScore === bestScore) {
+                    // Primary scores are equal, check secondary scores
+                    isBetter = _compareSecondaryScores(design, bestDesign, config.secondary, false)
+                }
+            }
+
+            if (isBetter) {
+                bestDesign = design
+                bestScore = primaryScore
+            }
+        }
+
+        return bestDesign
+    }
+
+    // Helper function to compare secondary scores when primary scores are equal
+    const _compareSecondaryScores = (
+        design1: Design,
+        design2: Design,
+        secondaryFields: string[],
+        higherIsBetter: boolean
+    ): boolean => {
+        for (const field of secondaryFields) {
+            const score1 = design1[field as keyof Design] as number | null
+            const score2 = design2[field as keyof Design] as number | null
+
+            // Skip if either score is null/undefined
+            if (score1 === null || score1 === undefined || score2 === null || score2 === undefined) {
+                continue
+            }
+
+            // Compare scores
+            if (higherIsBetter) {
+                if (score1 > score2) return true
+                if (score1 < score2) return false
+            } else {
+                if (score1 < score2) return true
+                if (score1 > score2) return false
+            }
+        }
+
+        // If all secondary scores are equal or missing, return false (keep current best)
+        return false
+    }
+
+    // Helper function to filter best MPNN designs
+    const _filterBestMpnnDesigns = (designs: Design[]): Design[] => {
+        if (!designs || designs.length === 0) return designs
+
+        // Group designs by backbone_id
+        const backboneGroups: Record<string, Design[]> = {}
+        for (const design of designs) {
+            const backboneId = (design as any).backbone_id
+            if (!backboneId) {
+                // If no backbone_id, keep the design as-is
+                backboneGroups['no_backbone'] = backboneGroups['no_backbone'] || []
+                backboneGroups['no_backbone'].push(design)
+                continue
+            }
+
+            backboneGroups[backboneId] = backboneGroups[backboneId] || []
+            backboneGroups[backboneId].push(design)
+        }
+
+        // For each backbone group, select the best design
+        const filteredDesigns: Design[] = []
+        for (const [backboneId, groupDesigns] of Object.entries(backboneGroups)) {
+            if (backboneId === 'no_backbone') {
+                // Keep all designs without backbone_id
+                filteredDesigns.push(...groupDesigns)
+                continue
+            }
+
+            if (groupDesigns.length === 1) {
+                // Only one design for this backbone, keep it
+                filteredDesigns.push(groupDesigns[0])
+                continue
+            }
+
+            // Find the best design using primary and secondary scores
+            const bestDesign = _selectBestDesign(groupDesigns)
+            filteredDesigns.push(bestDesign)
+        }
+
+        return filteredDesigns
+    }
 
     // Helper function for global filtering
     const getGlobalFilterFields = () => {
@@ -232,6 +376,11 @@ export const useDesignsStore = defineStore('designs', () => {
             length_min: { value: null, matchMode: 'gte' },
             length_max: { value: null, matchMode: 'lte' }
         }
+    }
+
+    const toggleBestMpnnOnly = () => {
+        bestMpnnOnly.value = !bestMpnnOnly.value
+        // No need to reload designs - filtering is done in computed property
     }
 
     const selectDesigns = (designsToSelect: Design[]) => {
@@ -385,6 +534,7 @@ export const useDesignsStore = defineStore('designs', () => {
         selectedDesigns,
         selectedRunIds,
         filters,
+        bestMpnnOnly,
         columns,
         visibleColumns,
         loading,
@@ -402,6 +552,7 @@ export const useDesignsStore = defineStore('designs', () => {
         fetchDesigns,
         setFilters,
         clearFilters,
+        toggleBestMpnnOnly,
         selectDesigns,
         toggleColumn,
         navigateStructure,

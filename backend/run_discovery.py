@@ -11,6 +11,33 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+
+def extract_backbone_id(design_id: str, method: str) -> str:
+    """Extract backbone_id from design_id by removing MPNN variant suffixes.
+
+    For bindcraft: removes _mpnn{n} suffix
+    For rfd: removes _mpnn{n} suffix and _af2pred suffix
+
+    Args:
+        design_id: The design identifier
+        method: The method type ("bindcraft" or "rfd")
+
+    Returns:
+        The backbone_id with MPNN variant suffixes removed
+    """
+    if not design_id:
+        return design_id
+
+    # bindcraft_design_111_l93_s308700_mpnn10 -> bindcraft_design_111_l93_s308700
+    # design_ppi_1Ty4GSo_6_dldesign_0_cycle1_mpnn1_af2pred -> design_ppi_1Ty4GSo_6_dldesign_0_cycle1
+
+    # Remove _mpnn{n} pattern, optionally followed by _af2pred
+    # This handles both bindcraft (_mpnn{n}) and RFD (_mpnn{n}_af2pred) patterns
+    backbone_id = re.sub(r"_mpnn\d+(?:_af2pred)?$", "", design_id)
+
+    return backbone_id
+
+
 # Run folder signatures for declarative run detection
 # Each signature defines the structure required to identify a run type
 run_folder_signatures = [
@@ -455,8 +482,12 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                 Path(run_path), design_id, pdb_search_patterns, pdb_base_dir
             )
 
+            # Extract backbone_id for MPNN filtering
+            backbone_id = extract_backbone_id(design_id, run_metadata["method"])
+
             design: Dict[str, Any] = {
                 "design_id": design_id,
+                "backbone_id": backbone_id,
                 "run_id": run_metadata["run_id"],
                 "project_id": run_metadata.get("project_id", ""),
                 "run_name": run_name,

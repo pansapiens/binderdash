@@ -137,6 +137,16 @@
                 />
               </div>
             </div>
+            <div class="filter-row">
+              <label>Best MPNN only:</label>
+              <Checkbox 
+                :modelValue="designsStore.bestMpnnOnly"
+                @update:modelValue="designsStore.toggleBestMpnnOnly"
+                :binary="true"
+                inputId="best-mpnn-only"
+              />
+              <label for="best-mpnn-only" class="ml-2">Show only best MPNN variant per backbone</label>
+            </div>
             <div class="filter-actions">
               <Button 
                 label="Clear Filters" 
@@ -438,6 +448,8 @@ const lengthMax = ref(300)
 
 // Primary scores to display in structure details
 const primaryScores = ref(['Average_i_pTM', 'pae_interaction'])
+const secondaryScores = ref(['Average_Binder_pLDDT', 'plddt_binder'])
+// const binderRMSD = ref(['Average_Binder_RMSD', 'binder_aligned_rmsd'])
 
 // Human-readable field name mapping
 const niceFieldNames: Record<string, string> = {
