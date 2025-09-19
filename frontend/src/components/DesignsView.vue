@@ -225,6 +225,7 @@
                       size="small"
                       inputId="select-top-count"
                       class="select-top-input"
+                      @input="(event) => selectTopCount = Number(event.value)"
                     />
                     <Button 
                       label="Select"
@@ -1128,8 +1129,8 @@ defineExpose({
 
 /* Select top controls styling */
 .select-top-input {
-  width: 100px;
-  min-width: 100px;
+  width: 60px;
+  min-width: 60px;
 }
 
 .select-top-input :deep(.p-inputnumber-input) {
