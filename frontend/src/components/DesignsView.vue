@@ -195,23 +195,43 @@
                   rounded
                   :class="{ 'p-button-outlined': showFilterPanel }"
                 />
-                <div class="flex align-items-center gap-2">
-                  <SplitButton 
-                    :model="exportMenuItems"
-                    label="Download TSV"
-                    icon="pi pi-download"
-                    dropdownIcon="pi pi-chevron-down"
-                    @click="onDownloadTsv"
-                    size="small"
-                  />
-                  <div class="flex align-items-center gap-1">
-                    <Checkbox 
-                      :modelValue="exportIncludeAllColumns"
-                      @update:modelValue="val => exportIncludeAllColumns = !!val"
-                      :binary="true"
-                      inputId="include-all-cols"
+                <div class="flex align-items-start gap-3">
+                  <div class="flex flex-column gap-2">
+                    <SplitButton 
+                      :model="exportMenuItems"
+                      label="Download TSV"
+                      icon="pi pi-download"
+                      dropdownIcon="pi pi-chevron-down"
+                      @click="onDownloadTsv"
+                      size="small"
                     />
-                    <label for="include-all-cols" class="ml-1">&nbsp;Include all columns</label>
+                    <div class="flex align-items-center gap-1">
+                      <Checkbox 
+                        :modelValue="exportIncludeAllColumns"
+                        @update:modelValue="val => exportIncludeAllColumns = !!val"
+                        :binary="true"
+                        inputId="include-all-cols"
+                      />
+                      <label for="include-all-cols" class="text-sm">Include all columns</label>
+                    </div>
+                  </div>
+                  <div class="select-top-controls">
+                    <label for="select-top-count" class="text-sm font-medium">Select top:</label>
+                    <InputNumber 
+                      v-model="selectTopCount"
+                      :min="1"
+                      :max="designsStore.filteredDesigns.length"
+                      placeholder="N"
+                      size="small"
+                      inputId="select-top-count"
+                      class="select-top-input"
+                    />
+                    <Button 
+                      label="Select"
+                      @click="selectTopRows"
+                      size="small"
+                      :disabled="!selectTopCount || selectTopCount < 1"
+                    />
                   </div>
                 </div>
               </div>
@@ -401,6 +421,7 @@ const showFilterPanel = ref(false)
 const molstarViewerRef = ref<any>(null)
 const isSpinning = ref(false)
 const exportIncludeAllColumns = ref(false)
+const selectTopCount = ref<number | null>(null)
 const exportMenuItems = ref([
   { label: 'Download CSV', icon: 'pi pi-download', command: () => onDownloadCsv() },
   { label: 'Download PDBs', icon: 'pi pi-box', command: () => onDownloadPdbs() }
@@ -568,6 +589,28 @@ const applyFilters = () => {
   // Filters are automatically applied through the DataTable's filter system
   // This method can be used for additional custom filtering logic if needed
   console.log('Filters applied:', designsStore.filters)
+}
+
+const selectTopRows = () => {
+  if (!selectTopCount.value || selectTopCount.value < 1) {
+    return
+  }
+  
+  // Get the currently filtered and sorted designs
+  const sortedDesigns = designsStore.filteredDesigns
+  
+  // Select the top N rows based on current sorting
+  const topRows = sortedDesigns.slice(0, selectTopCount.value)
+  
+  // Update the store's selected designs
+  designsStore.selectedDesigns = topRows
+  
+  toast.add({
+    severity: 'success',
+    summary: 'Selection Updated',
+    detail: `Selected top ${selectTopCount.value} designs`,
+    life: 2000
+  })
 }
 
 // Export helpers
@@ -1081,5 +1124,23 @@ defineExpose({
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+
+/* Select top controls styling */
+.select-top-input {
+  width: 100px;
+  min-width: 100px;
+}
+
+.select-top-input :deep(.p-inputnumber-input) {
+  text-align: center;
+  width: 100%;
+}
+
+.select-top-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
 }
 </style>
