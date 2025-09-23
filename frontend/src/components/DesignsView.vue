@@ -138,6 +138,14 @@
               </div>
             </div>
             <div class="filter-row">
+              <label>Target Sequence:</label>
+              <InputText 
+                v-model="designsStore.filters.target_sequence.value" 
+                placeholder="Search target sequences (regex)..."
+                class="filter-input"
+              />
+            </div>
+            <div class="filter-row">
               <label>Best MPNN only:</label>
               <Checkbox 
                 :modelValue="designsStore.bestMpnnOnly"

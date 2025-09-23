@@ -22,7 +22,9 @@ WORKDIR /app
 # Copy backend dependencies first
 COPY --chown=app:app backend/pyproject.toml backend/requirements.txt ./backend/
 COPY --chown=app:app backend/scripts/ ./backend/scripts/
-RUN pip install --no-cache-dir -r backend/requirements.txt
+RUN pip install uv
+RUN uv pip compile backend/pyproject.toml -o backend/requirements.txt && \
+    pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy frontend files and install dependencies
 COPY --chown=app:app frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./frontend/

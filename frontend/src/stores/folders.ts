@@ -12,7 +12,6 @@ export const useFolderStore = defineStore('folders', () => {
     // State
     const folders = ref<FolderNode[]>([])
     const selectedKeys = ref<Record<string, any>>({})
-    const selectedFolders = ref<string[]>([])
     const expandedKeys = ref<Record<string, boolean>>({})
     const scanResults = ref<Run[]>([])
     const selectedRuns = ref<Run[]>([])
@@ -22,29 +21,31 @@ export const useFolderStore = defineStore('folders', () => {
     // Getters
     const selectedFolderNodes = computed(() => {
         const selected: FolderNode[] = []
-        for (const key of selectedFolders.value) {
-            const findNode = (nodes: FolderNode[], targetKey: string): FolderNode | null => {
-                for (const node of nodes) {
-                    if (node.key === targetKey) {
-                        return node
+        for (const [key, value] of Object.entries(selectedKeys.value)) {
+            if (value !== null) {
+                const findNode = (nodes: FolderNode[], targetKey: string): FolderNode | null => {
+                    for (const node of nodes) {
+                        if (node.key === targetKey) {
+                            return node
+                        }
+                        if (node.children) {
+                            const found = findNode(node.children, targetKey)
+                            if (found) return found
+                        }
                     }
-                    if (node.children) {
-                        const found = findNode(node.children, targetKey)
-                        if (found) return found
-                    }
+                    return null
                 }
-                return null
-            }
 
-            const node = findNode(folders.value, key)
-            if (node) {
-                selected.push(node)
+                const node = findNode(folders.value, key)
+                if (node) {
+                    selected.push(node)
+                }
             }
         }
         return selected
     })
 
-    const hasSelectedFolders = computed(() => selectedFolders.value.length > 0)
+    const hasSelectedFolders = computed(() => Object.values(selectedKeys.value).some(value => value !== null))
 
     const totalScanResults = computed(() => scanResults.value.length)
 
@@ -88,14 +89,6 @@ export const useFolderStore = defineStore('folders', () => {
         }
     }
 
-    const toggleFolderSelection = (folderKey: string) => {
-        const index = selectedFolders.value.indexOf(folderKey)
-        if (index > -1) {
-            selectedFolders.value.splice(index, 1)
-        } else {
-            selectedFolders.value.push(folderKey)
-        }
-    }
 
     const toggleNodeSelection = (nodeKey: string) => {
         if (selectedKeys.value[nodeKey]) {
@@ -106,7 +99,7 @@ export const useFolderStore = defineStore('folders', () => {
     }
 
     const scanSelectedFolders = async () => {
-        if (selectedFolders.value.length === 0) return []
+        if (selectedFolderNodes.value.length === 0) return []
 
         scanning.value = true
         try {
@@ -153,16 +146,9 @@ export const useFolderStore = defineStore('folders', () => {
     }
 
     const clearSelection = () => {
-        selectedFolders.value = []
+        selectedKeys.value = {}
         selectedRuns.value = []
         scanResults.value = []
-    }
-
-    const removeSelectedFolder = (folderKey: string) => {
-        const index = selectedFolders.value.indexOf(folderKey)
-        if (index > -1) {
-            selectedFolders.value.splice(index, 1)
-        }
     }
 
     const expandNode = (nodeKey: string) => {
@@ -178,7 +164,7 @@ export const useFolderStore = defineStore('folders', () => {
     }
 
     const isNodeSelected = (nodeKey: string) => {
-        return selectedFolders.value.includes(nodeKey)
+        return selectedKeys.value[nodeKey] === true
     }
 
     const getFolderIcon = (node: FolderNode): string => {
@@ -192,7 +178,6 @@ export const useFolderStore = defineStore('folders', () => {
         // State
         folders,
         selectedKeys,
-        selectedFolders,
         expandedKeys,
         scanResults,
         selectedRuns,
@@ -207,14 +192,12 @@ export const useFolderStore = defineStore('folders', () => {
         // Actions
         fetchFolders,
         loadChildren,
-        toggleFolderSelection,
         toggleNodeSelection,
         scanSelectedFolders,
         scanFolders,
         selectAllRuns,
         deselectAllRuns,
         clearSelection,
-        removeSelectedFolder,
         expandNode,
         collapseNode,
         isNodeExpanded,
@@ -223,7 +206,7 @@ export const useFolderStore = defineStore('folders', () => {
     }
 }, {
     persist: {
-        // Persist only the selected folders and keys, not the entire folder tree or scan results
-        paths: ['selectedFolders', 'selectedKeys', 'expandedKeys']
+        // Persist only the selected keys and expanded state, not the entire folder tree or scan results
+        paths: ['selectedKeys', 'expandedKeys']
     }
 })

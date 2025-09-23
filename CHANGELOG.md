@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - CSV/TSV export respects selection (exports selected rows, or all filtered rows if none selected)
   - Backend endpoint `POST /api/pdbs/tar` streams a tarball of requested PDBs without loading all files into memory
   - Frontend integrates tar download, packaging selected (or all filtered) PDBs into a single `.tar`
+- **Target sequence filtering**: Added regex-based filtering for target sequences in designs table
+  - New `target_sequence` filter in designs store with regex pattern matching support
+  - Case-insensitive regex matching with fallback to simple string contains for invalid patterns
+  - Target sequence column available in designs table (toggleable via column selector)
+  - Enables advanced filtering of designs based on target protein sequence patterns
 
 ### Added
 - **Folder selection persistence**: Added localStorage persistence for folder browser selections
@@ -51,6 +56,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated template to use `authStore.shouldShowLogin` instead of `shouldShowMainApp` for login page display
   - Removed unused `shouldShowMainApp` computed property
   - Ensured proper fallback behavior: show login by default until auth status is determined
+- **Folder browser state synchronization**: Fixed folder selection and expansion state persistence issues
+  - Unified folder selection system to use single `selectedKeys` state instead of duplicate `selectedFolders`
+  - Fixed "Scan Selected Folders" button not recognizing persisted selections after page reload
+  - Fixed tree expansion state mismatch where expanded icons showed but nodes appeared collapsed
+  - Added automatic restoration of expanded state by loading children for persisted expanded nodes
+  - Improved state persistence to only store user preferences (selectedKeys, expandedKeys) not entire tree
 
 ### Docker Containerization
 - **Complete Docker setup**: Added full containerization support for production deployment

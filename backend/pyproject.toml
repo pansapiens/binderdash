@@ -11,4 +11,5 @@ dependencies = [
     "python-jose[cryptography]",
     "python-multipart",
     "requests",
+    "biopython",
 ]

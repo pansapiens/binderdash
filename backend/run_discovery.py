@@ -8,8 +8,70 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from .util.pdb_to_fasta import get_chain_sequences
+
+# Import will be done inside the function to avoid linting issues
+
 
 logger = logging.getLogger(__name__)
+
+
+def get_target_sequence(
+    pdb_file: str, method: str, binder_sequence: Optional[str] = None
+) -> Optional[str]:
+    """Extract the target sequence from a PDB file based on the method.
+
+    Args:
+        pdb_file: Path to the PDB file
+        method: The method type ("bindcraft", "rfd", or other)
+        binder_sequence: The binder sequence (used for methods other than bindcraft/rfd)
+
+    Returns:
+        The target sequence as a string, or None if not found
+    """
+
+    if not pdb_file or not os.path.exists(pdb_file):
+        return None
+
+    try:
+        # Get sequences for all chains
+        chain_sequences = get_chain_sequences(pdb_file)
+
+        if not chain_sequences:
+            logger.warning(f"No sequences found in PDB file: {pdb_file}")
+            return None
+
+        if method == "bindcraft":
+            # Target sequence is from chain A
+            return chain_sequences.get("A")
+
+        elif method == "rfd":
+            # Target sequence is from chain B
+            return chain_sequences.get("B")
+
+        else:
+            # For other methods, find the target by excluding the binder sequence
+            if not binder_sequence:
+                logger.warning(f"No binder sequence provided for method {method}")
+                return None
+
+            # Remove any non-amino acid characters and convert to uppercase for comparison
+            clean_binder = "".join(c.upper() for c in binder_sequence if c.isalpha())
+
+            # Find the chain that doesn't match the binder sequence
+            for chain_id, sequence in chain_sequences.items():
+                clean_chain_seq = "".join(c.upper() for c in sequence if c.isalpha())
+                if clean_chain_seq != clean_binder:
+                    return sequence
+
+            logger.warning(
+                f"Could not find target sequence in {pdb_file} - all chains match binder"
+            )
+            return None
+
+    except Exception as e:
+        logger.error(f"Error extracting target sequence from {pdb_file}: {str(e)}")
+        return None
 
 
 def extract_backbone_id(design_id: str, method: str) -> str:
@@ -379,10 +441,9 @@ def _standardise_dataframe_columns(df: pd.DataFrame, method: str) -> pd.DataFram
         "Sequence": [
             "Sequence",
             "sequence",
-            "AA_sequence",
-            "aa_sequence",
             "binder_sequence",
             "binder_seq",
+            "seq",
         ],
         "Length": ["Length", "length", "len", "binder_length"],
     }
@@ -485,6 +546,26 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
             # Extract backbone_id for MPNN filtering
             backbone_id = extract_backbone_id(design_id, run_metadata["method"])
 
+            # Get binder sequence for target sequence extraction
+            binder_sequence = None
+            for seq_col in ["Sequence", "sequence", "binder_sequence"]:
+                if seq_col in df.columns:
+                    try:
+                        val = row[seq_col]
+                        # Check if val is not null and not empty
+                        if val is not None and str(val).strip():
+                            binder_sequence = str(val)
+                            break
+                    except (KeyError, AttributeError):
+                        continue
+
+            # Extract target sequence from PDB file
+            target_sequence = (
+                get_target_sequence(pdb_file, run_metadata["method"], binder_sequence)
+                if pdb_file
+                else None
+            )
+
             design: Dict[str, Any] = {
                 "design_id": design_id,
                 "backbone_id": backbone_id,
@@ -494,6 +575,7 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                 "method": run_metadata["method"],
                 "run_path": run_path,
                 "pdb_file": pdb_file,
+                "target_sequence": target_sequence,
                 **{
                     col: row[col]
                     for col in df.columns

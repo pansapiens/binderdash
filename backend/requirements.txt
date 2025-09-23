@@ -8,8 +8,14 @@ anyio==4.10.0
     #   watchfiles
 bcrypt==4.3.0
     # via binderdash-backend (backend/pyproject.toml)
+biopython==1.85
+    # via binderdash-backend (backend/pyproject.toml)
+certifi==2025.8.3
+    # via requests
 cffi==1.17.1
     # via cryptography
+charset-normalizer==3.4.3
+    # via requests
 click==8.2.1
     # via uvicorn
 cryptography==45.0.7
@@ -23,9 +29,13 @@ h11==0.16.0
 httptools==0.6.4
     # via uvicorn
 idna==3.10
-    # via anyio
+    # via
+    #   anyio
+    #   requests
 numpy==2.3.2
-    # via pandas
+    # via
+    #   biopython
+    #   pandas
 pandas==2.3.2
     # via binderdash-backend (backend/pyproject.toml)
 pyasn1==0.6.1
@@ -56,6 +66,8 @@ pytz==2025.2
     # via pandas
 pyyaml==6.0.2
     # via uvicorn
+requests==2.32.5
+    # via binderdash-backend (backend/pyproject.toml)
 rsa==4.9.1
     # via python-jose
 six==1.17.0
@@ -80,6 +92,8 @@ typing-inspection==0.4.1
     #   pydantic-settings
 tzdata==2025.2
     # via pandas
+urllib3==2.5.0
+    # via requests
 uvicorn==0.35.0
     # via binderdash-backend (backend/pyproject.toml)
 uvloop==0.21.0

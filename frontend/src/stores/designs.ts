@@ -22,7 +22,8 @@ export const useDesignsStore = defineStore('designs', () => {
         score_min: { value: null, matchMode: 'gte' },
         score_max: { value: null, matchMode: 'lte' },
         length_min: { value: null, matchMode: 'gte' },
-        length_max: { value: null, matchMode: 'lte' }
+        length_max: { value: null, matchMode: 'lte' },
+        target_sequence: { value: null, matchMode: 'regex' }
     })
     const bestMpnnOnly = ref(false)
     const columns = ref<ColumnConfig[]>([])
@@ -105,6 +106,24 @@ export const useDesignsStore = defineStore('designs', () => {
             filtered = filtered.filter(design => {
                 const length = design.Length || design.length
                 return length !== null && length !== undefined && Number(length) <= filters.value.length_max.value
+            })
+        }
+
+        // Apply target sequence filter (regex pattern matching)
+        if (filters.value.target_sequence.value) {
+            const targetSequencePattern = filters.value.target_sequence.value
+            filtered = filtered.filter(design => {
+                const targetSequence = (design as any).target_sequence
+                if (!targetSequence) return false
+
+                try {
+                    // Create regex from the pattern, case-insensitive
+                    const regex = new RegExp(targetSequencePattern, 'i')
+                    return regex.test(targetSequence)
+                } catch (error) {
+                    // If regex is invalid, fall back to simple string contains
+                    return targetSequence.toLowerCase().includes(targetSequencePattern.toLowerCase())
+                }
             })
         }
 
@@ -351,6 +370,9 @@ export const useDesignsStore = defineStore('designs', () => {
                 }
             })
 
+            // Note: target_sequence column is available but not shown by default
+            // Users can toggle it on via the column selector if needed
+
             visibleColumns.value = newDefaultColumns
         } catch (err) {
             console.error('Error loading designs:', err)
@@ -374,7 +396,8 @@ export const useDesignsStore = defineStore('designs', () => {
             score_min: { value: null, matchMode: 'gte' },
             score_max: { value: null, matchMode: 'lte' },
             length_min: { value: null, matchMode: 'gte' },
-            length_max: { value: null, matchMode: 'lte' }
+            length_max: { value: null, matchMode: 'lte' },
+            target_sequence: { value: null, matchMode: 'regex' }
         }
     }
 
@@ -488,6 +511,7 @@ export const useDesignsStore = defineStore('designs', () => {
         })
 
         const metadataColumns: ColumnConfig[] = [
+            { field: 'target_sequence', header: 'Target Sequence', sortable: false, filter: false, style: 'min-width: 200px' },
             { field: 'pdb_file', header: 'PDB File', sortable: false, filter: false, style: 'min-width: 200px' },
             { field: 'run_path', header: 'Run Path', sortable: false, filter: false, style: 'min-width: 200px' }
         ]
@@ -496,7 +520,7 @@ export const useDesignsStore = defineStore('designs', () => {
         const existingFields = new Set([
             'design_id', 'project_id', 'run_name', 'method',
             'pae_interaction', 'Average_i_pTM', 'pLDDT', 'i_pTM', 'ipTM',
-            'pdb_file', 'run_path', 'run_id'
+            'pdb_file', 'run_path', 'run_id', 'target_sequence'
         ])
 
         const otherColumns: ColumnConfig[] = []

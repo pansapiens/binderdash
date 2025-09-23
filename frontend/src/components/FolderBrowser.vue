@@ -406,9 +406,73 @@ const getMethodIcon = (method: any): string => {
 }
 
 // Lifecycle
-onMounted(() => {
-  loadFolders()
+onMounted(async () => {
+  await loadFolders()
+  // After loading folders, check if any nodes should be expanded based on persisted state
+  await restoreExpandedState()
 })
+
+// Restore expanded state for nodes that were previously expanded
+const restoreExpandedState = async () => {
+  const expandedKeys = folderStore.expandedKeys
+  const keysToExpand = Object.keys(expandedKeys).filter(key => expandedKeys[key] === true)
+  
+  if (keysToExpand.length === 0) return
+  
+  // Sort keys by depth (shallowest first) to ensure parent nodes are loaded before children
+  const sortedKeys = keysToExpand.sort((a, b) => {
+    const depthA = (a.match(/\//g) || []).length
+    const depthB = (b.match(/\//g) || []).length
+    return depthA - depthB
+  })
+  
+  // Load children for each expanded node, starting with the shallowest
+  for (const key of sortedKeys) {
+    const node = findNodeByKey(folderStore.folders, key)
+    if (node && node.has_children && !node.children) {
+      try {
+        await loadChildren(node)
+        // After loading children, recursively check if any of the children also need to be expanded
+        await restoreExpandedStateRecursive(node.children, expandedKeys)
+      } catch (error) {
+        console.error('Error restoring expanded state for node:', key, error)
+      }
+    }
+  }
+}
+
+// Recursively restore expanded state for nested nodes
+const restoreExpandedStateRecursive = async (nodes: any[], expandedKeys: Record<string, boolean>) => {
+  if (!nodes) return
+  
+  for (const node of nodes) {
+    if (expandedKeys[node.key] === true && node.has_children && !node.children) {
+      try {
+        await loadChildren(node)
+        // Continue recursively for any children that were also expanded
+        if (node.children) {
+          await restoreExpandedStateRecursive(node.children, expandedKeys)
+        }
+      } catch (error) {
+        console.error('Error restoring expanded state for nested node:', node.key, error)
+      }
+    }
+  }
+}
+
+// Helper function to find a node by its key
+const findNodeByKey = (nodes: any[], targetKey: string): any => {
+  for (const node of nodes) {
+    if (node.key === targetKey) {
+      return node
+    }
+    if (node.children) {
+      const found = findNodeByKey(node.children, targetKey)
+      if (found) return found
+    }
+  }
+  return null
+}
 </script>
 
 <style scoped>
