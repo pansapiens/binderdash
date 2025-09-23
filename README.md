@@ -21,44 +21,45 @@ A single-page web app to explore results from de novo protein binder design runs
 
 ### Environment configuration
 
-This project uses a `.env` file at the repository root. Create one (and keep `.env` in `.gitignore`). When adding new variables, also update `.env.example`.
+This project uses a `.env` file at the repository root. Copy `.env.example` as a starting point.
 
-Variables:
+`.env` contains a `LOCAL_USERS` variable where username/password pairs for local user accounts can be defined.
 
-```
-RUN_BASE_DIRS="/data/runs,/data2/runs"   # Comma-separated list of directories containing design runs
-ALLOWED_USERS="user1@example.com,user2@example.com"  # Optional; Google OAuth allowlist
-LOCAL_USERS="user1:$2b$...,user2:$2b$..."           # Optional dev fallback; bcrypt password hashes
-```
-
-Generate password hashes for LOCAL_USERS:
+Generate hashed and salted passwords for `LOCAL_USERS` like:
 ```bash
-python backend/scripts/encrypt_password.py username  # Interactive password prompt
+python backend/scripts/encrypt_password.py myusername  # Interactive password prompt
 ```
 
 ### Quick start (development)
 
-1) Ensure any active conda environment is deactivated:
+#### Backend
 
-```bash
-conda deactivate; conda deactivate
-```
-
-2) Backend: create and activate a virtual environment with uv, then install deps:
+Create and activate a virtual environment with uv, then install deps:
 
 ```bash
 uv venv -p python3.12 .venv && source .venv/bin/activate
 uv pip install -r backend/requirements.txt
 ```
 
-If you changed backend dependencies, edit `backend/pyproject.toml` and recompile pinned requirements:
+Start the backend API dev server (in a separate shell):
+
+```bash
+source .venv/bin/activate
+uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+By default the FastAPI server is on `http://localhost:8000`.
+
+**Backend dependencies:** If you change any backend dependencies, edit `backend/pyproject.toml` and recompile pinned requirements:
 
 ```bash
 uv pip compile backend/pyproject.toml -o backend/requirements.txt
 uv pip install -r backend/requirements.txt
 ```
 
-3) Frontend: install dependencies and start the dev server (hot reload):
+#### Frontend
+
+Install dependencies and start the dev server (hot reload):
 
 ```bash
 cd ./frontend
@@ -76,36 +77,8 @@ pnpm install
 pnpm run watch:build
 ```
 
-This automatically rebuilds the frontend whenever you make changes, outputting to the backend's static directory.
+This automatically rebuilds the frontend whenever you make changes, outputting to the backend's static directory (`backend/static/`)
 
-4) Backend API dev server (in a separate shell):
-
-```bash
-cd /home/perry/projects/binderdash
-source .venv/bin/activate
-uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-By default the FastAPI server is on `http://localhost:8000`.
-
-### Building the frontend (served by the backend)
-
-Build the SPA so the backend can serve it from `backend/static/`:
-
-```bash
-cd ./frontend
-pnpm run build
-```
-
-This outputs production assets to the backend’s static directory. Start the backend to serve both the API and the static site:
-
-```bash
-cd ..
-source .venv/bin/activate
-uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
-```
-
-Open `http://localhost:8000` to access the app.
 
 ### Running with Docker (optional)
 
@@ -113,7 +86,7 @@ Open `http://localhost:8000` to access the app.
 Build and run using Docker Compose:
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
 #### Development Mode
