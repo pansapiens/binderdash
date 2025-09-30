@@ -894,7 +894,7 @@ const scoreColor = (field: string, raw: any): string => {
   // Field-specific ranges and whether higher is better
   const config: Record<string, { min: number, max: number, higherBetter: boolean }> = {
     'Average_i_pTM': { min: 0, max: 1, higherBetter: true },
-    'Average_Binder_pLDDT': { min: 0, max: 100, higherBetter: true },
+    'Average_Binder_pLDDT': { min: 0, max: 1, higherBetter: true },
     'plddt_binder': { min: 0, max: 100, higherBetter: true },
     'pae_interaction': { min: 0, max: 20, higherBetter: false },
     'Average_Binder_RMSD': { min: 0, max: 3.5, higherBetter: false },
