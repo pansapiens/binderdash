@@ -328,32 +328,6 @@
       <div v-if="designsStore.selectedDesigns.length > 0" class="structure-viewer-section">
         <div class="viewer-header">
           <h3>Structure Viewer</h3>
-          <div class="viewer-controls">
-            <Button 
-              icon="pi pi-chevron-left" 
-              @click="navigateToPreviousRow"
-              :disabled="!designsStore.canNavigatePrevious"
-              text
-              rounded
-            />
-            <span class="structure-counter">
-              {{ getCurrentRowPosition() }}
-            </span>
-            <Button 
-              icon="pi pi-chevron-right" 
-              @click="navigateToNextRow"
-              :disabled="!designsStore.canNavigateNext"
-              text
-              rounded
-            />
-            <Button 
-              :icon="isSpinning ? 'pi pi-pause' : 'pi pi-play'" 
-              @click="toggleSpin"
-              text
-              rounded
-              :tooltip="isSpinning ? 'Pause Rotation' : 'Start Rotation'"
-            />
-          </div>
         </div>
 
         <div class="structure-info">
@@ -416,14 +390,41 @@
           </div>
         </div>
 
-        <MolstarViewer 
-          v-if="designsStore.currentStructure"
-          :pdb-url="getPdbUrl()"
-          :structure-info="designsStore.currentStructure"
-          :auto-focus="true"
-          :show-controls="true"
-          ref="molstarViewerRef"
-        />
+        <div class="viewer-container" v-if="designsStore.currentStructure">
+          <MolstarViewer 
+            :pdb-url="getPdbUrl()"
+            :structure-info="designsStore.currentStructure"
+            :auto-focus="true"
+            :show-controls="false"
+            ref="molstarViewerRef"
+          />
+          <div class="viewer-controls">
+            <Button 
+              icon="pi pi-chevron-left" 
+              @click="navigateToPreviousRow"
+              :disabled="!designsStore.canNavigatePrevious"
+              text
+              rounded
+            />
+            <span class="structure-counter">
+              {{ getCurrentRowPosition() }}
+            </span>
+            <Button 
+              icon="pi pi-chevron-right" 
+              @click="navigateToNextRow"
+              :disabled="!designsStore.canNavigateNext"
+              text
+              rounded
+            />
+            <Button 
+              :icon="isSpinning ? 'pi pi-pause' : 'pi pi-play'" 
+              @click="toggleSpin"
+              text
+              rounded
+              :tooltip="isSpinning ? 'Pause Rotation' : 'Start Rotation'"
+            />
+          </div>
+        </div>
       </div>
 
       <div v-else class="no-selection">
@@ -1164,9 +1165,20 @@ defineExpose({
 }
 
 .viewer-controls {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #e9ecef;
+  border-radius: 9999px;
+  padding: 0.25rem 0.5rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  opacity: 1;
+  z-index: 5;
 }
 
 .structure-counter {
@@ -1175,6 +1187,12 @@ defineExpose({
   min-width: 60px;
   text-align: center;
 }
+
+.viewer-container {
+  position: relative;
+}
+
+/* Controls are always visible */
 
 .structure-info {
   margin-bottom: 1rem;
