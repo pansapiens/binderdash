@@ -722,6 +722,13 @@ const getColumnsToExport = () => {
 const toSeparatedValues = (rows: any[], cols: string[], sep: string): string => {
   const esc = (v: any) => {
     if (v == null) return ''
+    
+    // Handle objects by serializing them as JSON
+    if (typeof v === 'object' && v !== null) {
+      const s = JSON.stringify(v)
+      return sep === ',' && /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+    }
+    
     const s = String(v)
     return sep === ',' && /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
   }
