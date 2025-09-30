@@ -173,6 +173,19 @@ export const useAuthStore = defineStore('auth', () => {
             // Check auth status first
             await checkAuthStatus()
 
+            // Restore CSRF token from cookie on startup so POSTs can include header after reload
+            try {
+                const cookieEntry = document.cookie.split('; ').find(row => row.startsWith('binderdash_csrf='))
+                if (cookieEntry) {
+                    const token = decodeURIComponent(cookieEntry.split('=')[1])
+                    if (token) {
+                        setCsrfTokenLocal(token)
+                    }
+                }
+            } catch (e) {
+                // ignore cookie parsing issues
+            }
+
             // If auth is disabled, no need to check session
             if (isAuthDisabled.value) {
                 return
