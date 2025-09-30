@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+import json
 
 from .util.pdb_to_fasta import get_chain_sequences
 
@@ -112,6 +113,7 @@ run_folder_signatures = [
         "results_table": "results/bindcraft/final_design_stats.csv",
         "pdb_pattern": "results/bindcraft/accepted/*.pdb",
         "skip_dirs": ["results/bindcraft/batches"],  # Skip walking into batches
+        "params_files": ["results/params.json"],
         # Design parsing configuration
         "design_id_columns": ["Design"],
         "primary_score_columns": ["Average_i_pTM"],
@@ -135,6 +137,7 @@ run_folder_signatures = [
         "results_table": "results/combined_scores.tsv",
         "pdb_pattern": "results/af2_initial_guess/pdbs/*.pdb",
         "skip_dirs": [],
+        "params_files": ["results/params.json"],
         # Design parsing configuration
         "design_id_columns": ["description"],
         "primary_score_columns": ["pae_interaction"],
@@ -150,6 +153,7 @@ run_folder_signatures = [
         "results_table": "final_design_stats.csv",
         "pdb_pattern": "Accepted/*.pdb",
         "skip_dirs": [],
+        "params_files": ["../settings.json"],
         # Design parsing configuration
         "design_id_columns": ["Design"],
         "primary_score_columns": ["Average_i_pTM"],
@@ -477,6 +481,43 @@ def _standardise_dataframe_columns(df: pd.DataFrame, method: str) -> pd.DataFram
     return result_df
 
 
+def parse_run_params(run_metadata: Dict[str, Any]) -> Optional[Any]:
+    """Parse parameter/settings file for a run and return the raw JSON content.
+
+    - Parse the first existing file in signature["params_files"], if provided.
+
+    Returns the parsed JSON (dict/list/primitive) or None if not found or error.
+    """
+    try:
+        run_path_str = run_metadata.get("path", "")
+        if not run_path_str:
+            return None
+        run_path = Path(run_path_str)
+
+        signature: Dict[str, Any] = run_metadata.get("signature", {})
+        submethod = signature.get("submethod", run_metadata.get("submethod", ""))
+
+        json_path: Optional[Path] = None
+
+        params_files: List[str] = signature.get("params_files", [])
+        for rel in params_files:
+            candidate = run_path / rel
+            if candidate.is_file():
+                json_path = candidate
+                break
+
+        if not json_path:
+            return None
+
+        logger.info(f"Parsing run params from {json_path}")
+        with open(json_path, "r") as f:
+            data = json.load(f)
+        return data
+    except Exception as e:
+        logger.error(f"Error parsing run params: {str(e)}")
+        return None
+
+
 def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
     try:
         df = load_run_table(run_metadata)
@@ -530,6 +571,9 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
         # Determine PDB base directory from the pdb_pattern
         pdb_pattern = signature.get("pdb_pattern", "")
         pdb_base_dir = pdb_pattern.split("/*.pdb")[0] if "/*.pdb" in pdb_pattern else ""
+
+        # Parse any run-wide parameters/settings; will be attached as a single 'params' field
+        run_params: Optional[Any] = parse_run_params(run_metadata)
 
         for index, row in df.iterrows():
             design_id = (
@@ -589,6 +633,9 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                     )
                 },
             }
+            # Attach raw params JSON (applies to all designs in the run)
+            if run_params is not None:
+                design["params"] = run_params
             designs.append(design)
         return designs
     except Exception as e:

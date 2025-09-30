@@ -310,6 +310,14 @@
                   rounded
                   tooltip="Download PDB"
                 />
+                <Button 
+                  icon="pi pi-code" 
+                  size="small"
+                  @click="openParamsDialog(data)"
+                  rounded
+                  :disabled="!data?.params"
+                  tooltip="View Params JSON"
+                />
               </div>
             </template>
           </Column>
@@ -350,39 +358,61 @@
 
         <div class="structure-info">
           <div v-if="designsStore.currentStructure" class="structure-details">
-            <table class="structure-details-table">
-              <tbody>
-                <tr>
-                  <th>Design</th>
-                  <td>{{ designsStore.currentStructure.design.design_id }}</td>
-                </tr>
-                <tr>
-                  <th>Project</th>
-                  <td>{{ designsStore.currentStructure.design.project_id }}</td>
-                </tr>
-                <tr>
-                  <th>Run</th>
-                  <td>{{ designsStore.currentStructure.design.run_name }}</td>
-                </tr>
-                <tr>
-                  <th>Method</th>
-                  <td>{{ designsStore.currentStructure.design.method }}</td>
-                </tr>
-                <template 
-                  v-for="scoreField in primaryScores" 
-                  :key="scoreField"
-                >
-                  <tr v-if="hasValidValue(designsStore.currentStructure.design[scoreField])">
-                    <th>{{ formatScoreHeader(scoreField) }}</th>
-                    <td>{{ formatScore(designsStore.currentStructure.design[scoreField]) }}</td>
-                  </tr>
+            <div class="details-section">
+              <div class="details-section-title">Design Data</div>
+              <div class="details-grid">
+                <div class="detail-item">
+                  <div class="detail-label">Design</div>
+                  <div class="detail-value">{{ designsStore.currentStructure.design.design_id }}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Project</div>
+                  <div class="detail-value">{{ designsStore.currentStructure.design.project_id }}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Run</div>
+                  <div class="detail-value">{{ designsStore.currentStructure.design.run_name }}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Method</div>
+                  <div class="detail-value">{{ designsStore.currentStructure.design.method }}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Length</div>
+                  <div class="detail-value">{{ getLengthValue(designsStore.currentStructure.design) }}</div>
+                </div>
+                <div class="detail-item file-item">
+                  <div class="detail-label">File</div>
+                  <div class="detail-value file-value">
+                    <span class="file-name truncate-ellipsis" :title="designsStore.currentStructure.filename">{{ designsStore.currentStructure.filename }}</span>
+                    <Button 
+                      icon="pi pi-download" 
+                      size="small"
+                      rounded
+                      @click.stop="downloadCurrentPdb"
+                      :aria-label="`Download ${designsStore.currentStructure.filename}`"
+                      v-tooltip.top="'Download PDB'"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="details-section">
+              <div class="details-section-title">Scores</div>
+              <div class="details-grid">
+                <template v-for="scoreField in displayScores" :key="scoreField">
+                  <div
+                    v-if="hasValidValue(designsStore.currentStructure.design[scoreField])"
+                    class="detail-item"
+                  >
+                    <div class="score-bar" :style="{ backgroundColor: scoreColor(scoreField, designsStore.currentStructure.design[scoreField]) }"></div>
+                    <div class="detail-label">{{ formatScoreHeader(scoreField) }}</div>
+                    <div class="detail-value">{{ formatScore(designsStore.currentStructure.design[scoreField]) }}</div>
+                  </div>
                 </template>
-                <tr>
-                  <th>File</th>
-                  <td>{{ designsStore.currentStructure.filename }}</td>
-                </tr>
-              </tbody>
-            </table>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -406,6 +436,18 @@
     </div>
     
     <Toast />
+  
+  <Dialog 
+    v-model:visible="showParamsDialog" 
+    modal 
+    header="Run Parameters"
+    :style="{ width: '60vw', maxWidth: '900px' }"
+  >
+    <div v-if="currentParamsJson" class="params-json-container">
+      <pre class="params-pre">{{ currentParamsJson }}</pre>
+    </div>
+    <div v-else class="text-center p-3">No params available for this design</div>
+  </Dialog>
   </div>
 </template>
 
@@ -422,6 +464,7 @@ import Slider from 'primevue/slider'
 import SplitButton from 'primevue/splitbutton'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
+import Dialog from 'primevue/dialog'
 import MolstarViewer from './MolstarViewer.vue'
 import { runsApi } from '../webapi'
 import { useDesignsStore, useAppStore, useAuthStore, useFolderStore } from '../stores'
@@ -446,6 +489,10 @@ const exportMenuItems = ref([
   { label: 'Download PDBs', icon: 'pi pi-box', command: () => onDownloadPdbs() }
 ])
 
+// Params dialog state
+const showParamsDialog = ref(false)
+const currentParamsJson = ref<string>('')
+
 // Filter options
 const methodOptions = ref(['bindcraft', 'rfd'])
 
@@ -462,7 +509,12 @@ const secondaryScores = ref(['Average_Binder_pLDDT', 'plddt_binder'])
 // Human-readable field name mapping
 const niceFieldNames: Record<string, string> = {
   'Average_i_pTM': 'Average i-pTM',
-  'pae_interaction': 'PAE Interaction'
+  'pae_interaction': 'PAE Interaction',
+  'Average_Binder_RMSD': 'Average Binder RMSD',
+  'Average_Target_RMSD': 'Average Target RMSD',
+  'Average_Binder_pLDDT': 'Average Binder pLDDT',
+  'plddt_binder': 'Binder pLDDT',
+  'binder_aligned_rmsd': 'Binder Aligned RMSD'
 }
 
 // Computed properties using store
@@ -565,6 +617,17 @@ const downloadPdb = async (design: any): Promise<void> => {
       detail: error.message || 'Failed to download PDB file',
       life: 3000
     })
+  }
+}
+
+const openParamsDialog = (design: any): void => {
+  try {
+    const params = design?.params
+    currentParamsJson.value = params ? JSON.stringify(params, null, 2) : ''
+    showParamsDialog.value = true
+  } catch (err) {
+    currentParamsJson.value = ''
+    showParamsDialog.value = true
   }
 }
 
@@ -748,6 +811,27 @@ const getPdbUrl = () => {
   return runsApi.getPdbFileUrl(designsStore.currentStructure.design.run_id, designsStore.currentStructure.filename)
 }
 
+const downloadCurrentPdb = async (): Promise<void> => {
+  try {
+    if (!designsStore.currentStructure) return
+    const filename = designsStore.currentStructure.filename
+    const runId = designsStore.currentStructure.design.run_id
+    if (!filename || !runId) return
+    const pdbUrl = runsApi.getPdbFileUrl(runId, filename)
+    const link = document.createElement('a')
+    link.href = pdbUrl
+    link.download = filename
+    link.target = '_blank'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    toast.add({ severity: 'success', summary: 'Download Started', detail: `Downloading ${filename}` , life: 2500 })
+  } catch (error: any) {
+    console.error('Error downloading PDB:', error)
+    toast.add({ severity: 'error', summary: 'Download Failed', detail: error?.message || 'Failed to download PDB file', life: 3000 })
+  }
+}
+
 const hasValidValue = (value: any): boolean => {
   return value !== null && value !== undefined && value !== '' && !isNaN(Number(value))
 }
@@ -761,6 +845,69 @@ const formatScore = (value: any): string => {
 const formatScoreHeader = (fieldName: string): string => {
   // Convert field names to user-friendly headers
   return niceFieldNames[fieldName] || fieldName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+}
+
+// Display scores list (order as requested plus existing primary)
+const displayScores = ref([
+  'Average_i_pTM',
+  'Average_Binder_RMSD',
+  'Average_Target_RMSD',
+  'Average_Binder_pLDDT',
+  'pae_interaction',
+  'plddt_binder',
+  'binder_aligned_rmsd'
+])
+
+const getLengthValue = (design: any): string | number => {
+  const len = design?.Length ?? design?.length
+  return (len != null && !isNaN(Number(len))) ? Number(len) : ''
+}
+
+
+// Score colour utilities
+const clamp01 = (x: number) => Math.max(0, Math.min(1, x))
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t
+const colorFromT = (t: number): string => {
+  // t in [0,1], map 0=red (#e74c3c), 0.5=amber (#f1c40f), 1=green (#2ecc71)
+  const r1 = 231, g1 = 76, b1 = 60
+  const r2 = 241, g2 = 196, b2 = 15
+  const r3 = 46, g3 = 204, b3 = 113
+  if (t <= 0.5) {
+    const k = t / 0.5
+    const r = Math.round(lerp(r1, r2, k))
+    const g = Math.round(lerp(g1, g2, k))
+    const b = Math.round(lerp(b1, b2, k))
+    return `rgb(${r}, ${g}, ${b})`
+  } else {
+    const k = (t - 0.5) / 0.5
+    const r = Math.round(lerp(r2, r3, k))
+    const g = Math.round(lerp(g2, g3, k))
+    const b = Math.round(lerp(b2, b3, k))
+    return `rgb(${r}, ${g}, ${b})`
+  }
+}
+
+const scoreColor = (field: string, raw: any): string => {
+  const v = Number(raw)
+  if (!isFinite(v)) return '#dfe6e9'
+
+  // Field-specific ranges and whether higher is better
+  const config: Record<string, { min: number, max: number, higherBetter: boolean }> = {
+    'Average_i_pTM': { min: 0, max: 1, higherBetter: true },
+    'Average_Binder_pLDDT': { min: 0, max: 100, higherBetter: true },
+    'plddt_binder': { min: 0, max: 100, higherBetter: true },
+    'pae_interaction': { min: 0, max: 20, higherBetter: false },
+    'Average_Binder_RMSD': { min: 0, max: 3.5, higherBetter: false },
+    'Average_Target_RMSD': { min: 0, max: 3.5, higherBetter: false },
+    'binder_aligned_rmsd': { min: 0, max: 3.5, higherBetter: false }
+  }
+
+  const cfg = config[field]
+  if (!cfg) return '#dfe6e9'
+  const span = Math.max(1e-9, cfg.max - cfg.min)
+  let t = clamp01((v - cfg.min) / span)
+  if (!cfg.higherBetter) t = 1 - t
+  return colorFromT(t)
 }
 
 
@@ -1036,29 +1183,92 @@ defineExpose({
   border-radius: 6px;
 }
 
-.structure-details p {
-  margin: 0.25rem 0;
-  color: #495057;
+.details-section {
+  margin-bottom: 0.75rem;
 }
 
-.structure-details-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.structure-details-table th {
-  text-align: left;
+.details-section-title {
   font-weight: 600;
   color: #495057;
-  padding: 0.25rem 0.5rem 0.25rem 0;
-  min-width: 80px;
+  margin-bottom: 0.5rem;
 }
 
-.structure-details-table td {
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  background: #ffffff;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+}
+
+.detail-item.clickable {
+  cursor: pointer;
+}
+
+.score-bar {
+  height: 6px;
+  border-radius: 3px;
+  margin-bottom: 0.25rem;
+}
+
+.detail-label {
+  font-size: 0.8rem;
   color: #6c757d;
-  padding: 0.25rem 0;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.detail-value {
+  font-size: 1rem;
+  color: #343a40;
+  font-weight: 600;
   word-break: break-all;
+}
+
+.file-item .file-value {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.truncate-ellipsis {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-item:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  border-color: #e2e6ea;
+}
+
+/* Removed full-width spanning for file item to match other cards */
+
+.file-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Assume ~8px per char average for this font size; 128 chars ≈ 1024px */
+  max-width: 1024px;
 }
 
 
@@ -1145,6 +1355,19 @@ defineExpose({
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+
+.params-json-container {
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.params-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.9rem;
+  margin: 0;
 }
 
 /* Select top controls styling */
