@@ -487,7 +487,8 @@ const exportIncludeAllColumns = ref(false)
 const selectTopCount = ref<number | null>(null)
 const exportMenuItems = ref([
   { label: 'Download CSV', icon: 'pi pi-download', command: () => onDownloadCsv() },
-  { label: 'Download PDBs', icon: 'pi pi-box', command: () => onDownloadPdbs() }
+  { label: 'Download PDBs', icon: 'pi pi-box', command: () => onDownloadPdbs() },
+  { label: 'Download FASTA (Binders)', icon: 'pi pi-file', command: () => onDownloadFasta() }
 ])
 
 // Params dialog state
@@ -779,6 +780,56 @@ const onDownloadPdbs = async () => {
   } catch (err: any) {
     console.error('Error downloading PDBs tar:', err)
     toast.add({ severity: 'error', summary: 'Download Failed', detail: err?.message || 'Failed to download PDBs', life: 3000 })
+  }
+}
+
+const onDownloadFasta = () => {
+  try {
+    const rows = getRowsToExport()
+    if (rows.length === 0) {
+      toast.add({ severity: 'warn', summary: 'No Designs', detail: 'No designs to export', life: 2500 })
+      return
+    }
+
+    // Find designs with sequence data
+    const designsWithSequence = rows.filter((d: any) => {
+      // Check for sequence in various possible field names
+      const sequenceFields = ['Sequence', 'sequence', 'binder_sequence', 'binder_seq', 'seq']
+      return sequenceFields.some(field => d[field] && String(d[field]).trim())
+    })
+
+    if (designsWithSequence.length === 0) {
+      toast.add({ severity: 'warn', summary: 'No Sequences', detail: 'No sequence data found in selected designs', life: 2500 })
+      return
+    }
+
+    // Generate FASTA content
+    const fastaContent = designsWithSequence.map((d: any) => {
+      // Find the sequence field (prioritize 'Sequence' then 'sequence' then others)
+      const sequenceFields = ['Sequence', 'sequence', 'binder_sequence', 'binder_seq', 'seq']
+      let sequence = ''
+      
+      for (const field of sequenceFields) {
+        if (d[field] && String(d[field]).trim()) {
+          sequence = String(d[field]).trim()
+          break
+        }
+      }
+
+      return `>${d.design_id}\n${sequence}`
+    }).join('\n')
+
+    downloadBlob(new Blob([fastaContent], { type: 'text/plain;charset=utf-8' }), 'designs_binders.fasta')
+    
+    toast.add({
+      severity: 'success',
+      summary: 'FASTA Downloaded',
+      detail: `Downloaded ${designsWithSequence.length} sequences`,
+      life: 3000
+    })
+  } catch (err: any) {
+    console.error('Error downloading FASTA:', err)
+    toast.add({ severity: 'error', summary: 'Download Failed', detail: err?.message || 'Failed to download FASTA', life: 3000 })
   }
 }
 
