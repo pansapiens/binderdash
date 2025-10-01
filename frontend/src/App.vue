@@ -287,42 +287,6 @@ p, span, div, label, input, textarea, select, button, a, h1, h2, h3, h4, h5, h6 
   box-sizing: border-box !important;
 }
 
-/* Button styling - COMPREHENSIVE OVERRIDE */
-.p-button {
-  color: #495057 !important;
-  background: #ffffff !important;
-  border: 1px solid #dee2e6 !important;
-  font-weight: 500 !important;
-}
-
-.p-button:hover {
-  background: #f8f9fa !important;
-  border-color: #adb5bd !important;
-  color: #212529 !important;
-}
-
-.p-button.p-button-secondary {
-  background: #6c757d !important;
-  border-color: #6c757d !important;
-  color: white !important;
-}
-
-.p-button.p-button-secondary:hover {
-  background: #5a6268 !important;
-  border-color: #545b62 !important;
-}
-
-.p-button.p-button-danger {
-  background: #dc3545 !important;
-  border-color: #dc3545 !important;
-  color: white !important;
-}
-
-.p-button.p-button-danger:hover {
-  background: #c82333 !important;
-  border-color: #bd2130 !important;
-}
-
 /* DataTable styling - COMPREHENSIVE OVERRIDE */
 .p-datatable .p-datatable-thead > tr > th {
   background: #f8f9fa !important;
@@ -590,13 +554,13 @@ button, input, select, textarea, a, .p-button, .p-dropdown, .p-inputtext {
 }
 
 /* Button styling improvements for better visibility */
+/*
 .p-button {
   color: #495057 !important;
   background: #ffffff !important;
   border: 1px solid #dee2e6 !important;
   font-weight: 500 !important;
   padding: 0.5rem 1rem !important;
-  border-radius: 6px !important;
   cursor: pointer !important;
   transition: all 0.2s ease !important;
   display: inline-flex !important;
@@ -618,6 +582,7 @@ button, input, select, textarea, a, .p-button, .p-dropdown, .p-inputtext {
   transform: none !important;
   box-shadow: none !important;
 }
+*/
 
 /* Toast styling improvements - GLOBAL OVERRIDE */
 .p-toast {

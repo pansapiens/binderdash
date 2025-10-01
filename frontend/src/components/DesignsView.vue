@@ -17,6 +17,7 @@
               @click="toggleColumnSelector"
               rounded
               variant="outlined"
+              severity="danger"
               aria-label="Close column selector"
               class="close-button"
             />
@@ -43,6 +44,7 @@
               @click="toggleFilterPanel"
               rounded
               variant="outlined"
+              severity="danger"
               aria-label="Close filter panel"
               class="close-button"
             />
@@ -204,6 +206,8 @@
                   @click="toggleColumnSelector"
                   text
                   rounded
+                  severity="secondary"
+                  variant="outlined"
                   :class="{ 'p-button-outlined': showColumnSelector }"
                 />
                 <Button 
@@ -211,6 +215,8 @@
                   @click="toggleFilterPanel"
                   text
                   rounded
+                  severity="secondary"
+                  variant="outlined"
                   :class="{ 'p-button-outlined': showFilterPanel }"
                 />
                 <div class="flex align-items-start gap-3">
@@ -219,6 +225,7 @@
                       :model="exportMenuItems"
                       label="Download TSV"
                       icon="pi pi-download"
+                      severity="secondary"
                       dropdownIcon="pi pi-chevron-down"
                       @click="onDownloadTsv"
                       size="small"
@@ -247,6 +254,7 @@
                     />
                     <Button 
                       label="Select"
+                      severity="secondary"
                       @click="selectTopRows"
                       size="small"
                       :disabled="!selectTopCount || selectTopCount < 1"
@@ -293,12 +301,14 @@
             </template>
           </Column>
 
-          <Column header="Actions" style="width: 180px" :exportable="false">
+          <Column header="Actions" style="width: 180px" :exportable="false" :frozen="true" alignFrozen="right">
             <template #body="{ data }">
               <div class="action-buttons">
                 <Button 
                   icon="pi pi-eye" 
                   size="small"
+                  severity="secondary"
+                  variant="outlined"
                   @click="viewDesign(data)"
                   rounded
                   tooltip="View Structure"
@@ -306,6 +316,8 @@
                 <Button 
                   icon="pi pi-download" 
                   size="small"
+                  severity="secondary"
+                  variant="outlined"
                   @click="downloadPdb(data)"
                   rounded
                   tooltip="Download PDB"
@@ -313,6 +325,8 @@
                 <Button 
                   icon="pi pi-code" 
                   size="small"
+                  severity="secondary"
+                  variant="outlined"
                   @click="openParamsDialog(data)"
                   rounded
                   :disabled="!data?.params"
@@ -1424,13 +1438,6 @@ defineExpose({
 
 :deep(.p-datatable .p-paginator .p-dropdown) {
   margin-left: 0.5rem;
-}
-
-/* Action buttons styling */
-.action-buttons {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
 }
 
 .params-json-container {
