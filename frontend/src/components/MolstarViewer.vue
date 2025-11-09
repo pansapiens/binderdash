@@ -48,6 +48,7 @@ const viewerInstance = ref<any>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const isSpinning = ref(false)
+const alphafoldViewEnabled = ref(true)
 
 // Methods
 const loadMolstarResources = () => {
@@ -62,13 +63,13 @@ const loadMolstarResources = () => {
     const cssLink = document.createElement('link')
     cssLink.rel = 'stylesheet'
     cssLink.type = 'text/css'
-    cssLink.href = 'https://cdn.jsdelivr.net/npm/pdbe-molstar@3.7.0/build/pdbe-molstar-light.css'
+    cssLink.href = 'https://cdn.jsdelivr.net/npm/pdbe-molstar@3.8.0/build/pdbe-molstar-light.css'
     document.head.appendChild(cssLink)
     
     // Load JS
     const script = document.createElement('script')
     script.type = 'text/javascript'
-    script.src = 'https://cdn.jsdelivr.net/npm/pdbe-molstar@3.7.0/build/pdbe-molstar-plugin.js'
+    script.src = 'https://cdn.jsdelivr.net/npm/pdbe-molstar@3.8.0/build/pdbe-molstar-plugin.js'
     script.onload = () => {
       // Wait a bit for the plugin to fully initialize
       setTimeout(() => {
@@ -119,6 +120,7 @@ const loadStructure = async () => {
           binary: false
         },
         // Preserve essential visual settings to maintain consistent theme
+        alphafoldView: alphafoldViewEnabled.value,
         visualStyle: 'cartoon',
         hideStructure: ['water'],
         bgColor: props.backgroundColor || { r: 255, g: 255, b: 255 },
@@ -189,6 +191,7 @@ const fullReload = async () => {
       binary: false
     },
     // APPEARANCE
+    alphafoldView: alphafoldViewEnabled.value,
     visualStyle: 'cartoon',
     hideStructure: ['water'],
     bgColor: props.backgroundColor || { r: 255, g: 255, b: 255 },
@@ -314,6 +317,51 @@ const clearHighlight = async () => {
   }
 }
 
+const toggleAlphaFoldView = async (forceState?: boolean) => {
+  if (viewerInstance.value && props.pdbUrl) {
+    try {
+      const newState = forceState !== undefined ? forceState : !alphafoldViewEnabled.value
+      alphafoldViewEnabled.value = newState
+      
+      // Store current control panel state before update
+      let controlsVisible = true
+      try {
+        controlsVisible = viewerInstance.value.canvas?.controlsVisible ?? true
+      } catch (e) {
+        console.warn('Could not determine control panel state:', e)
+      }
+      
+      const updateOptions = {
+        customData: {
+          url: props.pdbUrl,
+          format: 'pdb',
+          binary: false
+        },
+        alphafoldView: newState,
+        visualStyle: 'cartoon',
+        hideStructure: ['water'],
+        bgColor: props.backgroundColor || { r: 255, g: 255, b: 255 },
+        hideControls: controlsVisible,
+      }
+      
+      const success = await viewerInstance.value.visual.update(updateOptions, true)
+      
+      if (success) {
+        // Restore control panel state after update
+        try {
+          if (controlsVisible) {
+            viewerInstance.value.canvas.toggleControls(true)
+          }
+        } catch (e) {
+          console.warn('Could not restore control panel state:', e)
+        }
+      }
+    } catch (e) {
+      console.warn('Error toggling AlphaFold view:', e)
+    }
+  }
+}
+
 // Expose methods and state
 defineExpose({
   loadStructure,
@@ -323,7 +371,9 @@ defineExpose({
   toggleControls,
   highlightResidues,
   clearHighlight,
+  toggleAlphaFoldView,
   isSpinning: readonly(isSpinning),
+  alphafoldViewEnabled: readonly(alphafoldViewEnabled),
   dispose: () => {
     if (viewerInstance.value) {
       try {

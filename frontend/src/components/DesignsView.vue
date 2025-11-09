@@ -437,6 +437,14 @@
               rounded
               :tooltip="isSpinning ? 'Pause Rotation' : 'Start Rotation'"
             />
+            <Button 
+              label="pLDDT" 
+              @click="toggleAlphaFoldView"
+              text
+              rounded
+              :class="{ 'p-button-outlined': alphafoldViewEnabled, 'plddt-disabled': !alphafoldViewEnabled }"
+              tooltip="Toggle AlphaFold pLDDT coloring"
+            />
           </div>
         </div>
       </div>
@@ -497,6 +505,7 @@ const showColumnSelector = ref(false)
 const showFilterPanel = ref(false)
 const molstarViewerRef = ref<any>(null)
 const isSpinning = ref(false)
+const alphafoldViewEnabled = ref(true)
 const exportIncludeAllColumns = ref(false)
 const selectTopCount = ref<number | null>(null)
 const exportMenuItems = ref([
@@ -664,6 +673,14 @@ const toggleSpin = async () => {
     await molstarViewerRef.value.toggleSpin()
     // Update local state to reflect the change
     isSpinning.value = molstarViewerRef.value.isSpinning
+  }
+}
+
+const toggleAlphaFoldView = async () => {
+  if (molstarViewerRef.value) {
+    await molstarViewerRef.value.toggleAlphaFoldView()
+    // Update local state to reflect the change
+    alphafoldViewEnabled.value = molstarViewerRef.value.alphafoldViewEnabled
   }
 }
 
@@ -1020,6 +1037,13 @@ watch(() => folderStore.selectedRuns, (newSelectedRuns) => {
 watch(() => molstarViewerRef.value?.isSpinning, (newSpinningState) => {
   if (newSpinningState !== undefined) {
     isSpinning.value = newSpinningState
+  }
+}, { immediate: true })
+
+// Sync alphafoldView state when viewer changes
+watch(() => molstarViewerRef.value?.alphafoldViewEnabled, (newAlphaFoldState) => {
+  if (newAlphaFoldState !== undefined) {
+    alphafoldViewEnabled.value = newAlphaFoldState
   }
 }, { immediate: true })
 
@@ -1469,5 +1493,9 @@ defineExpose({
   align-items: center;
   gap: 0.5rem;
   white-space: nowrap;
+}
+
+.viewer-controls :deep(.p-button.plddt-disabled .p-button-label) {
+  text-decoration: line-through;
 }
 </style>
