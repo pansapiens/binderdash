@@ -519,7 +519,7 @@ const showParamsDialog = ref(false)
 const currentParamsJson = ref<string>('')
 
 // Filter options
-const methodOptions = ref(['bindcraft', 'rfd'])
+const methodOptions = ref(['bindcraft', 'rfd', 'boltzgen'])
 
 // Length filter state
 const lengthRange = ref([0, 300]) // Default range, will be updated based on data
@@ -527,13 +527,14 @@ const lengthMin = ref(0)
 const lengthMax = ref(300)
 
 // Primary scores to display in structure details
-const primaryScores = ref(['Average_i_pTM', 'pae_interaction'])
+const primaryScores = ref(['Average_i_pTM', 'design_to_target_iptm', 'pae_interaction'])
 const secondaryScores = ref(['Average_Binder_pLDDT', 'plddt_binder'])
 // const binderRMSD = ref(['Average_Binder_RMSD', 'binder_aligned_rmsd'])
 
 // Human-readable field name mapping
 const niceFieldNames: Record<string, string> = {
   'Average_i_pTM': 'Average i-pTM',
+  'design_to_target_iptm': 'Design→Target ipTM',
   'pae_interaction': 'PAE Interaction',
   'Average_Binder_RMSD': 'Average Binder RMSD',
   'Average_Target_RMSD': 'Average Target RMSD',
@@ -607,11 +608,9 @@ const onRowClick = (event: any): void => {
 
 const downloadPdb = async (design: any): Promise<void> => {
   try {
-    // Use the store's helper function to extract filename
-    const filename = designsStore.extractFilename(design.pdb_file)
-    
+    const filename = designsStore.getStructureFilename(design)
     if (!filename) {
-      throw new Error('No PDB file found for this design')
+      throw new Error('No structure file found for this design')
     }
     
     // Get the PDB URL for this design
@@ -800,12 +799,12 @@ const onDownloadTsv = () => {
 
 const onDownloadPdbs = async () => {
   try {
-    const rows = getRowsToExport().filter((d: any) => d.pdb_file)
+    const rows = getRowsToExport().filter((d: any) => designsStore.getStructureFilename(d))
     if (rows.length === 0) {
-      toast.add({ severity: 'warn', summary: 'No PDBs', detail: 'No PDB files to download', life: 2500 })
+      toast.add({ severity: 'warn', summary: 'No PDBs', detail: 'No structure files to download', life: 2500 })
       return
     }
-    const items = rows.map((d: any) => ({ run_id: d.run_id, filename: designsStore.extractFilename(d.pdb_file) }))
+    const items = rows.map((d: any) => ({ run_id: d.run_id, filename: designsStore.getStructureFilename(d) }))
     const blob = await runsApi.downloadPdbsTar(items)
     downloadBlob(blob, 'designs_pdbs.tar')
   } catch (err: any) {
@@ -940,6 +939,7 @@ const formatScoreHeader = (fieldName: string): string => {
 // Display scores list (order as requested plus existing primary)
 const displayScores = ref([
   'Average_i_pTM',
+  'design_to_target_iptm',
   'Average_Binder_RMSD',
   'Average_Target_RMSD',
   'Average_Binder_pLDDT',
@@ -984,6 +984,7 @@ const scoreColor = (field: string, raw: any): string => {
   // Field-specific ranges and whether higher is better
   const config: Record<string, { min: number, max: number, higherBetter: boolean }> = {
     'Average_i_pTM': { min: 0, max: 1, higherBetter: true },
+    'design_to_target_iptm': { min: 0, max: 1, higherBetter: true },
     'Average_Binder_pLDDT': { min: 0, max: 1, higherBetter: true },
     'plddt_binder': { min: 0, max: 100, higherBetter: true },
     'pae_interaction': { min: 0, max: 20, higherBetter: false },
@@ -1375,6 +1376,11 @@ defineExpose({
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+
+.file-value :deep(.p-button) {
+  flex-shrink: 0;
+  aspect-ratio: 1;
 }
 
 .file-name {

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Refactored cache scoring to use run_folder_signatures config**
+  - Removed hardcoded method-specific scoring/sorting logic from `cache.py`
+  - Cache now reads `primary_score_columns` and `sort_ascending` from `run_folder_signatures`
+  - New run types only need to define config in `run_folder_signatures` - no changes to cache logic required
 - **Refactored run discovery to use declarative signatures**
   - Replaced hardcoded detection functions with a declarative `run_folder_signatures` configuration for parsing runs from nf-binder-design, and 'vanilla' runs
 - Added explicit support for nf-binder-design runs
@@ -18,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Normalised run table columns on the backend to coalesce equivalent fields (e.g., `Sequence`/`sequence`, `Length`/`length`) during ingestion. This prevents duplicate columns appearing in `DesignsView` when mixing RFD and BindCraft runs.
 
 ### Fixed
+- **Boltzgen run support**: Add support for nf-binder-design boltzgen runs.
 - Plots now show one datapoint per design across selected runs
   - Frontend `plots` store now coerces numeric-like strings to numbers and derives a stable `design_id` per row
   - Uses backend `/api/runs/plots/columns` to prefer sensible axis defaults; falls back to columns with the highest valid coverage

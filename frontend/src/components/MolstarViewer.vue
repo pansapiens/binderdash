@@ -83,6 +83,12 @@ const loadMolstarResources = () => {
   })
 }
 
+const getFormatFromUrl = (url: string): string => {
+  const lower = url.toLowerCase()
+  if (lower.endsWith('.cif')) return 'mmcif'
+  return 'pdb'
+}
+
 const loadStructure = async () => {
   if (!props.pdbUrl || !molstarContainer.value) {
     return
@@ -116,7 +122,7 @@ const loadStructure = async () => {
       const updateOptions = {
         customData: {
           url: props.pdbUrl,
-          format: 'pdb',
+          format: getFormatFromUrl(props.pdbUrl),
           binary: false
         },
         // Preserve essential visual settings to maintain consistent theme
@@ -187,7 +193,7 @@ const fullReload = async () => {
   const options = {
     customData: {
       url: props.pdbUrl,
-      format: 'pdb',
+      format: getFormatFromUrl(props.pdbUrl),
       binary: false
     },
     // APPEARANCE

@@ -101,6 +101,9 @@ def extract_backbone_id(design_id: str, method: str) -> str:
     return backbone_id
 
 
+# Directories to skip during recursive walk (common to all signatures)
+DEFAULT_SKIP_DIRS = [".nextflow", "work"]
+
 # Run folder signatures for declarative run detection
 # Each signature defines the structure required to identify a run type
 run_folder_signatures = [
@@ -112,13 +115,14 @@ run_folder_signatures = [
         "required_dirs": ["results/bindcraft/accepted"],
         "results_table": "results/bindcraft/final_design_stats.csv",
         "pdb_pattern": "results/bindcraft/accepted/*.pdb",
-        "skip_dirs": ["results/bindcraft/batches"],  # Skip walking into batches
         "params_files": ["results/params.json"],
+        "skip_dirs": DEFAULT_SKIP_DIRS,
         # Design parsing configuration
         "design_id_columns": ["Design"],
         "primary_score_columns": ["Average_i_pTM"],
         "sort_ascending": False,
-        "pdb_search_patterns": [
+        "structure_file_column": None,
+        "structure_search_patterns": [
             "{design_id}.pdb",
             "{design_id}_*.pdb",
             "{design_id}*.pdb",
@@ -136,13 +140,14 @@ run_folder_signatures = [
         ],
         "results_table": "results/combined_scores.tsv",
         "pdb_pattern": "results/af2_initial_guess/pdbs/*.pdb",
-        "skip_dirs": [],
         "params_files": ["results/params.json"],
+        "skip_dirs": DEFAULT_SKIP_DIRS,
         # Design parsing configuration
         "design_id_columns": ["description"],
         "primary_score_columns": ["pae_interaction"],
         "sort_ascending": True,
-        "pdb_search_patterns": ["{design_id}.pdb"],
+        "structure_file_column": None,
+        "structure_search_patterns": ["{design_id}.pdb"],
     },
     {
         "method": "bindcraft",
@@ -152,13 +157,14 @@ run_folder_signatures = [
         "required_dirs": ["Accepted"],
         "results_table": "final_design_stats.csv",
         "pdb_pattern": "Accepted/*.pdb",
-        "skip_dirs": [],
         "params_files": ["../settings.json"],
+        "skip_dirs": DEFAULT_SKIP_DIRS,
         # Design parsing configuration
         "design_id_columns": ["Design"],
         "primary_score_columns": ["Average_i_pTM"],
         "sort_ascending": False,
-        "pdb_search_patterns": [
+        "structure_file_column": None,
+        "structure_search_patterns": [
             "{design_id}.pdb",
             "{design_id}_*.pdb",
             "{design_id}*.pdb",
@@ -171,12 +177,41 @@ run_folder_signatures = [
         "required_dirs": ["af2_initial_guess"],
         "results_table": "combined_scores.tsv",
         "pdb_pattern": "af2_initial_guess/pdbs/*.pdb",
-        "skip_dirs": [],
+        "skip_dirs": DEFAULT_SKIP_DIRS,
         # Design parsing configuration
         "design_id_columns": ["description"],
         "primary_score_columns": ["pae_interaction"],
         "sort_ascending": True,
-        "pdb_search_patterns": ["{design_id}.pdb"],
+        "structure_file_column": None,
+        "structure_search_patterns": ["{design_id}.pdb"],
+    },
+    {
+        "method": "boltzgen",
+        "submethod": "nf-binder-design",
+        "priority": 5,
+        # results/boltzgen/filtered/final_ranked_designs must exist
+        "required_dirs": ["results/boltzgen/filtered/final_ranked_designs"],
+        # final_designs_metrics_*.csv may have varying numeric suffixes
+        "required_patterns": [
+            "results/boltzgen/filtered/final_ranked_designs/final_designs_metrics_*.csv"
+        ],
+        # Pattern for resolving the concrete results table at detection time
+        "results_table_pattern": "results/boltzgen/filtered/final_ranked_designs/final_designs_metrics_*.csv",
+        # Pattern for locating structure files (mmCIF) across possible final_*_designs dirs
+        "structure_pattern": "results/boltzgen/filtered/final_ranked_designs/final_*_designs/*.cif",
+        "structure_format": "cif",
+        "params_files": ["results/params.json"],
+        "skip_dirs": DEFAULT_SKIP_DIRS,
+        # Design parsing configuration
+        "design_id_columns": ["id"],
+        "primary_score_columns": ["design_to_target_iptm"],
+        "sort_ascending": False,
+        # Use the CSV file_name (if available) when searching; otherwise fall back to id
+        "structure_file_column": "file_name",
+        "structure_search_patterns": [
+            "{file_name}",
+            "rank*_{file_name}",
+        ],
     },
 ]
 
@@ -189,6 +224,7 @@ def guess_project_id(path: Path) -> str:
         r"^batch.*$",
         r"^bindcraft$",
         r"^rfd$",
+        r"^boltzgen$",
         r"^\d+$",
     ]
 
@@ -211,7 +247,7 @@ def guess_project_id(path: Path) -> str:
 
 
 def guess_run_name(path: Path) -> str:
-    disallowed_patterns = [r"^results.*$", r"^bindcraft$", r"^batches$", r"^\d+$"]
+    disallowed_patterns = [r"^results.*$", r"^bindcraft$", r"^rfd$", r"^boltzgen$", r"^batches$", r"^\d+$"]
     current_path = path
     while current_path != current_path.parent:
         name = current_path.name
@@ -249,19 +285,32 @@ def _check_required_patterns(path: Path, required_patterns: List[str]) -> bool:
     return False
 
 
-def _find_pdb_file_for_design(
-    run_path: Path, design_id: str, pdb_search_patterns: List[str], pdb_base_dir: str
+def _find_structure_file_for_design(
+    run_path: Path,
+    search_value: str,
+    search_patterns: List[str],
+    structure_base_dir: str,
 ) -> Optional[str]:
-    """Find the PDB file for a design using the search patterns."""
-    pdb_dir = run_path / pdb_base_dir
-    if not pdb_dir.exists():
-        return None
+    """Find the structure file for a design using the search patterns."""
+    search_dirs: List[Path] = []
+    if "*" in structure_base_dir:
+        for d in run_path.glob(structure_base_dir):
+            if d.is_dir():
+                search_dirs.append(d)
+    else:
+        base_dir = run_path / structure_base_dir
+        if base_dir.is_dir():
+            search_dirs.append(base_dir)
 
-    for pattern in pdb_search_patterns:
-        search_pattern = pattern.format(design_id=design_id)
-        matches = list(pdb_dir.glob(search_pattern))
-        if matches:
-            return str(matches[0])
+    for base_dir in search_dirs:
+        for pattern in search_patterns:
+            try:
+                search_pattern = pattern.format(design_id=search_value, file_name=search_value)
+            except KeyError:
+                search_pattern = pattern.format(design_id=search_value)
+            matches = list(base_dir.glob(search_pattern))
+            if matches:
+                return str(matches[0])
     return None
 
 
@@ -273,7 +322,7 @@ def detect_run_type(path: Path) -> Optional[Dict[str, Any]]:
     if not path.is_dir():
         return None
 
-    # Sort signatures by priority (higher priority first)
+    # Sort signatures by priority (lower number = checked first)
     sorted_signatures = sorted(run_folder_signatures, key=lambda x: x["priority"])
 
     for signature in sorted_signatures:
@@ -304,17 +353,46 @@ def detect_run_type(path: Path) -> Optional[Dict[str, Any]]:
             if not (combined_file.is_file() or cs_files_scores or cs_files_root):
                 continue
 
+        # Resolve any dynamic patterns to concrete values for this path
+        resolved_signature = dict(signature)
+
+        # Resolve results table from pattern, if provided
+        results_table_pattern = resolved_signature.get("results_table_pattern")
+        if results_table_pattern and not resolved_signature.get("results_table"):
+            matches = sorted(path.glob(results_table_pattern))
+            if not matches:
+                # No concrete table found for this signature
+                continue
+            # Prefer the match with the highest numeric suffix by simple name sort
+            selected = matches[-1]
+            try:
+                rel_table = selected.relative_to(path)
+            except ValueError:
+                rel_table = selected
+            resolved_signature["results_table"] = str(rel_table)
+
+        # Resolve structure pattern to a concrete glob pattern for this run (used for listing files)
+        structure_pattern = resolved_signature.get("structure_pattern")
+        if structure_pattern and not resolved_signature.get("pdb_pattern"):
+            # Keep the relative glob pattern; find_runs_recursive will use it directly
+            resolved_signature["pdb_pattern"] = structure_pattern
+
         # If we get here, this signature matches
-        return {**signature, "run_name": run_name, "detected_path": str(path)}
+        return {**resolved_signature, "run_name": run_name, "detected_path": str(path)}
 
     return None
 
 
 def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
+    # Build combined set of directories to skip from all signatures
+    skip_dirs_set = set()
+    for sig in run_folder_signatures:
+        skip_dirs_set.update(sig.get("skip_dirs", []))
+
     runs: List[Dict[str, Any]] = []
     for dirpath, dirnames, filenames in os.walk(root_path, followlinks=True):
         current_dir = Path(dirpath)
-        if current_dir.name == "work":
+        if current_dir.name in skip_dirs_set:
             dirnames[:] = []
             continue
 
@@ -373,18 +451,10 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
                 }
             )
 
-            # Handle directory skipping based on signature
-            if "skip_dirs" in detected_run and detected_run["skip_dirs"]:
-                # Remove directories that should be skipped from dirnames
-                skip_dir_names = []
-                for skip_path_str in detected_run["skip_dirs"]:
-                    skip_path = current_dir / skip_path_str
-                    if skip_path.is_dir():
-                        skip_dir_names.append(skip_path.name)
-                dirnames[:] = [d for d in dirnames if d not in skip_dir_names]
-            else:
-                # Stop walking this directory tree since we found a run
-                dirnames[:] = []
+            # Stop walking into subdirectories after detecting a run; we don't
+            # expect nested runs and continuing would walk into large caches
+            # (e.g. .nextflow/) or pipeline source directories.
+            dirnames[:] = []
     return runs
 
 
@@ -533,7 +603,7 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
         design_id_columns = signature.get("design_id_columns", [])
         primary_score_columns = signature.get("primary_score_columns", [])
         sort_ascending = signature.get("sort_ascending", True)
-        pdb_search_patterns = signature.get("pdb_search_patterns", ["{design_id}.pdb"])
+        structure_search_patterns = signature.get("structure_search_patterns", ["{design_id}.pdb"])
 
         # Find design ID column
         design_id_col = None
@@ -568,9 +638,13 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                 primary_score_col, ascending=sort_ascending
             ).reset_index(drop=True)
 
-        # Determine PDB base directory from the pdb_pattern
+        # Determine structure base directory from the pdb_pattern
         pdb_pattern = signature.get("pdb_pattern", "")
-        pdb_base_dir = pdb_pattern.split("/*.pdb")[0] if "/*.pdb" in pdb_pattern else ""
+        structure_base_dir = ""
+        if "/*.pdb" in pdb_pattern:
+            structure_base_dir = pdb_pattern.split("/*.pdb")[0]
+        elif "/*.cif" in pdb_pattern:
+            structure_base_dir = pdb_pattern.split("/*.cif")[0]
 
         # Parse any run-wide parameters/settings; will be attached as a single 'params' field
         run_params: Optional[Any] = parse_run_params(run_metadata)
@@ -582,10 +656,33 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                 else f"design_{index}"
             )
 
-            # Find PDB file using signature configuration
-            pdb_file = _find_pdb_file_for_design(
-                Path(run_path), design_id, pdb_search_patterns, pdb_base_dir
+            # Determine which value to use when searching for structure files
+            structure_file_column = signature.get("structure_file_column")
+            search_value = design_id
+            file_name_val = None
+            if structure_file_column and structure_file_column in df.columns:
+                file_name_val = row.get(structure_file_column)
+                if file_name_val is not None and str(file_name_val).strip():
+                    search_value = str(file_name_val)
+
+            # Find structure file using signature configuration
+            pdb_file = _find_structure_file_for_design(
+                Path(run_path),
+                search_value,
+                structure_search_patterns,
+                structure_base_dir,
             )
+            # For boltzgen, if the filesystem search failed, use file_name from the
+            # table so the frontend can request the structure; the structure
+            # endpoint will resolve rank*_{file_name} to the actual file.
+            if (
+                pdb_file is None
+                and run_metadata.get("method") == "boltzgen"
+                and structure_file_column == "file_name"
+                and file_name_val is not None
+                and str(file_name_val).strip()
+            ):
+                pdb_file = str(file_name_val)
 
             # Extract backbone_id for MPNN filtering
             backbone_id = extract_backbone_id(design_id, run_metadata["method"])

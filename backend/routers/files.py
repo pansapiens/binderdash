@@ -26,7 +26,8 @@ async def get_pdb_file(
     run_id: str,
     filename: str,
     current_user: Optional[LocalUser] = Depends(get_current_user_optional_with_query),
-):
+    ):
+    """Legacy endpoint for serving PDB files; kept for backwards compatibility."""
     try:
         run_metadata = get_run_metadata(run_id)
         if not run_metadata:
@@ -54,6 +55,60 @@ async def get_pdb_file(
         from logging import getLogger
 
         getLogger(__name__).error(f"Error in get_pdb_file: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{run_id}/files/structure/{filename}")
+async def get_structure_file(
+    run_id: str,
+    filename: str,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional_with_query),
+):
+    """Serve a structure file (PDB or mmCIF) for a run."""
+    try:
+        run_metadata = get_run_metadata(run_id)
+        if not run_metadata:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        # Reuse existing metadata key for now; may include .pdb and .cif
+        structure_files = run_metadata.get("pdb_files", [])
+        structure_path = None
+        for structure_file in structure_files:
+            if Path(structure_file).name == filename:
+                structure_path = Path(structure_file)
+                break
+
+        # For boltzgen, the table uses file_name (e.g. batch-5084_....cif) while
+        # on-disk files are rank00001_batch-5084_....cif; match rank*_{filename}.
+        if structure_path is None and run_metadata.get("method") == "boltzgen":
+            for p in structure_files:
+                name = Path(p).name
+                if "_" in name:
+                    rest = name.split("_", 1)[1]
+                    if rest == filename:
+                        structure_path = Path(p)
+                        break
+
+        if structure_path is None:
+            raise HTTPException(status_code=404, detail="Structure file not found in run")
+        if not structure_path.exists():
+            raise HTTPException(status_code=404, detail="Structure file not found on disk")
+
+        ext = structure_path.suffix.lower()
+        if ext == ".cif":
+            media_type = "chemical/x-mmcif"
+        elif ext == ".pdb":
+            media_type = "chemical/x-pdb"
+        else:
+            media_type = "application/octet-stream"
+
+        return FileResponse(str(structure_path), media_type=media_type, filename=filename)
+    except HTTPException:
+        raise
+    except Exception as e:
+        from logging import getLogger
+
+        getLogger(__name__).error(f"Error in get_structure_file: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

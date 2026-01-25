@@ -309,39 +309,40 @@ export const useDesignsStore = defineStore('designs', () => {
             return null
         }
 
-        // Get all designs with PDB files from the filtered designs
-        const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
+        // Get all designs with structure files (pdb_file or, for boltzgen, file_name)
+        const designsWithPdb = filteredDesigns.value.filter(d => hasStructureFile(d))
 
         if (designsWithPdb.length === 0 || currentStructureIndex.value >= designsWithPdb.length) {
             return null
         }
 
         const design = designsWithPdb[currentStructureIndex.value]
-        if (!design.pdb_file) {
+        const filename = getStructureFilename(design)
+        if (!filename) {
             return null
         }
 
         return {
             design,
-            filename: extractFilename(design.pdb_file),
-            pdbPath: design.pdb_file
+            filename,
+            pdbPath: design.pdb_file || ''
         }
     })
 
     const canNavigatePrevious = computed(() => {
         if (selectedDesigns.value.length === 0) return false
-        const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
+        const designsWithPdb = filteredDesigns.value.filter(d => hasStructureFile(d))
         return currentStructureIndex.value > 0 && designsWithPdb.length > 0
     })
 
     const canNavigateNext = computed(() => {
         if (selectedDesigns.value.length === 0) return false
-        const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
+        const designsWithPdb = filteredDesigns.value.filter(d => hasStructureFile(d))
         return currentStructureIndex.value < designsWithPdb.length - 1 && designsWithPdb.length > 0
     })
 
     const totalStructures = computed(() => {
-        return filteredDesigns.value.filter(d => d.pdb_file).length
+        return filteredDesigns.value.filter(d => hasStructureFile(d)).length
     })
 
     // Actions
@@ -363,7 +364,7 @@ export const useDesignsStore = defineStore('designs', () => {
             }
 
             // Dynamically add score columns that exist in the data
-            const scoreColumns = ['pae_interaction', 'Average_i_pTM', 'i_pTM', 'ipTM']
+            const scoreColumns = ['pae_interaction', 'Average_i_pTM', 'design_to_target_iptm', 'quality_score', 'i_pTM', 'ipTM']
             scoreColumns.forEach(scoreCol => {
                 if (data.designs.some(d => scoreCol in d && d[scoreCol] != null)) {
                     newDefaultColumns.push(scoreCol)
@@ -421,7 +422,7 @@ export const useDesignsStore = defineStore('designs', () => {
     }
 
     const navigateStructure = (direction: 'next' | 'previous') => {
-        const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
+        const designsWithPdb = filteredDesigns.value.filter(d => hasStructureFile(d))
 
         if (direction === 'next' && currentStructureIndex.value < designsWithPdb.length - 1) {
             currentStructureIndex.value++
@@ -453,8 +454,8 @@ export const useDesignsStore = defineStore('designs', () => {
     const viewDesign = (design: Design) => {
         selectedDesigns.value = [design]
 
-        // Find the position of this design among filtered designs with PDB files
-        const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
+        // Find the position of this design among filtered designs with structure files
+        const designsWithPdb = filteredDesigns.value.filter(d => hasStructureFile(d))
         const index = designsWithPdb.findIndex(d => d.design_id === design.design_id)
         currentStructureIndex.value = index >= 0 ? index : 0
     }
@@ -462,7 +463,7 @@ export const useDesignsStore = defineStore('designs', () => {
     const getCurrentRowPosition = () => {
         if (selectedDesigns.value.length === 0) return '0 / 0'
 
-        const designsWithPdb = filteredDesigns.value.filter(d => d.pdb_file)
+        const designsWithPdb = filteredDesigns.value.filter(d => hasStructureFile(d))
 
         if (designsWithPdb.length === 0) return '0 / 0'
 
@@ -474,6 +475,20 @@ export const useDesignsStore = defineStore('designs', () => {
         if (!pdbFile) return ''
         return pdbFile.split('/').pop() || ''
     }
+
+    // For boltzgen the table uses file_name, not pdb_file; pdb_file may be set from
+    // file_name when the filesystem search fails. Returns the filename to request.
+    const getStructureFilename = (design: Design): string => {
+        const fromPdb = extractFilename(design.pdb_file)
+        if (fromPdb) return fromPdb
+        if ((design as any).method === 'boltzgen' && (design as any).file_name != null && (design as any).file_name !== '') {
+            return String((design as any).file_name).trim()
+        }
+        return ''
+    }
+
+    const hasStructureFile = (d: Design): boolean =>
+        !!(d.pdb_file || ((d as any).method === 'boltzgen' && (d as any).file_name))
 
     // Helper function to build columns from data
     const buildColumnsFromData = (designs: Design[]): ColumnConfig[] => {
@@ -491,6 +506,8 @@ export const useDesignsStore = defineStore('designs', () => {
         const knownScoreFields = [
             { field: 'pae_interaction', header: 'PAE Interaction' },
             { field: 'Average_i_pTM', header: 'Average i_pTM' },
+            { field: 'design_to_target_iptm', header: 'Design→Target ipTM' },
+            { field: 'quality_score', header: 'Quality Score' },
             { field: 'pLDDT', header: 'pLDDT' },
             { field: 'i_pTM', header: 'i_pTM' },
             { field: 'ipTM', header: 'ipTM' }
@@ -519,7 +536,8 @@ export const useDesignsStore = defineStore('designs', () => {
         // Add other columns from the data (excluding already defined ones)
         const existingFields = new Set([
             'design_id', 'project_id', 'run_name', 'method',
-            'pae_interaction', 'Average_i_pTM', 'pLDDT', 'i_pTM', 'ipTM',
+            'pae_interaction', 'Average_i_pTM', 'design_to_target_iptm', 'quality_score',
+            'pLDDT', 'i_pTM', 'ipTM',
             'pdb_file', 'run_path', 'run_id', 'target_sequence'
         ])
 
@@ -584,6 +602,7 @@ export const useDesignsStore = defineStore('designs', () => {
         setSelectedRunIds,
         viewDesign,
         getCurrentRowPosition,
-        extractFilename
+        extractFilename,
+        getStructureFilename
     }
 })

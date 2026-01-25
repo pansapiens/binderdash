@@ -188,13 +188,20 @@ export const runsApi = {
     },
 
     /**
-     * Get PDB file URL for a specific run and filename
+     * Get structure file URL for a specific run and filename.
+     * Supports both PDB (.pdb) and mmCIF (.cif) files.
      * @param runId - Unique identifier for the run
-     * @param filename - Name of the PDB file
-     * @returns URL to the PDB file (authentication via cookies)
+     * @param filename - Name of the structure file
+     * @returns URL to the structure file (authentication via cookies)
+     */
+    getStructureFileUrl(runId: string, filename: string): string {
+        return `${API_BASE}/api/runs/${runId}/files/structure/${filename}`
+    },
+    /**
+     * Backwards-compatible alias for structure URLs.
      */
     getPdbFileUrl(runId: string, filename: string): string {
-        return `${API_BASE}/api/runs/${runId}/files/pdb/${filename}`
+        return this.getStructureFileUrl(runId, filename)
     },
 
     /**
