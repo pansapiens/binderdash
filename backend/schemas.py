@@ -39,3 +39,10 @@ class PdbTarItem(BaseModel):
 
 class PdbTarRequest(BaseModel):
     items: List[PdbTarItem]
+
+
+class DesignGoodUpdate(BaseModel):
+    run_id: str
+    design_id: str
+    good: Optional[bool]
+    source_path: Optional[str] = None

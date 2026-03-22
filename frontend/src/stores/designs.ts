@@ -5,8 +5,9 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
+import { localeComparator, resolveFieldData, sort } from '@primeuix/utils/object'
 import { designsApi } from '../webapi'
-import type { Design, FilterState, ColumnConfig, StructureInfo, DesignsState } from '../types/store'
+import type { Design, FilterState, ColumnConfig, StructureInfo } from '../types/store'
 
 export const useDesignsStore = defineStore('designs', () => {
     // State
@@ -29,7 +30,9 @@ export const useDesignsStore = defineStore('designs', () => {
     const columns = ref<ColumnConfig[]>([])
     const visibleColumns = ref<string[]>(['design_id', 'project_id', 'run_name', 'method', 'Length'])
     const loading = ref(false)
-    const currentStructureIndex = ref(0)
+    const currentNavDesignId = ref<string | null>(null)
+    const tableSortField = ref<string | undefined>(undefined)
+    const tableSortOrder = ref<number | undefined>(undefined)
 
     // Getters
     const filteredDesigns = computed(() => {
@@ -144,6 +147,43 @@ export const useDesignsStore = defineStore('designs', () => {
 
         return filtered
     })
+
+    const orderedFilteredDesigns = computed(() => {
+        const data = [...filteredDesigns.value]
+        const field = tableSortField.value
+        const order = tableSortOrder.value
+        if (field == null || order == null || order === 0) {
+            return data
+        }
+        const resolvedFieldData = new Map<Design, unknown>()
+        for (const item of data) {
+            resolvedFieldData.set(item, resolveFieldData(item, field))
+        }
+        const comparer = localeComparator()
+        data.sort((a, b) => {
+            const v1 = resolvedFieldData.get(a)
+            const v2 = resolvedFieldData.get(b)
+            return sort(v1 as any, v2 as any, order, comparer as any, 1)
+        })
+        return data
+    })
+
+    const extractFilename = (pdbFile: string | undefined): string => {
+        if (!pdbFile) return ''
+        return pdbFile.split('/').pop() || ''
+    }
+
+    const getStructureFilename = (design: Design): string => {
+        const fromPdb = extractFilename(design.pdb_file)
+        if (fromPdb) return fromPdb
+        if ((design as any).method === 'boltzgen' && (design as any).file_name != null && (design as any).file_name !== '') {
+            return String((design as any).file_name).trim()
+        }
+        return ''
+    }
+
+    const hasStructureFile = (d: Design): boolean =>
+        !!(d.pdb_file || ((d as any).method === 'boltzgen' && (d as any).file_name))
 
     const totalDesigns = computed(() => designs.value.length)
 
@@ -298,51 +338,69 @@ export const useDesignsStore = defineStore('designs', () => {
         return [...baseFields, ...scoreFields]
     }
 
-    // Watch for filter changes and reset navigation index
+    const designsWithPdbOrdered = (): Design[] =>
+        orderedFilteredDesigns.value.filter(d => hasStructureFile(d))
+
     watch(() => filters.value, () => {
-        // Reset to first structure when filters change
-        currentStructureIndex.value = 0
+        const withPdb = designsWithPdbOrdered()
+        currentNavDesignId.value = withPdb[0]?.design_id ?? null
     }, { deep: true })
+
+    watch(orderedFilteredDesigns, () => {
+        const withPdb = designsWithPdbOrdered()
+        if (withPdb.length === 0) {
+            currentNavDesignId.value = null
+            return
+        }
+        if (!currentNavDesignId.value || !withPdb.some(d => d.design_id === currentNavDesignId.value)) {
+            currentNavDesignId.value = withPdb[0].design_id
+        }
+    }, { deep: true, immediate: true })
 
     const currentStructure = computed((): StructureInfo | null => {
         if (selectedDesigns.value.length === 0) {
             return null
         }
 
-        // Get all designs with structure files (pdb_file or, for boltzgen, file_name)
-        const designsWithPdb = filteredDesigns.value.filter(d => hasStructureFile(d))
+        const withPdb = designsWithPdbOrdered()
 
-        if (designsWithPdb.length === 0 || currentStructureIndex.value >= designsWithPdb.length) {
+        if (withPdb.length === 0) {
             return null
         }
 
-        const design = designsWithPdb[currentStructureIndex.value]
-        const filename = getStructureFilename(design)
+        const id = currentNavDesignId.value
+        const design = id ? withPdb.find(d => d.design_id === id) : undefined
+        const chosen = design ?? withPdb[0]
+        const filename = getStructureFilename(chosen)
         if (!filename) {
             return null
         }
 
         return {
-            design,
+            design: chosen,
             filename,
-            pdbPath: design.pdb_file || ''
+            pdbPath: chosen.pdb_file || ''
         }
     })
 
     const canNavigatePrevious = computed(() => {
         if (selectedDesigns.value.length === 0) return false
-        const designsWithPdb = filteredDesigns.value.filter(d => hasStructureFile(d))
-        return currentStructureIndex.value > 0 && designsWithPdb.length > 0
+        const withPdb = designsWithPdbOrdered()
+        if (withPdb.length === 0) return false
+        const idx = withPdb.findIndex(d => d.design_id === currentNavDesignId.value)
+        return idx > 0
     })
 
     const canNavigateNext = computed(() => {
         if (selectedDesigns.value.length === 0) return false
-        const designsWithPdb = filteredDesigns.value.filter(d => hasStructureFile(d))
-        return currentStructureIndex.value < designsWithPdb.length - 1 && designsWithPdb.length > 0
+        const withPdb = designsWithPdbOrdered()
+        if (withPdb.length === 0) return false
+        const idx = withPdb.findIndex(d => d.design_id === currentNavDesignId.value)
+        return idx >= 0 && idx < withPdb.length - 1
     })
 
     const totalStructures = computed(() => {
-        return filteredDesigns.value.filter(d => hasStructureFile(d)).length
+        return designsWithPdbOrdered().length
     })
 
     // Actions
@@ -357,6 +415,10 @@ export const useDesignsStore = defineStore('designs', () => {
 
             // Update default visible columns to include score columns if they exist
             const newDefaultColumns = ['design_id', 'project_id', 'run_name', 'method']
+
+            if (data.designs.some(d => Object.prototype.hasOwnProperty.call(d, 'good'))) {
+                newDefaultColumns.push('good')
+            }
 
             // Add Length column if it exists in the data
             if (data.designs.some(d => 'Length' in d && d['Length'] != null)) {
@@ -409,7 +471,8 @@ export const useDesignsStore = defineStore('designs', () => {
 
     const selectDesigns = (designsToSelect: Design[]) => {
         selectedDesigns.value = designsToSelect
-        currentStructureIndex.value = 0
+        const withPdb = designsWithPdbOrdered()
+        currentNavDesignId.value = withPdb[0]?.design_id ?? null
     }
 
     const toggleColumn = (field: string) => {
@@ -422,12 +485,13 @@ export const useDesignsStore = defineStore('designs', () => {
     }
 
     const navigateStructure = (direction: 'next' | 'previous') => {
-        const designsWithPdb = filteredDesigns.value.filter(d => hasStructureFile(d))
-
-        if (direction === 'next' && currentStructureIndex.value < designsWithPdb.length - 1) {
-            currentStructureIndex.value++
-        } else if (direction === 'previous' && currentStructureIndex.value > 0) {
-            currentStructureIndex.value--
+        const withPdb = designsWithPdbOrdered()
+        const idx = withPdb.findIndex(d => d.design_id === currentNavDesignId.value)
+        if (idx < 0) return
+        if (direction === 'next' && idx < withPdb.length - 1) {
+            currentNavDesignId.value = withPdb[idx + 1].design_id
+        } else if (direction === 'previous' && idx > 0) {
+            currentNavDesignId.value = withPdb[idx - 1].design_id
         }
     }
 
@@ -436,7 +500,7 @@ export const useDesignsStore = defineStore('designs', () => {
             await designsApi.clearDesigns()
             designs.value = []
             selectedDesigns.value = []
-            currentStructureIndex.value = 0
+            currentNavDesignId.value = null
         } catch (err) {
             console.error('Error clearing designs:', err)
             throw err
@@ -454,41 +518,76 @@ export const useDesignsStore = defineStore('designs', () => {
     const viewDesign = (design: Design) => {
         selectedDesigns.value = [design]
 
-        // Find the position of this design among filtered designs with structure files
-        const designsWithPdb = filteredDesigns.value.filter(d => hasStructureFile(d))
-        const index = designsWithPdb.findIndex(d => d.design_id === design.design_id)
-        currentStructureIndex.value = index >= 0 ? index : 0
+        const withPdb = designsWithPdbOrdered()
+        const index = withPdb.findIndex(d => d.design_id === design.design_id)
+        if (index >= 0) {
+            currentNavDesignId.value = withPdb[index].design_id
+        } else if (withPdb.length > 0) {
+            currentNavDesignId.value = withPdb[0].design_id
+        } else {
+            currentNavDesignId.value = null
+        }
+    }
+
+    const patchDesignGood = async (design: Design, good: boolean | null) => {
+        const sourcePath = (design as any).source_path as string | undefined
+        await designsApi.patchDesignGood({
+            run_id: design.run_id,
+            design_id: design.design_id,
+            good,
+            ...(sourcePath ? { source_path: sourcePath } : {})
+        })
+        const sync = (d: Design): Design => {
+            if (d.run_id !== design.run_id || d.design_id !== design.design_id) return d
+            if (good === null) {
+                const next = { ...d } as Record<string, unknown>
+                delete next.good
+                return next as Design
+            }
+            return { ...d, good }
+        }
+        designs.value = designs.value.map(sync)
+        selectedDesigns.value = selectedDesigns.value.map(sync)
+
+        if (!columns.value.some(c => c.field === 'good')) {
+            const methodIdx = columns.value.findIndex(c => c.field === 'method')
+            const goodCol: ColumnConfig = {
+                field: 'good',
+                header: 'Good',
+                sortable: true,
+                filter: true,
+                filterType: 'boolean',
+                showFilterMenu: false,
+                style: 'min-width: 90px'
+            }
+            if (methodIdx >= 0) {
+                columns.value.splice(methodIdx + 1, 0, goodCol)
+            } else {
+                columns.value.push(goodCol)
+            }
+        }
+        if (!visibleColumns.value.includes('good')) {
+            const mi = visibleColumns.value.indexOf('method')
+            if (mi >= 0) {
+                visibleColumns.value.splice(mi + 1, 0, 'good')
+            } else {
+                visibleColumns.value.push('good')
+            }
+        }
     }
 
     const getCurrentRowPosition = () => {
         if (selectedDesigns.value.length === 0) return '0 / 0'
 
-        const designsWithPdb = filteredDesigns.value.filter(d => hasStructureFile(d))
+        const withPdb = designsWithPdbOrdered()
 
-        if (designsWithPdb.length === 0) return '0 / 0'
+        if (withPdb.length === 0) return '0 / 0'
 
-        return `${currentStructureIndex.value + 1} / ${designsWithPdb.length}`
+        const idx = withPdb.findIndex(d => d.design_id === currentNavDesignId.value)
+        if (idx < 0) return '0 / 0'
+
+        return `${idx + 1} / ${withPdb.length}`
     }
-
-    // Helper function to extract filename from pdb_file path
-    const extractFilename = (pdbFile: string | undefined): string => {
-        if (!pdbFile) return ''
-        return pdbFile.split('/').pop() || ''
-    }
-
-    // For boltzgen the table uses file_name, not pdb_file; pdb_file may be set from
-    // file_name when the filesystem search fails. Returns the filename to request.
-    const getStructureFilename = (design: Design): string => {
-        const fromPdb = extractFilename(design.pdb_file)
-        if (fromPdb) return fromPdb
-        if ((design as any).method === 'boltzgen' && (design as any).file_name != null && (design as any).file_name !== '') {
-            return String((design as any).file_name).trim()
-        }
-        return ''
-    }
-
-    const hasStructureFile = (d: Design): boolean =>
-        !!(d.pdb_file || ((d as any).method === 'boltzgen' && (d as any).file_name))
 
     // Helper function to build columns from data
     const buildColumnsFromData = (designs: Design[]): ColumnConfig[] => {
@@ -500,6 +599,18 @@ export const useDesignsStore = defineStore('designs', () => {
             { field: 'run_name', header: 'Run Name', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
             { field: 'method', header: 'Method', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 100px' }
         ]
+
+        if (designs.some(d => Object.prototype.hasOwnProperty.call(d, 'good'))) {
+            baseColumns.push({
+                field: 'good',
+                header: 'Good',
+                sortable: true,
+                filter: true,
+                filterType: 'boolean',
+                showFilterMenu: false,
+                style: 'min-width: 90px'
+            })
+        }
 
         // Add score columns if they exist in the data
         const scoreColumns: ColumnConfig[] = []
@@ -535,7 +646,7 @@ export const useDesignsStore = defineStore('designs', () => {
 
         // Add other columns from the data (excluding already defined ones)
         const existingFields = new Set([
-            'design_id', 'project_id', 'run_name', 'method',
+            'design_id', 'project_id', 'run_name', 'method', 'good',
             'pae_interaction', 'Average_i_pTM', 'design_to_target_iptm', 'quality_score',
             'pLDDT', 'i_pTM', 'ipTM',
             'pdb_file', 'run_path', 'run_id', 'target_sequence'
@@ -580,10 +691,13 @@ export const useDesignsStore = defineStore('designs', () => {
         columns,
         visibleColumns,
         loading,
-        currentStructureIndex,
+        currentNavDesignId,
+        tableSortField,
+        tableSortOrder,
 
         // Getters
         filteredDesigns,
+        orderedFilteredDesigns,
         totalDesigns,
         currentStructure,
         canNavigatePrevious,
@@ -603,6 +717,7 @@ export const useDesignsStore = defineStore('designs', () => {
         viewDesign,
         getCurrentRowPosition,
         extractFilename,
-        getStructureFilename
+        getStructureFilename,
+        patchDesignGood
     }
 })

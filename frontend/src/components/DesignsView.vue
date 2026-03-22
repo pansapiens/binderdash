@@ -178,6 +178,8 @@
           :key="`designs-table-${designsStore.selectedRunIds.length}-${designsStore.filteredDesigns.length}`"
           :value="designsStore.filteredDesigns" 
           :loading="designsStore.loading"
+          v-model:sortField="designsStore.tableSortField"
+          v-model:sortOrder="designsStore.tableSortOrder"
           v-model:selection="designsStore.selectedDesigns"
           dataKey="design_id"
           stripedRows
@@ -296,7 +298,24 @@
             :style="col.style"
             :class="col.class"
           >
-            <template #body="{ data }" v-if="col.template">
+            <template #body="{ data }" v-if="col.field === 'good'">
+              <span :class="['good-cell', goodCellModifier(data.good)]">
+                <span
+                  v-if="normalizeGood(data.good) === true"
+                  class="good-cell-symbol"
+                  title="Good"
+                  aria-label="Good"
+                >✓</span>
+                <span
+                  v-else-if="normalizeGood(data.good) === false"
+                  class="good-cell-symbol"
+                  title="Not good"
+                  aria-label="Not good"
+                >✗</span>
+                <span v-else class="good-cell-dash" aria-label="Not rated">—</span>
+              </span>
+            </template>
+            <template #body="{ data }" v-else-if="col.template">
               <component :is="col.template" :data="data" :field="col.field" />
             </template>
           </Column>
@@ -391,12 +410,12 @@
               <div class="details-grid">
                 <template v-for="scoreField in displayScores" :key="scoreField">
                   <div
-                    v-if="hasValidValue(designsStore.currentStructure.design[scoreField])"
+                    v-if="hasValidValue(getScoreValue(designsStore.currentStructure.design, scoreField))"
                     class="detail-item"
                   >
-                    <div class="score-bar" :style="{ backgroundColor: scoreColor(scoreField, designsStore.currentStructure.design[scoreField]) }"></div>
+                    <div class="score-bar" :style="{ backgroundColor: scoreColor(scoreField, getScoreValue(designsStore.currentStructure.design, scoreField)) }"></div>
                     <div class="detail-label">{{ formatScoreHeader(scoreField) }}</div>
-                    <div class="detail-value">{{ formatScore(designsStore.currentStructure.design[scoreField]) }}</div>
+                    <div class="detail-value">{{ formatScore(getScoreValue(designsStore.currentStructure.design, scoreField)) }}</div>
                   </div>
                 </template>
               </div>
@@ -429,6 +448,28 @@
               :disabled="!designsStore.canNavigateNext"
               text
               rounded
+            />
+            <Button 
+              :icon="structureGood === true ? 'pi pi-thumbs-up-fill' : 'pi pi-thumbs-up'"
+              @click="setStructureGood(true)"
+              rounded
+              severity="secondary"
+              class="viewer-thumb-btn viewer-thumb-btn--good"
+              :class="{ 'viewer-thumb-btn--selected': structureGood === true }"
+              :disabled="!designsStore.currentStructure || goodRatingPending"
+              v-tooltip.top="'Mark good (click again to clear)'"
+              aria-label="Mark design good"
+            />
+            <Button 
+              :icon="structureGood === false ? 'pi pi-thumbs-down-fill' : 'pi pi-thumbs-down'"
+              @click="setStructureGood(false)"
+              rounded
+              severity="secondary"
+              class="viewer-thumb-btn viewer-thumb-btn--bad"
+              :class="{ 'viewer-thumb-btn--selected': structureGood === false }"
+              :disabled="!designsStore.currentStructure || goodRatingPending"
+              v-tooltip.top="'Not good (click again to clear)'"
+              aria-label="Mark design not good"
             />
             <Button 
               :icon="isSpinning ? 'pi pi-pause' : 'pi pi-play'" 
@@ -506,6 +547,7 @@ const showFilterPanel = ref(false)
 const molstarViewerRef = ref<any>(null)
 const isSpinning = ref(false)
 const alphafoldViewEnabled = ref(true)
+const goodRatingPending = ref(false)
 const exportIncludeAllColumns = ref(false)
 const selectTopCount = ref<number | null>(null)
 const exportMenuItems = ref([
@@ -540,7 +582,10 @@ const niceFieldNames: Record<string, string> = {
   'Average_Target_RMSD': 'Average Target RMSD',
   'Average_Binder_pLDDT': 'Average Binder pLDDT',
   'plddt_binder': 'Binder pLDDT',
-  'binder_aligned_rmsd': 'Binder Aligned RMSD'
+  'binder_aligned_rmsd': 'Binder Aligned RMSD',
+  'interaction_pae': 'Interaction PAE',
+  'min_interation_pae': 'Min interaction PAE',
+  'design_ipsae_min': 'Design ipSAE min'
 }
 
 // Computed properties using store
@@ -667,6 +712,46 @@ const getCurrentRowPosition = () => {
   return designsStore.getCurrentRowPosition()
 }
 
+const normalizeGood = (v: unknown): boolean | null => {
+  if (v === true || v === 'true' || v === 1 || v === '1') return true
+  if (v === false || v === 'false' || v === 0 || v === '0') return false
+  if (v === '' || (typeof v === 'string' && v.trim() === '')) return null
+  return null
+}
+
+const goodCellModifier = (v: unknown): string => {
+  const n = normalizeGood(v)
+  if (n === true) return 'good-cell--true'
+  if (n === false) return 'good-cell--false'
+  return 'good-cell--empty'
+}
+
+const structureGood = computed((): boolean | null => {
+  const d = designsStore.currentStructure?.design as Record<string, unknown> | undefined
+  if (!d || !Object.prototype.hasOwnProperty.call(d, 'good')) return null
+  return normalizeGood(d.good)
+})
+
+const setStructureGood = async (clicked: boolean) => {
+  const cur = designsStore.currentStructure
+  if (!cur || goodRatingPending.value) return
+  const current = structureGood.value
+  const nextVal: boolean | null = current === clicked ? null : clicked
+  goodRatingPending.value = true
+  try {
+    await designsStore.patchDesignGood(cur.design, nextVal)
+  } catch (err: any) {
+    toast.add({
+      severity: 'error',
+      summary: 'Could not update rating',
+      detail: err?.message || 'Request failed',
+      life: 4000
+    })
+  } finally {
+    goodRatingPending.value = false
+  }
+}
+
 const toggleSpin = async () => {
   if (molstarViewerRef.value) {
     await molstarViewerRef.value.toggleSpin()
@@ -712,10 +797,8 @@ const selectTopRows = () => {
     return
   }
   
-  // Get the currently filtered and sorted designs
-  const sortedDesigns = designsStore.filteredDesigns
-  
-  // Select the top N rows based on current sorting
+  const sortedDesigns = designsStore.orderedFilteredDesigns
+
   const topRows = sortedDesigns.slice(0, selectTopCount.value)
   
   // Update the store's selected designs
@@ -925,6 +1008,17 @@ const hasValidValue = (value: any): boolean => {
   return value !== null && value !== undefined && value !== '' && !isNaN(Number(value))
 }
 
+const getScoreValue = (design: any, field: string): any => {
+  if (field === 'min_interation_pae') {
+    const correct = design.min_interaction_pae
+    const typo = design.min_interation_pae
+    if (hasValidValue(correct)) return correct
+    if (hasValidValue(typo)) return typo
+    return undefined
+  }
+  return design[field]
+}
+
 const formatScore = (value: any): string => {
   if (!hasValidValue(value)) return ''
   const num = Number(value)
@@ -940,6 +1034,9 @@ const formatScoreHeader = (fieldName: string): string => {
 const displayScores = ref([
   'Average_i_pTM',
   'design_to_target_iptm',
+  'design_ipsae_min',
+  'interaction_pae',
+  'min_interation_pae',
   'Average_Binder_RMSD',
   'Average_Target_RMSD',
   'Average_Binder_pLDDT',
@@ -977,9 +1074,38 @@ const colorFromT = (t: number): string => {
   }
 }
 
+/** PAE (Å): ≤10 green, 10–15 orange, >15 red (lower is better). */
+const paeBandColor = (v: number): string => {
+  if (v <= 10) return colorFromT(1)
+  if (v <= 15) return 'rgb(241, 196, 15)'
+  return colorFromT(0)
+}
+
+/** Min interaction PAE (Å): ≤5 green, >5–≤7 orange, >7 red. */
+const minInteractionPaeBandColor = (v: number): string => {
+  if (v <= 5) return colorFromT(1)
+  if (v <= 7) return 'rgb(241, 196, 15)'
+  return colorFromT(0)
+}
+
 const scoreColor = (field: string, raw: any): string => {
   const v = Number(raw)
   if (!isFinite(v)) return '#dfe6e9'
+
+  if (field === 'min_interation_pae') {
+    return minInteractionPaeBandColor(v)
+  }
+
+  const paeFields = new Set(['pae_interaction', 'interaction_pae'])
+  if (paeFields.has(field)) {
+    return paeBandColor(v)
+  }
+
+  // ipSAE: same 0–1 “higher is better” scale as ipTM
+  if (field === 'design_ipsae_min') {
+    const t = clamp01((v - 0) / 1)
+    return colorFromT(t)
+  }
 
   // Field-specific ranges and whether higher is better
   const config: Record<string, { min: number, max: number, higherBetter: boolean }> = {
@@ -987,7 +1113,6 @@ const scoreColor = (field: string, raw: any): string => {
     'design_to_target_iptm': { min: 0, max: 1, higherBetter: true },
     'Average_Binder_pLDDT': { min: 0, max: 1, higherBetter: true },
     'plddt_binder': { min: 0, max: 100, higherBetter: true },
-    'pae_interaction': { min: 0, max: 20, higherBetter: false },
     'Average_Binder_RMSD': { min: 0, max: 3.5, higherBetter: false },
     'Average_Target_RMSD': { min: 0, max: 3.5, higherBetter: false },
     'binder_aligned_rmsd': { min: 0, max: 3.5, higherBetter: false }
@@ -1069,6 +1194,11 @@ defineExpose({
 
 <style scoped>
 .designs-view {
+  --rating-good-bg: #d8f3dc;
+  --rating-good-fg: #1b4332;
+  --rating-bad-bg: #fcd4e0;
+  --rating-bad-fg: #9d174d;
+
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -1503,5 +1633,87 @@ defineExpose({
 
 .viewer-controls :deep(.p-button.plddt-disabled .p-button-label) {
   text-decoration: line-through;
+}
+
+.viewer-controls :deep(.viewer-thumb-btn.p-button) {
+  border-width: 1px;
+  border-style: solid;
+}
+
+.viewer-controls :deep(.viewer-thumb-btn--good.p-button) {
+  background: var(--rating-good-bg) !important;
+  color: var(--rating-good-fg) !important;
+  border-color: color-mix(in srgb, var(--rating-good-fg) 20%, transparent) !important;
+}
+
+.viewer-controls :deep(.viewer-thumb-btn--good.p-button:not(:disabled):hover) {
+  background: color-mix(in srgb, var(--rating-good-bg) 82%, var(--rating-good-fg)) !important;
+  border-color: color-mix(in srgb, var(--rating-good-fg) 35%, transparent) !important;
+}
+
+.viewer-controls :deep(.viewer-thumb-btn--good.p-button.viewer-thumb-btn--selected) {
+  box-shadow: inset 0 0 0 2px var(--rating-good-fg);
+}
+
+.viewer-controls :deep(.viewer-thumb-btn--bad.p-button) {
+  background: var(--rating-bad-bg) !important;
+  color: var(--rating-bad-fg) !important;
+  border-color: color-mix(in srgb, var(--rating-bad-fg) 22%, transparent) !important;
+}
+
+.viewer-controls :deep(.viewer-thumb-btn--bad.p-button:not(:disabled):hover) {
+  background: color-mix(in srgb, var(--rating-bad-bg) 80%, var(--rating-bad-fg)) !important;
+  border-color: color-mix(in srgb, var(--rating-bad-fg) 38%, transparent) !important;
+}
+
+.viewer-controls :deep(.viewer-thumb-btn--bad.p-button.viewer-thumb-btn--selected) {
+  box-shadow: inset 0 0 0 2px var(--rating-bad-fg);
+}
+
+.viewer-controls :deep(.viewer-thumb-btn.p-button:disabled) {
+  opacity: 0.45;
+}
+
+.good-cell {
+  box-sizing: border-box;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 1.85rem;
+  line-height: 1;
+}
+
+.good-cell--true,
+.good-cell--false {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.35rem;
+}
+
+.good-cell--true {
+  background-color: var(--rating-good-bg);
+  color: var(--rating-good-fg);
+}
+
+.good-cell--false {
+  background-color: var(--rating-bad-bg);
+  color: var(--rating-bad-fg);
+}
+
+.good-cell--empty {
+  width: 100%;
+  justify-content: center;
+  padding: 0.15rem 0;
+}
+
+.good-cell-symbol {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.good-cell-dash {
+  color: var(--p-text-muted-color, #6c757d);
+  font-size: 0.95rem;
+  font-weight: 400;
 }
 </style>

@@ -458,6 +458,77 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
     return runs
 
 
+def resolve_design_id_column(df: pd.DataFrame, signature: Dict[str, Any]) -> Optional[str]:
+    design_id_columns = signature.get("design_id_columns", [])
+    for col_name in design_id_columns:
+        if col_name in df.columns:
+            return col_name
+    for col in df.columns:
+        if col.lower() in ["design", "description", "name", "id"]:
+            return col
+    return None
+
+
+def update_design_good_flag(
+    run_metadata: Dict[str, Any],
+    design_id: str,
+    good: Optional[bool],
+    source_path: Optional[str] = None,
+) -> None:
+    """Write the ``good`` flag for one row in the run's results table on disk.
+
+    Pass ``good=None`` to clear the cell (empty / missing in the exported table).
+
+    For merged runs, pass ``source_path`` from the design row so the correct
+    fragment table is updated.
+    """
+    results_table = run_metadata.get("results_table")
+    if not results_table:
+        raise ValueError("Run has no results_table path configured")
+
+    signature = run_metadata.get("signature", {})
+    merged_paths = list(run_metadata.get("merged_paths") or [run_metadata["path"]])
+
+    ordered_bases = list(merged_paths)
+    if source_path and source_path in merged_paths:
+        ordered_bases = [source_path] + [p for p in merged_paths if p != source_path]
+
+    saw_table = False
+    for base in ordered_bases:
+        table_path = Path(base) / results_table
+        if not table_path.is_file():
+            continue
+
+        saw_table = True
+        sep = "\t" if table_path.suffix.lower() == ".tsv" else ","
+        df = pd.read_csv(table_path, sep=sep)
+        id_col = resolve_design_id_column(df, signature)
+        if not id_col:
+            raise ValueError("Could not resolve design id column in results table")
+
+        mask = df[id_col].astype(str) == str(design_id)
+        if not mask.any():
+            continue
+
+        if good is None:
+            if "good" not in df.columns:
+                return
+            df["good"] = df["good"].astype(object)
+            df.loc[mask, "good"] = np.nan
+        else:
+            if "good" not in df.columns:
+                df["good"] = False
+            df.loc[mask, "good"] = bool(good)
+        df.to_csv(table_path, sep=sep, index=False, na_rep="")
+        return
+
+    if not saw_table:
+        raise ValueError(
+            f"Results table not found at {results_table!r} under run path(s)"
+        )
+    raise ValueError(f"Design {design_id!r} not found in results table")
+
+
 def load_run_table(run_metadata: Dict[str, Any]) -> Optional[pd.DataFrame]:
     try:
         merged_paths = run_metadata.get("merged_paths", [run_metadata["path"]])
@@ -600,24 +671,11 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
         signature = run_metadata.get("signature", {})
 
         # Get configuration from signature
-        design_id_columns = signature.get("design_id_columns", [])
         primary_score_columns = signature.get("primary_score_columns", [])
         sort_ascending = signature.get("sort_ascending", True)
         structure_search_patterns = signature.get("structure_search_patterns", ["{design_id}.pdb"])
 
-        # Find design ID column
-        design_id_col = None
-        for col_name in design_id_columns:
-            if col_name in df.columns:
-                design_id_col = col_name
-                break
-
-        # Fallback: look for common design ID column names
-        if not design_id_col:
-            for col in df.columns:
-                if col.lower() in ["design", "description", "name", "id"]:
-                    design_id_col = col
-                    break
+        design_id_col = resolve_design_id_column(df, signature)
 
         # Find primary score column
         primary_score_col = None

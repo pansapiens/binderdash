@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Boltzgen**: Scores panel in the structure viewer includes `interaction_pae`, min interaction PAE (`min_interation_pae` or `min_interaction_pae`), and `design_ipsae_min` when present; `design_ipsae_min` uses the same colour scale as ipTM (0–1); `pae_interaction` / `interaction_pae` use ≤10 green, 10–15 orange, >15 red; min interaction PAE uses ≤5 green, >5–≤7 orange, >7 red.
+- **Mol\* viewer**: pLDDT (AlphaFold) toggle uses the same coordinate format as the loaded URL (PDB vs mmCIF) so the structure no longer disappears until next/previous; failed in-place updates fall back to a full reload.
+- **Designs table**: structure viewer next/previous navigation and the position counter follow the table’s current sort order (same ordering as the DataTable), not the original API row order.
+- **Designs viewer**: thumbs up / down on the floating Mol\* control bar update the `good` column (persisted to the run results TSV/CSV via `PATCH /api/designs/good`). Clicking the active thumb clears the rating (`good: null` in the API; empty cell in the table file).
 - **Refactored cache scoring to use run_folder_signatures config**
   - Removed hardcoded method-specific scoring/sorting logic from `cache.py`
   - Cache now reads `primary_score_columns` and `sort_ascending` from `run_folder_signatures`

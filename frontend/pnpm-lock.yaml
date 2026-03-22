@@ -11,6 +11,9 @@ importers:
       '@primeuix/themes':
         specifier: ^1.2.3
         version: 1.2.3
+      '@primeuix/utils':
+        specifier: ^0.6.1
+        version: 0.6.1
       '@primevue/themes':
         specifier: ^4.3.8
         version: 4.3.8

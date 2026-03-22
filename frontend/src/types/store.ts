@@ -98,7 +98,7 @@ export interface DesignsState {
     columns: ColumnConfig[];
     visibleColumns: string[];
     loading: boolean;
-    currentStructureIndex: number;
+    currentNavDesignId: string | null;
 }
 
 export interface PlotsState {

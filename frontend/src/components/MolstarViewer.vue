@@ -340,7 +340,7 @@ const toggleAlphaFoldView = async (forceState?: boolean) => {
       const updateOptions = {
         customData: {
           url: props.pdbUrl,
-          format: 'pdb',
+          format: getFormatFromUrl(props.pdbUrl),
           binary: false
         },
         alphafoldView: newState,
@@ -353,7 +353,6 @@ const toggleAlphaFoldView = async (forceState?: boolean) => {
       const success = await viewerInstance.value.visual.update(updateOptions, true)
       
       if (success) {
-        // Restore control panel state after update
         try {
           if (controlsVisible) {
             viewerInstance.value.canvas.toggleControls(true)
@@ -361,6 +360,11 @@ const toggleAlphaFoldView = async (forceState?: boolean) => {
         } catch (e) {
           console.warn('Could not restore control panel state:', e)
         }
+        if (props.autoFocus !== false) {
+          await focusOnStructure()
+        }
+      } else {
+        await fullReload()
       }
     } catch (e) {
       console.warn('Error toggling AlphaFold view:', e)

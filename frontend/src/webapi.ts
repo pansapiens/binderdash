@@ -283,6 +283,19 @@ export const designsApi = {
             method: 'DELETE',
             requireAuth: true
         })
+    },
+
+    async patchDesignGood(payload: {
+        run_id: string
+        design_id: string
+        good: boolean | null
+        source_path?: string
+    }): Promise<{ ok: boolean }> {
+        return await apiRequest<{ ok: boolean }>(`${API_BASE}/api/designs/good`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+            requireAuth: true
+        })
     }
 }
 
