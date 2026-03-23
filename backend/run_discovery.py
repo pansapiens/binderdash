@@ -276,6 +276,18 @@ def _check_required_dirs(path: Path, required_dirs: List[str]) -> bool:
     return True
 
 
+def _pick_latest_numeric_suffix_match(matches: List[Path]) -> Path:
+    """Prefer the file with the largest trailing _{digits} in the stem (e.g. metrics_10 over metrics_2)."""
+
+    def sort_key(p: Path) -> tuple:
+        m = re.search(r"_(\d+)$", p.stem)
+        if m:
+            return (0, int(m.group(1)))
+        return (1, p.name)
+
+    return max(matches, key=sort_key)
+
+
 def _check_required_patterns(path: Path, required_patterns: List[str]) -> bool:
     """Check if any files match the required patterns for the given run signature."""
     for pattern in required_patterns:
@@ -359,12 +371,11 @@ def detect_run_type(path: Path) -> Optional[Dict[str, Any]]:
         # Resolve results table from pattern, if provided
         results_table_pattern = resolved_signature.get("results_table_pattern")
         if results_table_pattern and not resolved_signature.get("results_table"):
-            matches = sorted(path.glob(results_table_pattern))
+            matches = list(path.glob(results_table_pattern))
             if not matches:
                 # No concrete table found for this signature
                 continue
-            # Prefer the match with the highest numeric suffix by simple name sort
-            selected = matches[-1]
+            selected = _pick_latest_numeric_suffix_match(matches)
             try:
                 rel_table = selected.relative_to(path)
             except ValueError:

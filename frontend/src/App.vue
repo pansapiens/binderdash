@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, nextTick } from 'vue'
 import TabView from 'primevue/tabview'
 import TabPanel from 'primevue/tabpanel'
 import Toast from 'primevue/toast'
@@ -22,16 +22,15 @@ const plotsViewRef = ref<any>(null)
 
 // Handle runs scanned event from FolderBrowser
 const handleRunsScanned = (): void => {
-  // Refresh designs data when new runs are scanned
   designsStore.fetchDesigns()
+  runsStore.fetchRuns()
 }
 
 // Handle tab change to refresh data when switching to Plots tab
-const handleTabChange = (event: any): void => {
-  // Check if the Plots tab is being activated (index 1)
+const handleTabChange = async (event: any): Promise<void> => {
   if (event.index === 1) {
-    // Refresh runs data for plots
-    runsStore.fetchRuns()
+    await nextTick()
+    await plotsViewRef.value?.loadRunData?.()
   }
 }
 

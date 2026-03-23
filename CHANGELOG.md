@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Normalised run table columns on the backend to coalesce equivalent fields (e.g., `Sequence`/`sequence`, `Length`/`length`) during ingestion. This prevents duplicate columns appearing in `DesignsView` when mixing RFD and BindCraft runs.
 
 ### Fixed
+- **Run scan / tree paths**: Folder scans and `/api/tree` now resolve `RUN_BASE_DIRS` and requested paths before checking containment. Relative bases such as `./example_runs` no longer fail when the browser sends absolute paths (e.g. `/home/.../example_runs/boltzgen-nanobody`), which previously caused scans to be skipped and produced empty design lists.
+- **Designs table score filters**: Min/max score filters now consider boltzgen fields `design_to_target_iptm` and `quality_score`, not only bindcraft/RFD score columns, so boltzgen rows are not incorrectly filtered out.
+- **Boltzgen metrics CSV**: When several `final_designs_metrics_*.csv` files exist, the newest is chosen by numeric suffix (e.g. `_10` over `_2`), not lexicographic sort.
+- **Plots tab**: Restored visible charts after scanning runs. A watcher was replacing API-loaded plot data with an empty set whenever the designs table had no run scope (`selectedRunIds` empty), and opening the Plots tab only refreshed the run list without auto-selecting a run or reloading combined data. The watcher now skips that overwrite when no runs are scoped in the designs store; switching to Plots calls `loadRunData` (fetch runs, auto-select, load plot data); scanning also refreshes the runs store.
 - **Boltzgen run support**: Add support for nf-binder-design boltzgen runs.
 - Plots now show one datapoint per design across selected runs
   - Frontend `plots` store now coerces numeric-like strings to numbers and derives a stable `design_id` per row

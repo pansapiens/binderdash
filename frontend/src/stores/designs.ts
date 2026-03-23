@@ -77,8 +77,14 @@ export const useDesignsStore = defineStore('designs', () => {
         // Apply score range filters
         if (filters.value.score_min.value !== null) {
             filtered = filtered.filter(design => {
-                // Check all possible score fields
-                const scoreFields = ['pae_interaction', 'Average_i_pTM', 'i_pTM', 'ipTM']
+                const scoreFields = [
+                    'pae_interaction',
+                    'Average_i_pTM',
+                    'design_to_target_iptm',
+                    'quality_score',
+                    'i_pTM',
+                    'ipTM'
+                ]
                 return scoreFields.some(field => {
                     const value = design[field]
                     return value !== null && value !== undefined && value >= filters.value.score_min.value
@@ -88,8 +94,14 @@ export const useDesignsStore = defineStore('designs', () => {
 
         if (filters.value.score_max.value !== null) {
             filtered = filtered.filter(design => {
-                // Check all possible score fields
-                const scoreFields = ['pae_interaction', 'Average_i_pTM', 'i_pTM', 'ipTM']
+                const scoreFields = [
+                    'pae_interaction',
+                    'Average_i_pTM',
+                    'design_to_target_iptm',
+                    'quality_score',
+                    'i_pTM',
+                    'ipTM'
+                ]
                 return scoreFields.some(field => {
                     const value = design[field]
                     return value !== null && value !== undefined && value <= filters.value.score_max.value

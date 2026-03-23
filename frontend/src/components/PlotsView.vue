@@ -571,10 +571,15 @@ watch(() => authStore.canLoadData, (canLoad) => {
 
 // Keep plots data in sync with the designs table filtered rows
 watch(() => [designsStore.filteredDesigns, plotsStore.selectedRunIds, plotsStore.scatterXCol, plotsStore.scatterYCol], () => {
-  // Only plot designs from selected runs
+  // filteredDesigns is empty when the designs table has no run scope (selectedRunIds []).
+  // In that case plot data must come from fetchCombinedData — do not wipe it.
+  if (designsStore.selectedRunIds.length === 0) {
+    void updateAllPlots()
+    return
+  }
   const rows = designsStore.filteredDesigns.filter((d: any) => plotsStore.selectedRunIds.includes(d.run_id))
   plotsStore.setDataFromDesigns(rows as any[])
-  updateAllPlots()
+  void updateAllPlots()
 }, { deep: true })
 
 // Lifecycle
@@ -583,6 +588,10 @@ onMounted(() => {
   if (authStore.canLoadData) {
     loadRunData()
   }
+})
+
+defineExpose({
+  loadRunData,
 })
 </script>
 

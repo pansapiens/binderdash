@@ -13,6 +13,7 @@ from ..auth import (
     get_current_user_optional_with_query,
 )
 from ..cache import get_run_metadata
+from ..path_policy import is_allowed_path
 from ..settings import LocalUser, settings
 from ..schemas import PdbTarRequest
 
@@ -215,11 +216,17 @@ async def get_tree(
         if not path:
             folders = []
             for base_dir in settings.run_base_dirs:
-                if os.path.exists(base_dir) and os.path.isdir(base_dir):
+                if not base_dir.strip():
+                    continue
+                try:
+                    resolved = str(Path(base_dir).expanduser().resolve())
+                except (OSError, RuntimeError):
+                    continue
+                if os.path.exists(resolved) and os.path.isdir(resolved):
                     folders.append(
                         {
-                            "name": os.path.basename(base_dir),
-                            "path": base_dir,
+                            "name": os.path.basename(resolved),
+                            "path": resolved,
                             "has_children": True,
                         }
                     )
@@ -241,14 +248,12 @@ async def get_tree(
             if not os.path.exists(path) or not os.path.isdir(path):
                 raise ValueError(f"Path does not exist or is not a directory: {path}")
 
-            if settings.run_base_dirs:
-                is_allowed = any(
-                    path.startswith(base_dir) for base_dir in settings.run_base_dirs
+            if settings.run_base_dirs and not is_allowed_path(
+                path, settings.run_base_dirs
+            ):
+                raise ValueError(
+                    f"Path not within allowed base directories: {path}"
                 )
-                if not is_allowed:
-                    raise ValueError(
-                        f"Path not within allowed base directories: {path}"
-                    )
             else:
                 logging.getLogger(__name__).warning(
                     f"No base directories configured, allowing access to: {path}"

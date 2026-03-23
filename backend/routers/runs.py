@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_user_optional
 from ..cache import get_run_metadata, refresh_designs_cache, run_cache
+from ..path_policy import is_allowed_path
 from ..run_discovery import find_runs_recursive, load_run_table
 from ..schemas import ScanRequest
 from ..settings import LocalUser, settings
@@ -24,12 +25,13 @@ async def scan_runs(
     try:
         runs: List[Dict[str, Any]] = []
         for folder_path in request.folders:
-            is_allowed = any(
-                folder_path.startswith(base_dir) for base_dir in settings.run_base_dirs
-            )
-            if not is_allowed:
+            if settings.run_base_dirs and not is_allowed_path(
+                folder_path, settings.run_base_dirs
+            ):
                 logger.warning(
-                    f"Skipping path not within allowed base directories: {folder_path}"
+                    "Skipping path not within allowed base directories: %s (bases=%s)",
+                    folder_path,
+                    settings.run_base_dirs,
                 )
                 continue
             from pathlib import Path
