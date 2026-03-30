@@ -46,3 +46,12 @@ class DesignGoodUpdate(BaseModel):
     design_id: str
     good: Optional[bool]
     source_path: Optional[str] = None
+
+
+class InputTargetItem(BaseModel):
+    id: str
+    label: str
+
+
+class InputTargetsResponse(BaseModel):
+    targets: List[InputTargetItem]

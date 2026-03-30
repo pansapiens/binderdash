@@ -205,6 +205,33 @@ export const runsApi = {
     },
 
     /**
+     * List input / target structure files discovered from run params.
+     */
+    async getInputTargets(runId: string): Promise<{ targets: Array<{ id: string; label: string }> }> {
+        return await apiRequest(`${API_BASE}/api/runs/${runId}/input-targets`, { requireAuth: true })
+    },
+
+    /**
+     * Build URL for TM-aligned reference structure (PDB) overlaid on a design file.
+     */
+    getAlignedReferenceUrl(
+        runId: string,
+        alignFilename: string,
+        options: { mode: 'manual' | 'input_target'; source?: string; inputTargetId?: string }
+    ): string {
+        const params = new URLSearchParams()
+        params.set('align_filename', alignFilename)
+        params.set('mode', options.mode)
+        if (options.mode === 'manual' && options.source != null && options.source !== '') {
+            params.set('source', options.source)
+        }
+        if (options.mode === 'input_target' && options.inputTargetId != null) {
+            params.set('input_target_id', options.inputTargetId)
+        }
+        return `${API_BASE}/api/runs/${runId}/files/reference?${params.toString()}`
+    },
+
+    /**
      * Download a tar archive of multiple PDB files.
      * @param items - Array of { run_id, filename }
      * @returns Blob of the tar file

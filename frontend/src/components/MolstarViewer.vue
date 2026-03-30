@@ -26,6 +26,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick, readonly } from 'vue'
 
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+
 // Extend Window interface for PDBeMolstarPlugin
 declare global {
   interface Window {
@@ -36,6 +38,13 @@ declare global {
 // Props
 const props = defineProps<{
   pdbUrl: string
+  /** TM-aligned reference (URL or blob URL), shown as a second structure */
+  referenceUrl?: string
+  /**
+   * Format for `referenceUrl` when it has no path suffix (e.g. blob: from our API).
+   * Aligned references are mmCIF; without this, Mol* may mis-parse blob URLs as PDB.
+   */
+  referenceDataFormat?: 'pdb' | 'mmcif'
   structureInfo?: any
   autoFocus?: boolean
   showControls?: boolean
@@ -85,86 +94,220 @@ const loadMolstarResources = () => {
 
 const getFormatFromUrl = (url: string): string => {
   let lower = url.toLowerCase()
+  const q = lower.indexOf('?')
+  if (q >= 0) lower = lower.slice(0, q)
   if (lower.endsWith('.gz')) lower = lower.slice(0, -3)
   if (lower.endsWith('.cif')) return 'mmcif'
   return 'pdb'
 }
 
+/** Mol* `parseTrajectory` format for the reference overlay (blob URLs have no `.cif` suffix). */
+const getReferenceTrajectoryFormat = (): string => {
+  if (props.referenceDataFormat === 'mmcif') return 'mmcif'
+  if (props.referenceDataFormat === 'pdb') return 'pdb'
+  const url = props.referenceUrl!.trim()
+  if (url.toLowerCase().startsWith('blob:')) return 'mmcif'
+  return getFormatFromUrl(url)
+}
+
+const hasReferenceUrl = (): boolean => {
+  const r = props.referenceUrl
+  return typeof r === 'string' && r.trim().length > 0
+}
+
+/**
+ * Standalone Mol* `hide-controls=1` (see https://molstar.org/viewer-docs/query-parameters/) maps to
+ * PDBe init `hideControls`, not to URL query params — we embed PDBeMolstarPlugin, not molstar.org/viewer.
+ * Disabling the canvas wrench needs `hideCanvasControls` containing `'controlToggle'` or `'all'`;
+ * we pass an empty array so the toggle stays available.
+ *
+ * `visual.update` merges with DefaultParams then always runs `Layout.Update(pluginLayoutStateFromInitParams)`.
+ * Omitted keys revert to defaults — e.g. `reactive` defaults to false while `render()` uses `reactive: true`.
+ * That flips `controlsDisplay` and breaks the canvas spanner after reference `update`; merge the same
+ * interface fields into every `visual.update` as in `fullReload`.
+ *
+ * `hideControls` in each update still drives `showControls`; if `plugin.layout.state.showControls` is
+ * briefly undefined, falling back to `props.showControls === false` re-hides panels — we cache layout.
+ */
+const lastLayoutShowControlsKnown = ref<boolean | null>(null)
+
+function syncLayoutShowControlsFromPlugin() {
+  try {
+    const show = viewerInstance.value?.plugin?.layout?.state?.showControls
+    if (typeof show === 'boolean') {
+      lastLayoutShowControlsKnown.value = show
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function seedLayoutShowControlsFromProps() {
+  lastLayoutShowControlsKnown.value = props.showControls !== false
+}
+
+const getHideControlsForPluginUpdate = (): boolean => {
+  syncLayoutShowControlsFromPlugin()
+  try {
+    const show = viewerInstance.value?.plugin?.layout?.state?.showControls
+    if (typeof show === 'boolean') {
+      return !show
+    }
+  } catch {
+    /* ignore */
+  }
+  if (lastLayoutShowControlsKnown.value != null) {
+    return !lastLayoutShowControlsKnown.value
+  }
+  return props.showControls === false
+}
+
+/** Must match `fullReload` / `render` options — `visual.update` shallow-merges with DefaultParams otherwise. */
+const pdbeInterfaceParamsForVisualUpdate = () => ({
+  reactive: true,
+  landscape: false,
+  expanded: false,
+  hideCanvasControls: [] as string[],
+  /** Top sequence strip (residue / chain context); `false` keeps `regionState.top` hidden. */
+  sequencePanel: true,
+  leftPanel: true,
+  rightPanel: true,
+  pdbeLink: false,
+  loadingOverlay: false,
+})
+
+/**
+ * Primary structure: polymer cartoon plus het / non-standard / coarse as spacefill so ligands are visible.
+ * A plain `visualStyle: 'cartoon'` omits those components.
+ */
+const primaryStructureVisualOptions = () => ({
+  alphafoldView: alphafoldViewEnabled.value,
+  visualStyle: {
+    polymer: 'cartoon',
+    het: 'spacefill',
+    nonStandard: 'spacefill',
+    coarse: 'spacefill',
+  },
+  hideStructure: ['water'],
+  bgColor: props.backgroundColor || { r: 255, g: 255, b: 255 },
+  hideControls: getHideControlsForPluginUpdate(),
+})
+
+const sharedVisualOptions = () => primaryStructureVisualOptions()
+
+/**
+ * Reference overlay: polymer cartoon + het/nonStandard/coarse spacefill.
+ * `alphafoldView` must be false here — the pLDDT theme applies to every component when true and
+ * often leaves HET/coarse without a usable colour.
+ */
+const referenceOverlayVisualOptions = () => ({
+  alphafoldView: false,
+  visualStyle: {
+    polymer: 'cartoon',
+    het: 'spacefill',
+    nonStandard: 'spacefill',
+    coarse: 'spacefill',
+  },
+  hideStructure: ['water'],
+  bgColor: props.backgroundColor || { r: 255, g: 255, b: 255 },
+  hideControls: getHideControlsForPluginUpdate(),
+})
+
+const appendReferenceStructure = async () => {
+  if (!viewerInstance.value || !hasReferenceUrl()) return
+  const url = props.referenceUrl!.trim()
+  const updateOptions = {
+    customData: {
+      url,
+      format: getReferenceTrajectoryFormat(),
+      binary: false
+    },
+    ...pdbeInterfaceParamsForVisualUpdate(),
+    ...referenceOverlayVisualOptions(),
+  }
+  const success = await viewerInstance.value.visual.update(updateOptions, false)
+  if (!success) {
+    console.warn('PDBe Molstar: could not append reference structure')
+    return
+  }
+  try {
+    const vis = viewerInstance.value.visual
+    if (typeof vis?.visibility === 'function') {
+      await vis.visibility({ het: true, nonStandard: true, coarse: true })
+    }
+  } catch (e) {
+    console.warn('PDBe Molstar: visibility tweak for reference het/coarse failed', e)
+  }
+}
+
+const ensurePrimaryHetCoarseVisible = async () => {
+  try {
+    const vis = viewerInstance.value?.visual
+    if (typeof vis?.visibility === 'function') {
+      await vis.visibility({ het: true, nonStandard: true, coarse: true })
+    }
+  } catch (e) {
+    console.warn('PDBe Molstar: visibility for primary het/coarse failed', e)
+  }
+}
+
 const loadStructure = async () => {
-  if (!props.pdbUrl || !molstarContainer.value) {
+  if (!molstarContainer.value) {
+    return
+  }
+
+  if (!props.pdbUrl) {
+    viewerInstance.value = null
+    if (molstarContainer.value) {
+      molstarContainer.value.innerHTML = ''
+    }
+    loading.value = false
+    error.value = null
     return
   }
 
   try {
     loading.value = true
     error.value = null
-    
-    
-    // Load Molstar resources if not already loaded
+
     await loadMolstarResources()
-    
-    // Check if plugin is available
+
     if (!window.PDBeMolstarPlugin) {
       throw new Error('PDBeMolstarPlugin not available after loading resources')
     }
-    
-    // If viewer instance exists, use update method for better performance
-    if (viewerInstance.value) {
-      
-      // Store current control panel state before update
-      let controlsVisible = true
-      try {
-        // Try to get current control panel state (this might not be available in all versions)
-        controlsVisible = viewerInstance.value.canvas?.controlsVisible ?? true
-      } catch (e) {
-        console.warn('Could not determine control panel state:', e)
-      }
-      
+
+    const ref = hasReferenceUrl()
+
+    if (viewerInstance.value && !ref) {
       const updateOptions = {
         customData: {
           url: props.pdbUrl,
           format: getFormatFromUrl(props.pdbUrl),
           binary: false
         },
-        // Preserve essential visual settings to maintain consistent theme
-        alphafoldView: alphafoldViewEnabled.value,
-        visualStyle: 'cartoon',
-        hideStructure: ['water'],
-        bgColor: props.backgroundColor || { r: 255, g: 255, b: 255 },
-        // Explicitly preserve control panel settings
-        hideControls: controlsVisible,
+        ...pdbeInterfaceParamsForVisualUpdate(),
+        ...sharedVisualOptions(),
       }
-      
-      // Use the update method to load new structure
       const success = await viewerInstance.value.visual.update(updateOptions, true)
-      
       if (success) {
-        
-        // Restore control panel state after update
-        try {
-          if (controlsVisible) {
-            viewerInstance.value.canvas.toggleControls(true)
-          }
-        } catch (e) {
-          console.warn('Could not restore control panel state:', e)
-        }
- 
-        // Auto-focus on the new structure if enabled
+        await ensurePrimaryHetCoarseVisible()
         if (props.autoFocus !== false) {
           await focusOnStructure()
         }
-        
         loading.value = false
         return
-      } else {
-        // Fall back to full reload if update fails
-        await fullReload()
       }
-    } else {
-      // First time loading - create new instance
       await fullReload()
+      return
     }
 
+    await fullReload()
+    if (ref) {
+      await appendReferenceStructure()
+      if (props.autoFocus !== false) {
+        await focusOnStructure()
+      }
+    }
   } catch (err) {
     console.error('Error loading Molstar viewer:', err)
     error.value = (err as Error).message || 'Failed to load structure'
@@ -173,6 +316,7 @@ const loadStructure = async () => {
 }
 
 const fullReload = async () => {
+  lastLayoutShowControlsKnown.value = null
   // Clear previous viewer
   if (viewerInstance.value) {
     try {
@@ -190,6 +334,7 @@ const fullReload = async () => {
   // Create plugin instance
   const viewer = new window.PDBeMolstarPlugin()
   
+  const appearance = primaryStructureVisualOptions()
   // Set options following the documentation pattern
   const options = {
     customData: {
@@ -198,17 +343,17 @@ const fullReload = async () => {
       binary: false
     },
     // APPEARANCE
-    alphafoldView: alphafoldViewEnabled.value,
-    visualStyle: 'cartoon',
-    hideStructure: ['water'],
-    bgColor: props.backgroundColor || { r: 255, g: 255, b: 255 },
+    ...appearance,
     
     // BEHAVIOR
     selectInteraction: true,
     
-    // INTERFACE
+    // INTERFACE (hideCanvasControls must not include 'controlToggle' or spanner does nothing)
     hideControls: props.showControls === false,
-    sequencePanel: false,
+    hideCanvasControls: [] as string[],
+    sequencePanel: true,
+    leftPanel: true,
+    rightPanel: true,
     pdbeLink: false,
     loadingOverlay: false,
     expanded: false,
@@ -219,27 +364,34 @@ const fullReload = async () => {
   
   // Call render method to display the 3D view
   await viewer.render(molstarContainer.value, options)
-  
-  
-  // Store reference
+
   viewerInstance.value = viewer
-  
-  // Auto-focus on the new structure if enabled
+
+  await nextTick()
+  syncLayoutShowControlsFromPlugin()
+  if (lastLayoutShowControlsKnown.value == null) {
+    seedLayoutShowControlsFromProps()
+  }
+
+  await ensurePrimaryHetCoarseVisible()
+
   if (props.autoFocus !== false) {
     await focusOnStructure()
   }
-  
+
   loading.value = false
 }
 
 // Watchers
-watch(() => props.pdbUrl, () => {
-  if (props.pdbUrl) {
+watch(
+  () => [props.pdbUrl, props.referenceUrl ?? '', props.referenceDataFormat ?? ''] as const,
+  () => {
     nextTick(() => {
       loadStructure()
     })
-  }
-}, { immediate: false })
+  },
+  { immediate: false }
+)
 
 // Lifecycle
 onMounted(() => {
@@ -270,13 +422,39 @@ const focusOnStructure = async () => {
   }
 }
 
+/** PDBe `toggleSpin` uses `speed: 1`; quarter speed reads more comfortably. */
+const MOLSTAR_SPIN_SPEED = 0.25
+
+const applyReducedSpinSpeed = async () => {
+  await delay(40)
+  const c3d = viewerInstance.value?.plugin?.canvas3d
+  if (!c3d || typeof c3d.setProps !== 'function') return
+  const tb = c3d.props?.trackball
+  if (!tb || tb.animate?.name !== 'spin') return
+  try {
+    const prevParams = (tb.animate.params && typeof tb.animate.params === 'object')
+      ? tb.animate.params
+      : {}
+    await c3d.setProps({
+      trackball: {
+        ...tb,
+        animate: { name: 'spin', params: { ...prevParams, speed: MOLSTAR_SPIN_SPEED } },
+      },
+    })
+  } catch (e) {
+    console.warn('PDBe Molstar: could not set spin speed', e)
+  }
+}
+
 const toggleSpin = async (forceState?: boolean) => {
   if (viewerInstance.value) {
     try {
-      // If forceState is provided, use it; otherwise toggle current state
       const newState = forceState !== undefined ? forceState : !isSpinning.value
       await viewerInstance.value.visual.toggleSpin(newState)
       isSpinning.value = newState
+      if (newState) {
+        await applyReducedSpinSpeed()
+      }
     } catch (e) {
       console.warn('Error toggling spin:', e)
     }
@@ -329,43 +507,31 @@ const toggleAlphaFoldView = async (forceState?: boolean) => {
     try {
       const newState = forceState !== undefined ? forceState : !alphafoldViewEnabled.value
       alphafoldViewEnabled.value = newState
-      
-      // Store current control panel state before update
-      let controlsVisible = true
-      try {
-        controlsVisible = viewerInstance.value.canvas?.controlsVisible ?? true
-      } catch (e) {
-        console.warn('Could not determine control panel state:', e)
-      }
-      
       const updateOptions = {
         customData: {
           url: props.pdbUrl,
           format: getFormatFromUrl(props.pdbUrl),
           binary: false
         },
-        alphafoldView: newState,
-        visualStyle: 'cartoon',
-        hideStructure: ['water'],
-        bgColor: props.backgroundColor || { r: 255, g: 255, b: 255 },
-        hideControls: controlsVisible,
+        ...pdbeInterfaceParamsForVisualUpdate(),
+        ...primaryStructureVisualOptions(),
       }
       
       const success = await viewerInstance.value.visual.update(updateOptions, true)
       
       if (success) {
-        try {
-          if (controlsVisible) {
-            viewerInstance.value.canvas.toggleControls(true)
-          }
-        } catch (e) {
-          console.warn('Could not restore control panel state:', e)
+        await ensurePrimaryHetCoarseVisible()
+        if (hasReferenceUrl()) {
+          await appendReferenceStructure()
         }
         if (props.autoFocus !== false) {
           await focusOnStructure()
         }
       } else {
         await fullReload()
+        if (hasReferenceUrl()) {
+          await appendReferenceStructure()
+        }
       }
     } catch (e) {
       console.warn('Error toggling AlphaFold view:', e)

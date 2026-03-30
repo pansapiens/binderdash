@@ -10,7 +10,8 @@ from ..auth import get_current_user_optional
 from ..cache import get_run_metadata, refresh_designs_cache, run_cache
 from ..path_policy import is_allowed_path
 from ..run_discovery import find_runs_recursive, load_run_table
-from ..schemas import ScanRequest
+from ..schemas import InputTargetItem, InputTargetsResponse, ScanRequest
+from ..util.input_targets import list_input_targets
 from ..settings import LocalUser, settings
 from ..util.profiling import Timer
 
@@ -122,6 +123,20 @@ async def clear_runs(
 ):
     run_cache.clear()
     return {"message": "All runs cleared from cache"}
+
+
+@router.get("/{run_id}/input-targets", response_model=InputTargetsResponse)
+async def get_input_targets(
+    run_id: str,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
+    run_metadata = get_run_metadata(run_id)
+    if not run_metadata:
+        raise HTTPException(status_code=404, detail="Run not found")
+    targets = list_input_targets(run_metadata)
+    return InputTargetsResponse(
+        targets=[InputTargetItem(id=t.id, label=t.label) for t in targets]
+    )
 
 
 @router.get("/{run_id}/table")

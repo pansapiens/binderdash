@@ -247,7 +247,7 @@
                     <InputNumber 
                       v-model="selectTopCount"
                       :min="1"
-                      :max="designsStore.filteredDesigns.length"
+                      :max="Math.max(1, designsStore.filteredDesigns.length)"
                       placeholder="N"
                       size="small"
                       inputId="select-top-count"
@@ -423,15 +423,32 @@
           </div>
         </div>
 
-        <div class="viewer-container" v-if="designsStore.currentStructure">
+        <div class="viewer-container" ref="viewerContainerRef" v-if="designsStore.currentStructure">
           <MolstarViewer 
             :pdb-url="getPdbUrl()"
+            :reference-url="referenceViewerUrl"
+            reference-data-format="mmcif"
             :structure-info="designsStore.currentStructure"
             :auto-focus="true"
             :show-controls="false"
             ref="molstarViewerRef"
           />
-          <div class="viewer-controls">
+          <div
+            ref="viewerControlsRef"
+            class="viewer-controls"
+            :style="viewerControlsStyle"
+          >
+            <div
+              class="viewer-controls-drag"
+              @pointerdown="onViewerControlsPointerDown"
+              @dblclick.stop="resetViewerControlsPosition"
+              role="button"
+              tabindex="0"
+              aria-label="Drag to reposition toolbar. Double-click to reset position."
+              v-tooltip.top="viewerControlsDragTooltip"
+            >
+              <i class="pi pi-ellipsis-v" aria-hidden="true" />
+            </div>
             <Button 
               icon="pi pi-chevron-left" 
               @click="navigateToPreviousRow"
@@ -488,6 +505,107 @@
             />
           </div>
         </div>
+
+        <div v-if="designsStore.currentStructure" class="advanced-options-section">
+          <button
+            type="button"
+            class="advanced-options-disclosure"
+            @click="toggleAdvancedOptions"
+            :aria-expanded="showAdvancedOptions"
+            aria-controls="advanced-options-content"
+            id="advanced-options-disclosure"
+          >
+            <i
+              class="pi advanced-options-chevron"
+              :class="showAdvancedOptions ? 'pi-chevron-down' : 'pi-chevron-right'"
+              aria-hidden="true"
+            />
+            <span class="advanced-options-disclosure-label">Advanced options</span>
+          </button>
+          <div
+            v-show="showAdvancedOptions"
+            id="advanced-options-content"
+            role="region"
+            aria-labelledby="advanced-options-disclosure"
+            class="advanced-options-expanded"
+          >
+            <div class="advanced-options-body">
+            <div class="advanced-row">
+              <Checkbox
+                v-model="showInputTargetStructure"
+                :binary="true"
+                input-id="adv-input-target"
+              />
+              <label for="adv-input-target" class="advanced-checkbox-label">
+                Show input target structure (from run params)
+              </label>
+            </div>
+            <div
+              v-if="showInputTargetStructure && inputTargetsList.length > 1"
+              class="advanced-row advanced-row--full"
+            >
+              <label class="advanced-label">Input target</label>
+              <Dropdown
+                v-model="selectedInputTargetId"
+                :options="inputTargetDropdownOptions"
+                option-label="label"
+                option-value="value"
+                placeholder="Select structure"
+                class="advanced-dropdown"
+              />
+            </div>
+            <p
+              v-if="showInputTargetStructure && inputTargetsList.length === 0 && !inputTargetsLoading"
+              class="advanced-hint advanced-hint--warn"
+            >
+              No input target structure found in run params.
+            </p>
+            <template v-if="!showInputTargetStructure">
+              <div class="advanced-row advanced-row--full">
+                <div class="advanced-label advanced-label-with-info">
+                  <label for="adv-reference-source">Reference structure</label>
+                  <i
+                    class="pi pi-info-circle advanced-reference-info-icon"
+                    v-tooltip.top="referenceStructureTooltipOptions"
+                    tabindex="0"
+                    aria-label="Reference structure help"
+                  />
+                </div>
+                <InputText
+                  v-model="referenceManualSource"
+                  input-id="adv-reference-source"
+                  placeholder="PDB ID (e.g. 1crn) or https://… to .pdb / .cif (.gz OK)"
+                  class="advanced-input"
+                  @keydown.enter="onReferenceManualEnter"
+                />
+              </div>
+            </template>
+            <div class="advanced-actions">
+              <Button
+                label="Load reference"
+                icon="pi pi-sync"
+                @click="() => loadReferenceOverlay()"
+                :loading="referenceLoading"
+                :disabled="!canLoadReferenceOverlay"
+              />
+              <Button
+                label="Clear"
+                icon="pi pi-times"
+                severity="secondary"
+                variant="outlined"
+                @click="clearReferenceOverlay"
+                :disabled="!referenceOverlayActive && !referenceViewerUrl"
+              />
+            </div>
+            <div v-if="referenceMetrics" class="reference-metrics">
+              <span>TM-score (design norm): {{ referenceMetrics.tmNormDesign.toFixed(3) }}</span>
+              <span>TM-score (reference norm): {{ referenceMetrics.tmNormReference.toFixed(3) }}</span>
+              <span>RMSD: {{ referenceMetrics.rmsd.toFixed(3) }} Å</span>
+              <span>Aligned length: {{ referenceMetrics.alignedLength }}</span>
+            </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div v-else class="no-selection">
@@ -516,7 +634,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
@@ -544,7 +662,161 @@ const folderStore = useFolderStore()
 // Local UI state (not shared across components)
 const showColumnSelector = ref(false)
 const showFilterPanel = ref(false)
+const showAdvancedOptions = ref(false)
 const molstarViewerRef = ref<any>(null)
+
+const VIEWER_CONTROLS_POS_KEY = 'binderdash-viewer-controls-pos'
+
+const viewerContainerRef = ref<HTMLElement | null>(null)
+const viewerControlsRef = ref<HTMLElement | null>(null)
+const viewerControlsPos = ref<{ left: number; top: number } | null>(null)
+
+const viewerControlsDragTooltip =
+  'Drag to move toolbar. Double-click here to snap back to the default position.'
+
+let viewerDragActive = false
+let viewerDragPointerId: number | null = null
+let viewerDragStart = { clientX: 0, clientY: 0, left: 0, top: 0 }
+
+const viewerControlsStyle = computed(() => {
+  if (!viewerControlsPos.value) return {}
+  const { left, top } = viewerControlsPos.value
+  return {
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`,
+    transform: 'none',
+  } as Record<string, string>
+})
+
+function persistViewerControlsPos() {
+  try {
+    if (viewerControlsPos.value) {
+      localStorage.setItem(VIEWER_CONTROLS_POS_KEY, JSON.stringify(viewerControlsPos.value))
+    } else {
+      localStorage.removeItem(VIEWER_CONTROLS_POS_KEY)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadViewerControlsPos() {
+  try {
+    const raw = localStorage.getItem(VIEWER_CONTROLS_POS_KEY)
+    if (!raw) return
+    const o = JSON.parse(raw) as { left?: unknown; top?: unknown }
+    if (typeof o.left === 'number' && typeof o.top === 'number' && Number.isFinite(o.left) && Number.isFinite(o.top)) {
+      viewerControlsPos.value = { left: o.left, top: o.top }
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function clampViewerControlsPosition(left: number, top: number): { left: number; top: number } {
+  const c = viewerContainerRef.value
+  const el = viewerControlsRef.value
+  if (!c || !el) return { left, top }
+  const cw = c.clientWidth
+  const ch = c.clientHeight
+  const ew = el.offsetWidth
+  const eh = el.offsetHeight
+  return {
+    left: Math.max(0, Math.min(left, Math.max(0, cw - ew))),
+    top: Math.max(0, Math.min(top, Math.max(0, ch - eh))),
+  }
+}
+
+function clampViewerControlsIfNeeded() {
+  if (!viewerControlsPos.value) return
+  const next = clampViewerControlsPosition(viewerControlsPos.value.left, viewerControlsPos.value.top)
+  viewerControlsPos.value = next
+}
+
+function onViewerControlsPointerDown(e: PointerEvent) {
+  if (e.button !== 0) return
+  const container = viewerContainerRef.value
+  const controls = viewerControlsRef.value
+  if (!container || !controls) return
+  e.preventDefault()
+  e.stopPropagation()
+  const cr = container.getBoundingClientRect()
+  const er = controls.getBoundingClientRect()
+  const left = er.left - cr.left
+  const top = er.top - cr.top
+  viewerDragActive = true
+  viewerDragPointerId = e.pointerId
+  viewerDragStart = { clientX: e.clientX, clientY: e.clientY, left, top }
+  try {
+    controls.setPointerCapture(e.pointerId)
+  } catch {
+    /* ignore */
+  }
+  window.addEventListener('pointermove', onViewerControlsPointerMove)
+  window.addEventListener('pointerup', onViewerControlsPointerUp)
+  window.addEventListener('pointercancel', onViewerControlsPointerUp)
+}
+
+function onViewerControlsPointerMove(e: PointerEvent) {
+  if (!viewerDragActive || e.pointerId !== viewerDragPointerId) return
+  const dx = e.clientX - viewerDragStart.clientX
+  const dy = e.clientY - viewerDragStart.clientY
+  viewerControlsPos.value = clampViewerControlsPosition(
+    viewerDragStart.left + dx,
+    viewerDragStart.top + dy
+  )
+}
+
+function onViewerControlsPointerUp(e: PointerEvent) {
+  if (!viewerDragActive) return
+  if (viewerDragPointerId != null && e.pointerId !== viewerDragPointerId) return
+  const controls = viewerControlsRef.value
+  try {
+    if (controls && viewerDragPointerId != null) {
+      controls.releasePointerCapture(viewerDragPointerId)
+    }
+  } catch {
+    /* ignore */
+  }
+  window.removeEventListener('pointermove', onViewerControlsPointerMove)
+  window.removeEventListener('pointerup', onViewerControlsPointerUp)
+  window.removeEventListener('pointercancel', onViewerControlsPointerUp)
+  viewerDragActive = false
+  viewerDragPointerId = null
+  persistViewerControlsPos()
+}
+
+function resetViewerControlsPosition() {
+  viewerControlsPos.value = null
+  persistViewerControlsPos()
+}
+
+const REF_STORE_PREFIX = 'binderdash-adv-ref:'
+
+const referenceStructureHelp =
+  'Enter a 4-letter PDB ID (e.g. 1crn) or an https URL to a .pdb / .mmCIF file (.gz OK).'
+
+const referenceStructureTooltipOptions = {
+  value: referenceStructureHelp,
+  showDelay: 150,
+  autoHide: false,
+}
+
+const referenceViewerUrl = ref('')
+const referenceBlobUrlToRevoke = ref<string | null>(null)
+const referenceOverlayActive = ref(false)
+const referenceManualSource = ref('')
+const showInputTargetStructure = ref(false)
+const selectedInputTargetId = ref<string | null>(null)
+const inputTargetsList = ref<Array<{ id: string; label: string }>>([])
+const inputTargetsLoading = ref(false)
+const referenceLoading = ref(false)
+const referenceMetrics = ref<{
+  tmNormDesign: number
+  tmNormReference: number
+  rmsd: number
+  alignedLength: number
+} | null>(null)
 const isSpinning = ref(false)
 const alphafoldViewEnabled = ref(true)
 const goodRatingPending = ref(false)
@@ -987,6 +1259,182 @@ const getPdbUrl = () => {
   return runsApi.getPdbFileUrl(designsStore.currentStructure.design.run_id, designsStore.currentStructure.filename)
 }
 
+const inputTargetDropdownOptions = computed(() =>
+  inputTargetsList.value.map((t) => ({ label: t.label, value: t.id }))
+)
+
+const canLoadReferenceOverlay = computed(() => {
+  if (!designsStore.currentStructure || referenceLoading.value) return false
+  if (showInputTargetStructure.value) {
+    if (inputTargetsList.value.length === 0) return false
+    if (inputTargetsList.value.length > 1 && !selectedInputTargetId.value) return false
+    return true
+  }
+  return referenceManualSource.value.trim().length > 0
+})
+
+const onReferenceManualEnter = (e: KeyboardEvent) => {
+  e.preventDefault()
+  if (!canLoadReferenceOverlay.value) return
+  void loadReferenceOverlay()
+}
+
+const toggleAdvancedOptions = () => {
+  showAdvancedOptions.value = !showAdvancedOptions.value
+  if (showAdvancedOptions.value) {
+    const rid = designsStore.currentStructure?.design.run_id
+    if (rid) {
+      void refreshInputTargetsForRun(rid).then(() => {
+        if (selectedInputTargetId.value) {
+          const ok = inputTargetsList.value.some((t) => t.id === selectedInputTargetId.value)
+          if (!ok) selectedInputTargetId.value = null
+        }
+        if (inputTargetsList.value.length === 1) {
+          selectedInputTargetId.value = inputTargetsList.value[0].id
+        }
+      })
+    }
+  }
+}
+
+const persistAdvancedRef = (runId: string) => {
+  try {
+    localStorage.setItem(
+      REF_STORE_PREFIX + runId,
+      JSON.stringify({
+        manual: referenceManualSource.value,
+        useInput: showInputTargetStructure.value,
+        inputId: selectedInputTargetId.value,
+        overlay: referenceOverlayActive.value,
+      })
+    )
+  } catch {
+    /* ignore quota */
+  }
+}
+
+const restoreAdvancedRef = (runId: string) => {
+  try {
+    const raw = localStorage.getItem(REF_STORE_PREFIX + runId)
+    if (!raw) return
+    const o = JSON.parse(raw) as Record<string, unknown>
+    if (typeof o.manual === 'string') referenceManualSource.value = o.manual
+    if (typeof o.useInput === 'boolean') showInputTargetStructure.value = o.useInput
+    if (o.inputId != null && o.inputId !== '') selectedInputTargetId.value = String(o.inputId)
+    if (typeof o.overlay === 'boolean') referenceOverlayActive.value = o.overlay
+  } catch {
+    /* ignore */
+  }
+}
+
+const revokeReferenceBlob = () => {
+  if (referenceBlobUrlToRevoke.value) {
+    URL.revokeObjectURL(referenceBlobUrlToRevoke.value)
+    referenceBlobUrlToRevoke.value = null
+  }
+  referenceViewerUrl.value = ''
+}
+
+const clearReferenceOverlay = () => {
+  revokeReferenceBlob()
+  referenceOverlayActive.value = false
+  referenceMetrics.value = null
+  const cs = designsStore.currentStructure
+  if (cs?.design.run_id) persistAdvancedRef(cs.design.run_id)
+}
+
+const loadReferenceOverlay = async (silent = false) => {
+  const cs = designsStore.currentStructure
+  if (!cs) return
+  revokeReferenceBlob()
+  referenceLoading.value = true
+  referenceMetrics.value = null
+  try {
+    const runId = cs.design.run_id
+    const filename = cs.filename
+    let requestUrl: string
+    if (showInputTargetStructure.value) {
+      let tid = selectedInputTargetId.value
+      if (!tid && inputTargetsList.value.length === 1) {
+        tid = inputTargetsList.value[0].id
+      }
+      if (!tid) throw new Error('Select an input target structure')
+      requestUrl = runsApi.getAlignedReferenceUrl(runId, filename, {
+        mode: 'input_target',
+        inputTargetId: tid,
+      })
+    } else {
+      const src = referenceManualSource.value.trim()
+      if (!src) throw new Error('Enter a PDB ID or URL')
+      requestUrl = runsApi.getAlignedReferenceUrl(runId, filename, {
+        mode: 'manual',
+        source: src,
+      })
+    }
+    const res = await fetch(requestUrl, { credentials: 'include' })
+    if (!res.ok) {
+      let detail = res.statusText
+      try {
+        const body = await res.json()
+        if (body?.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
+      } catch {
+        try {
+          const t = await res.text()
+          if (t) detail = t.slice(0, 200)
+        } catch {
+          /* ignore */
+        }
+      }
+      throw new Error(detail || `HTTP ${res.status}`)
+    }
+    const tmD = res.headers.get('X-Binderdash-TM-Norm-Design')
+    const tmR = res.headers.get('X-Binderdash-TM-Norm-Reference')
+    const rmsdH = res.headers.get('X-Binderdash-RMSD')
+    const alenH = res.headers.get('X-Binderdash-Aligned-Length')
+    if (tmD && tmR && rmsdH && alenH) {
+      referenceMetrics.value = {
+        tmNormDesign: parseFloat(tmD),
+        tmNormReference: parseFloat(tmR),
+        rmsd: parseFloat(rmsdH),
+        alignedLength: parseInt(alenH, 10),
+      }
+    }
+    const blob = await res.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    referenceBlobUrlToRevoke.value = objectUrl
+    referenceViewerUrl.value = objectUrl
+    referenceOverlayActive.value = true
+    persistAdvancedRef(runId)
+    if (!silent) {
+      toast.add({ severity: 'success', summary: 'Reference loaded', life: 2000 })
+    }
+  } catch (e: unknown) {
+    referenceOverlayActive.value = false
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!silent) {
+      toast.add({ severity: 'error', summary: 'Reference failed', detail: msg, life: 5000 })
+    }
+  } finally {
+    referenceLoading.value = false
+  }
+}
+
+const refreshInputTargetsForRun = async (runId: string) => {
+  inputTargetsLoading.value = true
+  inputTargetsList.value = []
+  try {
+    const r = await runsApi.getInputTargets(runId)
+    inputTargetsList.value = r.targets || []
+    if (inputTargetsList.value.length === 1) {
+      selectedInputTargetId.value = inputTargetsList.value[0].id
+    }
+  } catch {
+    inputTargetsList.value = []
+  } finally {
+    inputTargetsLoading.value = false
+  }
+}
+
 const downloadCurrentPdb = async (): Promise<void> => {
   try {
     if (!designsStore.currentStructure) return
@@ -1186,12 +1634,98 @@ watch(() => designsStore.designs, () => {
   updateLengthRange()
 }, { deep: true, immediate: true })
 
+watch(
+  () => designsStore.currentStructure?.design.run_id,
+  async (runId, prev) => {
+    try {
+      if (!runId) {
+        revokeReferenceBlob()
+        referenceMetrics.value = null
+        inputTargetsList.value = []
+        selectedInputTargetId.value = null
+        return
+      }
+      if (runId === prev) {
+        return
+      }
+      revokeReferenceBlob()
+      referenceMetrics.value = null
+      restoreAdvancedRef(runId)
+      const needInputTargets =
+        showAdvancedOptions.value ||
+        (referenceOverlayActive.value && showInputTargetStructure.value)
+      if (needInputTargets) {
+        await refreshInputTargetsForRun(runId)
+        if (selectedInputTargetId.value) {
+          const ok = inputTargetsList.value.some((t) => t.id === selectedInputTargetId.value)
+          if (!ok) selectedInputTargetId.value = null
+        }
+        if (inputTargetsList.value.length === 1) {
+          selectedInputTargetId.value = inputTargetsList.value[0].id
+        }
+      } else {
+        inputTargetsList.value = []
+      }
+      if (referenceOverlayActive.value && canLoadReferenceOverlay.value) {
+        await loadReferenceOverlay(true)
+      } else if (referenceOverlayActive.value) {
+        referenceOverlayActive.value = false
+        persistAdvancedRef(runId)
+      }
+    } catch (e) {
+      console.error('DesignsView: reference/run watcher failed', e)
+    }
+  },
+  { immediate: true }
+)
+
+watch(showInputTargetStructure, (useInput) => {
+  const rid = designsStore.currentStructure?.design.run_id
+  if (useInput && rid && inputTargetsList.value.length === 0 && !inputTargetsLoading.value) {
+    void refreshInputTargetsForRun(rid)
+  }
+})
+
+watch(
+  () => designsStore.currentStructure?.filename,
+  async (fn, prev) => {
+    if (!fn || fn === prev || !referenceOverlayActive.value) return
+    if (canLoadReferenceOverlay.value) {
+      await loadReferenceOverlay(true)
+    }
+  }
+)
+
+watch([referenceManualSource, showInputTargetStructure, selectedInputTargetId], () => {
+  const rid = designsStore.currentStructure?.design.run_id
+  if (rid) persistAdvancedRef(rid)
+})
+
+watch(
+  () => designsStore.currentStructure,
+  () => {
+    void nextTick(() => clampViewerControlsIfNeeded())
+  }
+)
+
+function onViewerControlsResize() {
+  clampViewerControlsIfNeeded()
+}
+
 // Lifecycle
 onMounted(() => {
-  // Only load if authentication allows it
+  loadViewerControlsPos()
+  window.addEventListener('resize', onViewerControlsResize)
   if (authStore.canLoadData) {
     loadDesigns()
   }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', onViewerControlsResize)
+  window.removeEventListener('pointermove', onViewerControlsPointerMove)
+  window.removeEventListener('pointerup', onViewerControlsPointerUp)
+  window.removeEventListener('pointercancel', onViewerControlsPointerUp)
 })
 
 // Expose methods to parent component
@@ -1364,6 +1898,141 @@ defineExpose({
   border-top: 1px solid #e9ecef;
 }
 
+.advanced-options-section {
+  margin-top: 1rem;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.advanced-options-disclosure {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0;
+  border: none;
+  background: #f8f9fa;
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: #495057;
+}
+
+.advanced-options-disclosure:hover {
+  background: #e9ecef;
+}
+
+.advanced-options-chevron {
+  font-size: 0.85rem;
+  color: #6c757d;
+  flex-shrink: 0;
+}
+
+.advanced-options-disclosure-label {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.advanced-options-expanded {
+  padding: 1rem 1.25rem 1.25rem;
+  border-top: 1px solid #e9ecef;
+}
+
+.advanced-options-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.advanced-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.advanced-row--full {
+  flex-wrap: wrap;
+}
+
+.advanced-label {
+  min-width: 140px;
+  font-weight: 500;
+  color: #495057;
+}
+
+.advanced-label-with-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.advanced-label-with-info label {
+  margin: 0;
+  cursor: default;
+}
+
+.advanced-reference-info-icon {
+  font-size: 0.7rem;
+  color: #6c757d;
+  cursor: help;
+  line-height: 1;
+}
+
+.advanced-reference-info-icon:hover,
+.advanced-reference-info-icon:focus-visible {
+  color: #495057;
+  outline: none;
+}
+
+.advanced-checkbox-label {
+  margin: 0;
+  cursor: pointer;
+  color: #495057;
+}
+
+.advanced-input {
+  flex: 1;
+  min-width: 200px;
+  max-width: 100%;
+}
+
+.advanced-dropdown {
+  flex: 1;
+  min-width: 200px;
+  max-width: 420px;
+}
+
+.advanced-hint {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #6c757d;
+}
+
+.advanced-hint--warn {
+  color: #856404;
+}
+
+.advanced-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.reference-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  font-size: 0.875rem;
+  color: #495057;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e9ecef;
+}
+
 /* Removed duplicate rule - using .column-selector-header h3 above */
 
 .column-toggles {
@@ -1405,15 +2074,46 @@ defineExpose({
   left: 50%;
   transform: translateX(-50%);
   display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid #e9ecef;
   border-radius: 9999px;
-  padding: 0.25rem 0.5rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.15rem;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   opacity: 1;
   z-index: 5;
+}
+
+.viewer-controls-drag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0.2rem 0.4rem;
+  margin-left: -0.05rem;
+  margin-right: 0.1rem;
+  cursor: grab;
+  touch-action: none;
+  color: #868e96;
+  border-right: 1px solid #dee2e6;
+  border-radius: 9999px 0 0 9999px;
+  user-select: none;
+}
+
+.viewer-controls-drag:hover {
+  color: #495057;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.viewer-controls-drag:active {
+  cursor: grabbing;
+}
+
+.viewer-controls-drag:focus-visible {
+  outline: 2px solid #667eea;
+  outline-offset: 1px;
 }
 
 .structure-counter {

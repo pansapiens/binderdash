@@ -36,6 +36,7 @@ numpy==2.3.2
     # via
     #   biopython
     #   pandas
+    #   tmtools
 pandas==2.3.2
     # via binderdash-backend (backend/pyproject.toml)
 pyasn1==0.6.1
@@ -78,6 +79,8 @@ sniffio==1.3.1
     # via anyio
 starlette==0.47.3
     # via fastapi
+tmtools==0.3.0
+    # via binderdash-backend (backend/pyproject.toml)
 typing-extensions==4.15.0
     # via
     #   anyio

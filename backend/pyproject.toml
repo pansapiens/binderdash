@@ -12,4 +12,5 @@ dependencies = [
     "python-multipart",
     "requests",
     "biopython",
+    "tmtools",
 ]

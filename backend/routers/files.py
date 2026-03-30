@@ -1,11 +1,14 @@
+import asyncio
 import gzip
 import logging
 import os
 import stat
 import tarfile
+from collections import OrderedDict
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import requests
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
@@ -17,10 +20,95 @@ from ..cache import get_run_metadata
 from ..path_policy import is_allowed_path
 from ..settings import LocalUser, settings
 from ..schemas import PdbTarRequest
+from ..util.input_targets import find_input_target_by_id
+from ..util.superpose import (
+    PDB_ID_PATTERN,
+    fetch_reference_structure,
+    superpose_reference_onto_design,
+    superpose_reference_path_onto_design,
+)
 
 
 # Router for run file endpoints
 router = APIRouter(prefix="/api/runs", tags=["files"])
+
+_REFERENCE_CACHE: "OrderedDict[str, Tuple[bytes, Dict[str, Any]]]" = OrderedDict()
+_REFERENCE_CACHE_MAX = 64
+
+
+def _reference_cache_get(key: str) -> Optional[Tuple[bytes, Dict[str, Any]]]:
+    if key not in _REFERENCE_CACHE:
+        return None
+    val = _REFERENCE_CACHE.pop(key)
+    _REFERENCE_CACHE[key] = val
+    return val
+
+
+def _reference_cache_put(key: str, payload: Tuple[bytes, Dict[str, Any]]) -> None:
+    if key in _REFERENCE_CACHE:
+        del _REFERENCE_CACHE[key]
+    _REFERENCE_CACHE[key] = payload
+    while len(_REFERENCE_CACHE) > _REFERENCE_CACHE_MAX:
+        _REFERENCE_CACHE.popitem(last=False)
+
+
+def _sync_aligned_reference(
+    run_id: str,
+    align_filename: str,
+    mode: str,
+    source: Optional[str],
+    input_target_id: Optional[str],
+) -> Tuple[bytes, Dict[str, Any]]:
+    run_metadata = get_run_metadata(run_id)
+    if not run_metadata:
+        raise FileNotFoundError("Run not found")
+
+    structure_files = run_metadata.get("pdb_files", [])
+    meth = run_metadata.get("method")
+    design_path = _resolve_structure_path(structure_files, align_filename, meth)
+    if design_path is None or not design_path.exists():
+        raise FileNotFoundError("Design structure not found")
+
+    cache_key = (
+        f"{run_id}\x1f{align_filename}\x1f{mode}\x1f{source or ''}\x1f{input_target_id or ''}\x1fmmcif"
+    )
+    cached = _reference_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    mode_l = (mode or "manual").lower()
+    if mode_l == "manual":
+        if not source or not source.strip():
+            raise ValueError("manual mode requires non-empty source")
+        s = source.strip()
+        if not (
+            PDB_ID_PATTERN.match(s)
+            or s.lower().startswith(("http://", "https://"))
+        ):
+            raise ValueError(
+                "source must be a 4-character PDB ID or an http(s) URL to a structure file"
+            )
+        try:
+            ref_bytes, fmt = fetch_reference_structure(s)
+        except ValueError:
+            raise
+        except requests.RequestException as e:
+            raise ValueError(f"Failed to download reference: {e}") from e
+        out, metrics = superpose_reference_onto_design(ref_bytes, fmt, design_path)
+    elif mode_l == "input_target":
+        if not input_target_id:
+            raise ValueError("input_target mode requires input_target_id")
+        info = find_input_target_by_id(run_metadata, input_target_id)
+        if info is None:
+            raise ValueError("Unknown input_target_id")
+        if not info.path.is_file():
+            raise ValueError("Input target file not found on disk")
+        out, metrics = superpose_reference_path_onto_design(info.path, design_path)
+    else:
+        raise ValueError("mode must be manual or input_target")
+
+    _reference_cache_put(cache_key, (out, metrics))
+    return out, metrics
 
 
 def _resolve_structure_path(
@@ -133,6 +221,44 @@ async def get_structure_file(
 
         getLogger(__name__).error(f"Error in get_structure_file: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{run_id}/files/reference")
+async def get_aligned_reference_structure(
+    run_id: str,
+    align_filename: str,
+    mode: str = "manual",
+    source: Optional[str] = None,
+    input_target_id: Optional[str] = None,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional_with_query),
+):
+    """Return the reference structure superimposed onto the given design (TM-align, mmCIF)."""
+    try:
+        content, metrics = await asyncio.to_thread(
+            _sync_aligned_reference,
+            run_id,
+            align_filename,
+            mode,
+            source,
+            input_target_id,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Error in get_aligned_reference_structure: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    headers = {
+        "X-Binderdash-TM-Norm-Design": f"{metrics['tm_score_norm_design']:.6f}",
+        "X-Binderdash-TM-Norm-Reference": f"{metrics['tm_score_norm_reference']:.6f}",
+        "X-Binderdash-RMSD": f"{metrics['rmsd']:.6f}",
+        "X-Binderdash-Aligned-Length": str(int(metrics["aligned_length"])),
+    }
+    return Response(content=content, media_type="chemical/x-mmcif", headers=headers)
 
 
 # Router for PDB tar streaming

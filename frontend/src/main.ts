@@ -11,6 +11,7 @@ import Aura from '@primeuix/themes/aura'
 import ToastService from 'primevue/toastservice'
 import Toast from 'primevue/toast'
 import Password from 'primevue/password'
+import Tooltip from 'primevue/tooltip'
 import 'primeicons/primeicons.css'
 
 const app = createApp(App)
@@ -35,6 +36,8 @@ app.use(PrimeVue, {
 });
 
 app.use(ToastService)
+
+app.directive('tooltip', Tooltip)
 
 // Register global components
 app.component('Toast', Toast)
