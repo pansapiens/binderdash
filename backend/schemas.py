@@ -26,7 +26,7 @@ class RunMetadata(BaseModel):
     run_id: str
     project_id: str
     path: str
-    method: str  # "bindcraft" or "rfd"
+    method: str  # e.g. bindcraft, rfd, boltzgen, rfd3
     results_table: Optional[str] = None
     pdb_files: List[str] = []
     metadata: Dict[str, Any] = {}

@@ -1,3 +1,4 @@
+import gzip
 import logging
 import os
 import stat
@@ -6,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from ..auth import (
     get_current_user_optional,
@@ -22,6 +23,42 @@ from ..schemas import PdbTarRequest
 router = APIRouter(prefix="/api/runs", tags=["files"])
 
 
+def _resolve_structure_path(
+    structure_files: List[str], filename: str, method: Optional[str]
+) -> Optional[Path]:
+    basename_to_path: dict[str, Path] = {Path(p).name: Path(p) for p in structure_files}
+    if filename in basename_to_path:
+        return basename_to_path[filename]
+    if method == "boltzgen":
+        for p in structure_files:
+            name = Path(p).name
+            if "_" in name:
+                rest = name.split("_", 1)[1]
+                if rest == filename:
+                    return Path(p)
+    if not filename.endswith(".gz"):
+        gz_name = f"{filename}.gz"
+        if gz_name in basename_to_path:
+            return basename_to_path[gz_name]
+    return None
+
+
+def _media_type_for_structure_path(structure_path: Path) -> str:
+    if structure_path.suffix.lower() == ".gz":
+        inner = Path(structure_path.stem).suffix.lower()
+        if inner == ".cif":
+            return "chemical/x-mmcif"
+        if inner == ".pdb":
+            return "chemical/x-pdb"
+        return "application/octet-stream"
+    ext = structure_path.suffix.lower()
+    if ext == ".cif":
+        return "chemical/x-mmcif"
+    if ext == ".pdb":
+        return "chemical/x-pdb"
+    return "application/octet-stream"
+
+
 @router.get("/{run_id}/files/pdb/{filename}")
 async def get_pdb_file(
     run_id: str,
@@ -35,17 +72,19 @@ async def get_pdb_file(
             raise HTTPException(status_code=404, detail="Run not found")
 
         pdb_files = run_metadata.get("pdb_files", [])
-        if not any(Path(pdb_file).name == filename for pdb_file in pdb_files):
+        method = run_metadata.get("method")
+        pdb_path = _resolve_structure_path(pdb_files, filename, method)
+        if pdb_path is None:
             raise HTTPException(status_code=404, detail="PDB file not found in run")
 
-        pdb_path: Optional[Path] = None
-        for pdb_file in pdb_files:
-            if Path(pdb_file).name == filename:
-                pdb_path = Path(pdb_file)
-                break
-
-        if not pdb_path or not pdb_path.exists():
+        if not pdb_path.exists():
             raise HTTPException(status_code=404, detail="PDB file not found on disk")
+
+        if pdb_path.suffix.lower() == ".gz":
+            media_type = _media_type_for_structure_path(pdb_path)
+            with gzip.open(str(pdb_path), "rb") as gz_f:
+                content = gz_f.read()
+            return Response(content=content, media_type=media_type)
 
         return FileResponse(
             str(pdb_path), media_type="chemical/x-pdb", filename=filename
@@ -71,37 +110,20 @@ async def get_structure_file(
         if not run_metadata:
             raise HTTPException(status_code=404, detail="Run not found")
 
-        # Reuse existing metadata key for now; may include .pdb and .cif
         structure_files = run_metadata.get("pdb_files", [])
-        structure_path = None
-        for structure_file in structure_files:
-            if Path(structure_file).name == filename:
-                structure_path = Path(structure_file)
-                break
-
-        # For boltzgen, the table uses file_name (e.g. batch-5084_....cif) while
-        # on-disk files are rank00001_batch-5084_....cif; match rank*_{filename}.
-        if structure_path is None and run_metadata.get("method") == "boltzgen":
-            for p in structure_files:
-                name = Path(p).name
-                if "_" in name:
-                    rest = name.split("_", 1)[1]
-                    if rest == filename:
-                        structure_path = Path(p)
-                        break
+        method = run_metadata.get("method")
+        structure_path = _resolve_structure_path(structure_files, filename, method)
 
         if structure_path is None:
             raise HTTPException(status_code=404, detail="Structure file not found in run")
         if not structure_path.exists():
             raise HTTPException(status_code=404, detail="Structure file not found on disk")
 
-        ext = structure_path.suffix.lower()
-        if ext == ".cif":
-            media_type = "chemical/x-mmcif"
-        elif ext == ".pdb":
-            media_type = "chemical/x-pdb"
-        else:
-            media_type = "application/octet-stream"
+        media_type = _media_type_for_structure_path(structure_path)
+        if structure_path.suffix.lower() == ".gz":
+            with gzip.open(str(structure_path), "rb") as gz_f:
+                content = gz_f.read()
+            return Response(content=content, media_type=media_type)
 
         return FileResponse(str(structure_path), media_type=media_type, filename=filename)
     except HTTPException:
@@ -171,11 +193,9 @@ async def download_pdbs_tar(
                 )
                 continue
             pdb_paths = run.get("pdb_files", [])
-            matched = None
-            for p in pdb_paths:
-                if Path(p).name == item.filename:
-                    matched = Path(p)
-                    break
+            matched = _resolve_structure_path(
+                pdb_paths, item.filename, run.get("method")
+            )
             if matched and matched.exists():
                 project_id = run.get("project_id", "project") or "project"
                 run_name = run.get("metadata", {}).get("name", "run") or "run"

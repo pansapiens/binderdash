@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -11,6 +12,7 @@ from ..path_policy import is_allowed_path
 from ..run_discovery import find_runs_recursive, load_run_table
 from ..schemas import ScanRequest
 from ..settings import LocalUser, settings
+from ..util.profiling import Timer
 
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,9 @@ async def scan_runs(
     current_user: Optional[LocalUser] = Depends(get_current_user_optional),
 ):
     try:
+        _scan_t = Timer(
+            logger, "POST /scan", folders=len(request.folders)
+        ).start()
         runs: List[Dict[str, Any]] = []
         for folder_path in request.folders:
             if settings.run_base_dirs and not is_allowed_path(
@@ -34,21 +39,30 @@ async def scan_runs(
                     settings.run_base_dirs,
                 )
                 continue
-            from pathlib import Path
-
             path = Path(folder_path)
             if not path.exists() or not path.is_dir():
                 logger.warning(
                     f"Skipping non-existent or non-directory path: {folder_path}"
                 )
                 continue
+            _folder_t = Timer(
+                logger, "POST /scan.folder", folder=folder_path
+            ).start()
             folder_runs = find_runs_recursive(path)
+            _folder_t.log(runs_found=len(folder_runs))
             runs.extend(folder_runs)
             logger.info(f"Found {len(folder_runs)} runs in {folder_path}")
 
+        _pop_t = Timer(logger, "POST /scan.run_cache_populate").start()
         for run in runs:
             run_cache[run["run_id"]] = run
+        _pop_t.log()
+
+        _ref_t = Timer(logger, "POST /scan.refresh_designs_cache").start()
         refresh_designs_cache()
+        _ref_t.log()
+
+        _scan_t.log(runs=len(runs))
         return {"runs": runs}
     except Exception as e:
         logger.error(f"Error in scan_runs: {str(e)}")

@@ -10,6 +10,7 @@ import pandas as pd
 import json
 
 from .util.pdb_to_fasta import get_chain_sequences
+from .util.profiling import Timer
 
 # Import will be done inside the function to avoid linting issues
 
@@ -213,6 +214,42 @@ run_folder_signatures = [
             "rank*_{file_name}",
         ],
     },
+    {
+        "method": "rfd3",
+        "submethod": "nf-binder-design",
+        "priority": 6,
+        "required_files": ["results/rfd3/combined_scores.tsv"],
+        "required_dirs": [
+            "results/rfd3/rosettafold3",
+            "results/rfd3/rfdiffusion3",
+        ],
+        "results_table": "results/rfd3/combined_scores.tsv",
+        "structure_pattern": "results/rfd3/rosettafold3/output/*/*.cif",
+        "additional_pdb_patterns": [
+            "results/rfd3/rosettafold3/output/*/*.cif.gz",
+            "results/rfd3/rosettafold3/output/*/*.pdb",
+            "results/rfd3/rosettafold3/output/*/*.pdb.gz",
+        ],
+        "structure_format": "cif",
+        "params_files": ["results/params.json"],
+        "skip_dirs": DEFAULT_SKIP_DIRS,
+        "design_id_columns": ["id"],
+        "primary_score_columns": [
+            "iptm",
+            "pair_pae",
+            "rf3_ipsae_min",
+            "rf3_rmsd_target_aligned_binder_rmsd_all",
+        ],
+        "sort_ascending": False,
+        "structure_file_column": None,
+        "structure_base_dir": "results/rfd3/rosettafold3/output/{design_id}",
+        "structure_search_patterns": [
+            "{design_id}_model.cif",
+            "{design_id}_model.cif.gz",
+            "{design_id}_model.pdb",
+            "{design_id}_model.pdb.gz",
+        ],
+    },
 ]
 
 
@@ -225,6 +262,7 @@ def guess_project_id(path: Path) -> str:
         r"^bindcraft$",
         r"^rfd$",
         r"^boltzgen$",
+        r"^rfd3$",
         r"^\d+$",
     ]
 
@@ -247,7 +285,15 @@ def guess_project_id(path: Path) -> str:
 
 
 def guess_run_name(path: Path) -> str:
-    disallowed_patterns = [r"^results.*$", r"^bindcraft$", r"^rfd$", r"^boltzgen$", r"^batches$", r"^\d+$"]
+    disallowed_patterns = [
+        r"^results.*$",
+        r"^bindcraft$",
+        r"^rfd$",
+        r"^boltzgen$",
+        r"^rfd3$",
+        r"^batches$",
+        r"^\d+$",
+    ]
     current_path = path
     while current_path != current_path.parent:
         name = current_path.name
@@ -302,15 +348,26 @@ def _find_structure_file_for_design(
     search_value: str,
     search_patterns: List[str],
     structure_base_dir: str,
+    design_id: Optional[str] = None,
 ) -> Optional[str]:
     """Find the structure file for a design using the search patterns."""
+    resolved_base = structure_base_dir
+    if structure_base_dir and ("{design_id}" in structure_base_dir or "{file_name}" in structure_base_dir):
+        did = design_id if design_id is not None else search_value
+        try:
+            resolved_base = structure_base_dir.format(
+                design_id=did, file_name=search_value
+            )
+        except KeyError:
+            resolved_base = structure_base_dir
+
     search_dirs: List[Path] = []
-    if "*" in structure_base_dir:
-        for d in run_path.glob(structure_base_dir):
+    if "*" in resolved_base:
+        for d in run_path.glob(resolved_base):
             if d.is_dir():
                 search_dirs.append(d)
-    else:
-        base_dir = run_path / structure_base_dir
+    elif resolved_base:
+        base_dir = run_path / resolved_base
         if base_dir.is_dir():
             search_dirs.append(base_dir)
 
@@ -400,18 +457,19 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
     for sig in run_folder_signatures:
         skip_dirs_set.update(sig.get("skip_dirs", []))
 
+    walk_dirs = 0
+
     runs: List[Dict[str, Any]] = []
+    _walk_t = Timer(logger, "find_runs_recursive", root=root_path).start()
     for dirpath, dirnames, filenames in os.walk(root_path, followlinks=True):
+        walk_dirs += 1
         current_dir = Path(dirpath)
         if current_dir.name in skip_dirs_set:
             dirnames[:] = []
             continue
 
-        # Skip directories that are inside batches subdirectories of nf-binder-design runs
         path_parts = current_dir.parts
         if "batches" in path_parts:
-            # Check if this is inside an nf-binder-design run by looking for the pattern
-            # {run_name}/results/bindcraft/batches/{n}/...
             try:
                 batches_index = path_parts.index("batches")
                 if (
@@ -419,27 +477,38 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
                     and path_parts[batches_index - 1] == "bindcraft"
                     and path_parts[batches_index - 2] == "results"
                 ):
-                    # This is inside a batches directory of an nf-binder-design run, skip it
                     dirnames[:] = []
                     continue
             except ValueError:
-                pass  # "batches" not found in path_parts
+                pass
 
-        # Use declarative detection
+        _det_t = Timer(logger, "detect_run_type", path=str(current_dir)).start()
         detected_run = detect_run_type(current_dir)
+        _det_t.log(min_ms=100)
+
         if detected_run:
             run_id = str(uuid.uuid4())
             guessed_project_id = guess_project_id(current_dir)
             run_name = detected_run["run_name"]
 
-            # Use the results table and PDB pattern directly from the signature
             results_table = detected_run["results_table"]
             pdb_pattern = detected_run["pdb_pattern"]
+            extra_pats = detected_run.get("additional_pdb_patterns", [])
 
-            # Find PDB files using the pattern
-            pdb_files = [str(p) for p in current_dir.glob(pdb_pattern)]
+            _glob_t = Timer(
+                logger,
+                "run_glob",
+                method=detected_run.get("method"),
+                path=str(current_dir),
+                primary_pattern=pdb_pattern,
+                extra_patterns=len(extra_pats),
+            ).start()
+            pdb_paths = list(current_dir.glob(pdb_pattern))
+            for extra_pat in extra_pats:
+                pdb_paths.extend(current_dir.glob(extra_pat))
+            pdb_files = sorted({str(p) for p in pdb_paths})
+            _glob_t.log(pdb_files=len(pdb_files))
 
-            # Determine if this is an nf-binder-design run
             is_nf_binder_design = detected_run["submethod"] == "nf-binder-design"
 
             runs.append(
@@ -452,7 +521,7 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
                     "results_table": results_table,
                     "pdb_files": pdb_files,
                     "is_nf_binder_design": is_nf_binder_design,
-                    "signature": detected_run,  # Store the full signature for use in parse_designs_from_run
+                    "signature": detected_run,
                     "metadata": {
                         "name": run_name,
                         "original_name": current_dir.name,
@@ -462,10 +531,9 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
                 }
             )
 
-            # Stop walking into subdirectories after detecting a run; we don't
-            # expect nested runs and continuing would walk into large caches
-            # (e.g. .nextflow/) or pipeline source directories.
             dirnames[:] = []
+
+    _walk_t.log(walk_dirs=walk_dirs, runs_found=len(runs))
     return runs
 
 
@@ -541,10 +609,12 @@ def update_design_good_flag(
 
 
 def load_run_table(run_metadata: Dict[str, Any]) -> Optional[pd.DataFrame]:
+    _t = Timer(logger, "load_run_table", path=run_metadata.get("path")).start()
     try:
         merged_paths = run_metadata.get("merged_paths", [run_metadata["path"]])
         results_table = run_metadata.get("results_table")
         if not results_table:
+            _t.log()
             return None
         all_dfs: List[pd.DataFrame] = []
         for run_path in merged_paths:
@@ -561,12 +631,12 @@ def load_run_table(run_metadata: Dict[str, Any]) -> Optional[pd.DataFrame]:
                 else:
                     logger.warning(f"Unsupported table format: {table_path}")
                     continue
-                # Coerce numeric-like object columns to numeric dtype where fully parseable
-                # This avoids returning numbers as strings, without forcing partial coercion.
                 for col in df.columns:
                     if df[col].dtype == object:
                         df[col] = pd.to_numeric(df[col], errors="ignore")
-                df = _standardise_dataframe_columns(df, run_metadata.get("method", ""))
+                df = _standardise_dataframe_columns(
+                    df, run_metadata.get("method", "")
+                )
                 df["source_path"] = str(path)
                 all_dfs.append(df)
             except Exception as e:
@@ -576,17 +646,21 @@ def load_run_table(run_metadata: Dict[str, Any]) -> Optional[pd.DataFrame]:
             logger.warning(
                 f"No valid tables found for run: {run_metadata.get('path', 'unknown')}"
             )
+            _t.log(table=results_table)
             return None
         if len(all_dfs) == 1:
-            return all_dfs[0]
+            out = all_dfs[0]
         else:
             combined_df = pd.concat(all_dfs, ignore_index=True)
             logger.info(
                 f"Combined {len(all_dfs)} tables for merged run, total rows: {len(combined_df)}"
             )
-            return combined_df
+            out = combined_df
+        _t.log(table=results_table, rows=len(out))
+        return out
     except Exception as e:
         logger.error(f"Error loading run table: {str(e)}")
+        _t.log()
         return None
 
 
@@ -671,9 +745,17 @@ def parse_run_params(run_metadata: Dict[str, Any]) -> Optional[Any]:
 
 
 def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+    _t = Timer(
+        logger,
+        "parse_designs",
+        run_id=run_metadata.get("run_id"),
+        method=run_metadata.get("method"),
+        run_name=run_metadata.get("metadata", {}).get("name", ""),
+    ).start()
     try:
         df = load_run_table(run_metadata)
         if df is None or df.empty:
+            _t.log()
             return []
 
         designs: List[Dict[str, Any]] = []
@@ -681,42 +763,49 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
         run_name = run_metadata["metadata"]["name"]
         signature = run_metadata.get("signature", {})
 
-        # Get configuration from signature
         primary_score_columns = signature.get("primary_score_columns", [])
         sort_ascending = signature.get("sort_ascending", True)
-        structure_search_patterns = signature.get("structure_search_patterns", ["{design_id}.pdb"])
+        structure_search_patterns = signature.get(
+            "structure_search_patterns", ["{design_id}.pdb"]
+        )
 
         design_id_col = resolve_design_id_column(df, signature)
 
-        # Find primary score column
         primary_score_col = None
         for col_name in primary_score_columns:
             if col_name in df.columns:
                 primary_score_col = col_name
                 break
 
-        # Fallback: use first numeric column
         if not primary_score_col:
             numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
             if numeric_cols:
                 primary_score_col = numeric_cols[0]
 
-        # Sort by primary score if available
         if primary_score_col and primary_score_col in df.columns:
             df = df.sort_values(
                 primary_score_col, ascending=sort_ascending
             ).reset_index(drop=True)
 
-        # Determine structure base directory from the pdb_pattern
-        pdb_pattern = signature.get("pdb_pattern", "")
-        structure_base_dir = ""
-        if "/*.pdb" in pdb_pattern:
-            structure_base_dir = pdb_pattern.split("/*.pdb")[0]
-        elif "/*.cif" in pdb_pattern:
-            structure_base_dir = pdb_pattern.split("/*.cif")[0]
+        structure_base_dir = signature.get("structure_base_dir", "")
+        if not structure_base_dir:
+            pdb_pattern = signature.get("pdb_pattern", "")
+            if "/*.pdb" in pdb_pattern:
+                structure_base_dir = pdb_pattern.split("/*.pdb")[0]
+            elif "/*.cif" in pdb_pattern:
+                structure_base_dir = pdb_pattern.split("/*.cif")[0]
 
-        # Parse any run-wide parameters/settings; will be attached as a single 'params' field
+        _params_t = Timer(
+            logger,
+            "parse_designs.parse_run_params",
+            run_id=run_metadata.get("run_id"),
+        ).start()
         run_params: Optional[Any] = parse_run_params(run_metadata)
+        _params_t.log()
+
+        # Target protein is the same for every design in a run; parsing each mmCIF
+        # only to extract it costs ~O(rows) full structure reads (DEBUG timing logs).
+        target_sequence_cache: Dict[str, Optional[str]] = {}
 
         for index, row in df.iterrows():
             design_id = (
@@ -725,7 +814,6 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                 else f"design_{index}"
             )
 
-            # Determine which value to use when searching for structure files
             structure_file_column = signature.get("structure_file_column")
             search_value = design_id
             file_name_val = None
@@ -734,16 +822,13 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                 if file_name_val is not None and str(file_name_val).strip():
                     search_value = str(file_name_val)
 
-            # Find structure file using signature configuration
             pdb_file = _find_structure_file_for_design(
                 Path(run_path),
                 search_value,
                 structure_search_patterns,
                 structure_base_dir,
+                design_id=design_id,
             )
-            # For boltzgen, if the filesystem search failed, use file_name from the
-            # table so the frontend can request the structure; the structure
-            # endpoint will resolve rank*_{file_name} to the actual file.
             if (
                 pdb_file is None
                 and run_metadata.get("method") == "boltzgen"
@@ -753,28 +838,36 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
             ):
                 pdb_file = str(file_name_val)
 
-            # Extract backbone_id for MPNN filtering
             backbone_id = extract_backbone_id(design_id, run_metadata["method"])
 
-            # Get binder sequence for target sequence extraction
             binder_sequence = None
             for seq_col in ["Sequence", "sequence", "binder_sequence"]:
                 if seq_col in df.columns:
                     try:
                         val = row[seq_col]
-                        # Check if val is not null and not empty
                         if val is not None and str(val).strip():
                             binder_sequence = str(val)
                             break
                     except (KeyError, AttributeError):
                         continue
 
-            # Extract target sequence from PDB file
-            target_sequence = (
-                get_target_sequence(pdb_file, run_metadata["method"], binder_sequence)
-                if pdb_file
-                else None
+            cache_key = (
+                str(row["source_path"])
+                if "source_path" in df.columns
+                and row.get("source_path") is not None
+                and str(row.get("source_path")).strip()
+                else str(run_path)
             )
+            if cache_key in target_sequence_cache:
+                target_sequence = target_sequence_cache[cache_key]
+            elif pdb_file:
+                target_sequence = get_target_sequence(
+                    pdb_file, run_metadata["method"], binder_sequence
+                )
+                if target_sequence is not None:
+                    target_sequence_cache[cache_key] = target_sequence
+            else:
+                target_sequence = None
 
             design: Dict[str, Any] = {
                 "design_id": design_id,
@@ -799,13 +892,15 @@ def parse_designs_from_run(run_metadata: Dict[str, Any]) -> List[Dict[str, Any]]
                     )
                 },
             }
-            # Attach raw params JSON (applies to all designs in the run)
             if run_params is not None:
                 design["params"] = run_params
             designs.append(design)
+
+        _t.log(rows=len(designs))
         return designs
     except Exception as e:
         logger.error(
             f"Error parsing designs from run {run_metadata['run_id']}: {str(e)}"
         )
+        _t.log()
         return []

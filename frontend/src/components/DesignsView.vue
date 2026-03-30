@@ -561,7 +561,7 @@ const showParamsDialog = ref(false)
 const currentParamsJson = ref<string>('')
 
 // Filter options
-const methodOptions = ref(['bindcraft', 'rfd', 'boltzgen'])
+const methodOptions = ref(['bindcraft', 'rfd', 'boltzgen', 'rfd3'])
 
 // Length filter state
 const lengthRange = ref([0, 300]) // Default range, will be updated based on data
@@ -585,7 +585,11 @@ const niceFieldNames: Record<string, string> = {
   'binder_aligned_rmsd': 'Binder Aligned RMSD',
   'interaction_pae': 'Interaction PAE',
   'min_interation_pae': 'Min interaction PAE',
-  'design_ipsae_min': 'Design ipSAE min'
+  'design_ipsae_min': 'Design ipSAE min',
+  iptm: 'ipTM',
+  pair_pae: 'Pair PAE',
+  rf3_ipsae_min: 'RF3 ipSAE Min',
+  rf3_rmsd_target_aligned_binder_rmsd_all: 'RF3 RMSD (Target-aligned Binder)'
 }
 
 // Computed properties using store
@@ -1042,7 +1046,11 @@ const displayScores = ref([
   'Average_Binder_pLDDT',
   'pae_interaction',
   'plddt_binder',
-  'binder_aligned_rmsd'
+  'binder_aligned_rmsd',
+  'iptm',
+  'pair_pae',
+  'rf3_ipsae_min',
+  'rf3_rmsd_target_aligned_binder_rmsd_all'
 ])
 
 const getLengthValue = (design: any): string | number => {

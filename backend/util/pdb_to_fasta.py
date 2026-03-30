@@ -9,27 +9,63 @@
 import sys
 import os
 import argparse
+import gzip
 import logging
 import csv
+import tempfile
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 from Bio import PDB
 from Bio.PDB.Polypeptide import protein_letters_3to1, is_aa
 
 
+def _load_structure(pdb_file: str):
+    path = Path(pdb_file)
+    lower = path.name.lower()
+    if lower.endswith(".cif.gz"):
+        with gzip.open(pdb_file, "rb") as gz_f:
+            data = gz_f.read()
+        with tempfile.NamedTemporaryFile(suffix=".cif", delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        try:
+            parser = PDB.MMCIFParser(QUIET=True)
+            return parser.get_structure("structure", tmp_path)
+        finally:
+            os.unlink(tmp_path)
+    if lower.endswith(".cif"):
+        parser = PDB.MMCIFParser(QUIET=True)
+        return parser.get_structure("structure", pdb_file)
+    if lower.endswith(".pdb.gz"):
+        with gzip.open(pdb_file, "rb") as gz_f:
+            data = gz_f.read()
+        with tempfile.NamedTemporaryFile(suffix=".pdb", delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        try:
+            parser = PDB.PDBParser(QUIET=True)
+            return parser.get_structure("structure", tmp_path)
+        finally:
+            os.unlink(tmp_path)
+    parser = PDB.PDBParser(QUIET=True)
+    return parser.get_structure("structure", pdb_file)
+
+
 def get_chain_sequences(
     pdb_file: str, chain_ids: Optional[List[str]] = None
 ) -> Dict[str, str]:
-    """Extract one-letter amino acid sequences for specified chains in a PDB file.
+    """Extract one-letter amino acid sequences for specified chains in a structure file.
+
+    Supports PDB, mmCIF, and gzip-compressed variants.
 
     Args:
-        pdb_file: Path to the PDB file
+        pdb_file: Path to the structure file
         chain_ids: List of chain IDs to extract sequences from. If None, extract all chains.
 
     Returns:
         Dictionary mapping chain IDs to their amino acid sequences
     """
-    parser = PDB.PDBParser(QUIET=True)
-    structure = parser.get_structure("structure", pdb_file)
+    structure = _load_structure(pdb_file)
 
     sequences = {}
 

@@ -18,6 +18,7 @@ class RawSettings(BaseSettings):
     disable_authentication: str = ""
     access_token_expire_minutes: int = 60 * 24
     domain: str = ""
+    log_level: str = "INFO"
 
 
 class LocalUser(BaseModel):
@@ -31,6 +32,7 @@ class AppSettings(BaseModel):
     local_users: List[LocalUser] = []
     auth_disabled: bool = False
     access_token_expire_minutes: int = 60 * 24
+    log_level: str = "INFO"
 
 
 def parse_local_users(local_users_str: str) -> List[LocalUser]:
@@ -64,6 +66,7 @@ settings = AppSettings(
     local_users=parse_local_users(raw_settings.local_users),
     auth_disabled=raw_settings.disable_authentication.lower() == "true",
     access_token_expire_minutes=raw_settings.access_token_expire_minutes,
+    log_level=(raw_settings.log_level or "INFO").strip().upper(),
 )
 
 SECRET_KEY = raw_settings.secret_key or secrets.token_urlsafe(32)

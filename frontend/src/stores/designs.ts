@@ -83,7 +83,11 @@ export const useDesignsStore = defineStore('designs', () => {
                     'design_to_target_iptm',
                     'quality_score',
                     'i_pTM',
-                    'ipTM'
+                    'ipTM',
+                    'iptm',
+                    'pair_pae',
+                    'rf3_ipsae_min',
+                    'rf3_rmsd_target_aligned_binder_rmsd_all'
                 ]
                 return scoreFields.some(field => {
                     const value = design[field]
@@ -100,7 +104,11 @@ export const useDesignsStore = defineStore('designs', () => {
                     'design_to_target_iptm',
                     'quality_score',
                     'i_pTM',
-                    'ipTM'
+                    'ipTM',
+                    'iptm',
+                    'pair_pae',
+                    'rf3_ipsae_min',
+                    'rf3_rmsd_target_aligned_binder_rmsd_all'
                 ]
                 return scoreFields.some(field => {
                     const value = design[field]
@@ -215,6 +223,11 @@ export const useDesignsStore = defineStore('designs', () => {
                 primary: 'pae_interaction',
                 secondary: ['plddt_binder'],
                 higherIsBetter: false
+            },
+            rfd3: {
+                primary: 'iptm',
+                secondary: ['rf3_ipsae_min'],
+                higherIsBetter: true
             }
         }
 
@@ -438,7 +451,18 @@ export const useDesignsStore = defineStore('designs', () => {
             }
 
             // Dynamically add score columns that exist in the data
-            const scoreColumns = ['pae_interaction', 'Average_i_pTM', 'design_to_target_iptm', 'quality_score', 'i_pTM', 'ipTM']
+            const scoreColumns = [
+                'pae_interaction',
+                'Average_i_pTM',
+                'design_to_target_iptm',
+                'quality_score',
+                'i_pTM',
+                'ipTM',
+                'iptm',
+                'pair_pae',
+                'rf3_ipsae_min',
+                'rf3_rmsd_target_aligned_binder_rmsd_all'
+            ]
             scoreColumns.forEach(scoreCol => {
                 if (data.designs.some(d => scoreCol in d && d[scoreCol] != null)) {
                     newDefaultColumns.push(scoreCol)
@@ -633,7 +657,14 @@ export const useDesignsStore = defineStore('designs', () => {
             { field: 'quality_score', header: 'Quality Score' },
             { field: 'pLDDT', header: 'pLDDT' },
             { field: 'i_pTM', header: 'i_pTM' },
-            { field: 'ipTM', header: 'ipTM' }
+            { field: 'ipTM', header: 'ipTM' },
+            { field: 'iptm', header: 'ipTM' },
+            { field: 'pair_pae', header: 'Pair PAE' },
+            { field: 'rf3_ipsae_min', header: 'RF3 ipSAE Min' },
+            {
+                field: 'rf3_rmsd_target_aligned_binder_rmsd_all',
+                header: 'RF3 RMSD (Target-aligned Binder)'
+            }
         ]
 
         knownScoreFields.forEach(scoreField => {

@@ -84,7 +84,8 @@ const loadMolstarResources = () => {
 }
 
 const getFormatFromUrl = (url: string): string => {
-  const lower = url.toLowerCase()
+  let lower = url.toLowerCase()
+  if (lower.endsWith('.gz')) lower = lower.slice(0, -3)
   if (lower.endsWith('.cif')) return 'mmcif'
   return 'pdb'
 }

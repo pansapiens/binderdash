@@ -15,9 +15,12 @@ from .routers import runs as runs_routes
 from .settings import CORS_ALLOWED_ORIGINS, settings
 
 
+_root_level = getattr(logging, settings.log_level, logging.INFO)
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=_root_level,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+logging.getLogger().setLevel(_root_level)
 logger = logging.getLogger(__name__)
 
 

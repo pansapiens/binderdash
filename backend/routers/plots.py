@@ -39,6 +39,13 @@ def get_default_plot_columns(df: pd.DataFrame, method: str) -> Dict[str, str]:
             defaults["y"] = "pae_interaction"
         elif "pae_binder" in numeric_cols:
             defaults["y"] = "pae_binder"
+    elif method == "rfd3":
+        if "rf3_ipsae_min" in numeric_cols:
+            defaults["x"] = "rf3_ipsae_min"
+        elif "pair_pae" in numeric_cols:
+            defaults["x"] = "pair_pae"
+        if "iptm" in numeric_cols:
+            defaults["y"] = "iptm"
     if not defaults["x"] and numeric_cols:
         defaults["x"] = numeric_cols[0]
     if not defaults["y"] and len(numeric_cols) > 1:

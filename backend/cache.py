@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from .run_discovery import parse_designs_from_run, run_folder_signatures
+from .util.profiling import Timer
 
 
 logger = logging.getLogger(__name__)
@@ -56,10 +57,12 @@ def _get_design_score(design: Dict[str, Any]) -> Tuple[bool, float]:
 def refresh_designs_cache():
     global designs_cache
     try:
+        _refresh_t = Timer(logger, "refresh_designs_cache").start()
         designs_cache.clear()
+        _parse_t = Timer(logger, "refresh_designs_cache.parse").start()
         for run in run_cache.values():
-            run_designs = parse_designs_from_run(run)
-            designs_cache.extend(run_designs)
+            designs_cache.extend(parse_designs_from_run(run))
+        _parse_t.log()
 
         designs_with_score: List[Dict[str, Any]] = []
         designs_without_score: List[Dict[str, Any]] = []
@@ -71,13 +74,16 @@ def refresh_designs_cache():
             else:
                 designs_without_score.append(design)
 
+        _sort_t = Timer(logger, "refresh_designs_cache.sort").start()
         designs_with_score.sort(key=lambda d: _get_design_score(d)[1])
-
         designs_cache.clear()
         designs_cache.extend(designs_with_score + designs_without_score)
+        _sort_t.log()
+
         logger.info(
             f"Refreshed designs cache: {len(designs_cache)} designs from {len(run_cache)} runs"
         )
+        _refresh_t.log(runs=len(run_cache), designs=len(designs_cache))
     except Exception as e:
         logger.error(f"Error refreshing designs cache: {str(e)}")
         designs_cache.clear()

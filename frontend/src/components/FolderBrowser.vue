@@ -389,6 +389,8 @@ const getMethodSeverity = (method: any): string => {
       return 'success'
     case 'rfd':
       return 'info'
+    case 'rfd3':
+      return 'info'
     default:
       return 'warning'
   }
@@ -400,6 +402,8 @@ const getMethodIcon = (method: any): string => {
       return 'pi pi-code'
     case 'rfd':
       return 'pi pi-file'
+    case 'rfd3':
+      return 'pi pi-box'
     default:
       return 'pi pi-info-circle'
   }
