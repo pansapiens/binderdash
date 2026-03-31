@@ -77,6 +77,8 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const isSpinning = ref(false)
 const alphafoldViewEnabled = ref(true)
+/** Structure 2 = appended reference; toggled via PDBe `visual.structureVisibility`. */
+const referenceStructureVisible = ref(true)
 /** False after unmount; avoids parsing against a torn-down plugin state tree. */
 const viewerAlive = ref(true)
 onBeforeUnmount(() => {
@@ -109,6 +111,20 @@ const getReferenceTrajectoryFormat = (): string => {
 const hasReferenceUrl = (): boolean => {
   const r = props.referenceUrl
   return typeof r === 'string' && r.trim().length > 0
+}
+
+const REFERENCE_STRUCTURE_INDEX = 2
+
+const syncReferenceVisibilityAfterAppend = async () => {
+  if (!viewerInstance.value || !hasReferenceUrl()) return
+  try {
+    await viewerInstance.value.visual.structureVisibility(
+      REFERENCE_STRUCTURE_INDEX,
+      referenceStructureVisible.value
+    )
+  } catch (e) {
+    console.warn('PDBe Molstar: reference structure visibility sync failed', e)
+  }
 }
 
 /**
@@ -323,6 +339,7 @@ const appendReferenceStructure = async (): Promise<boolean> => {
   } catch (e) {
     console.warn('PDBe Molstar: visibility tweak for reference het/coarse failed', e)
   }
+  await syncReferenceVisibilityAfterAppend()
   return true
 }
 
@@ -504,6 +521,17 @@ watch(
   { immediate: false }
 )
 
+watch(
+  () => props.referenceUrl?.trim() ?? '',
+  (url, prev) => {
+    if (!url) {
+      referenceStructureVisible.value = true
+    } else if (prev != null && url !== prev) {
+      referenceStructureVisible.value = true
+    }
+  }
+)
+
 // Lifecycle
 onMounted(() => {
   if (props.pdbUrl) {
@@ -616,6 +644,18 @@ const clearHighlight = async () => {
   }
 }
 
+const toggleReferenceStructureVisibility = async (forceState?: boolean) => {
+  if (!viewerInstance.value || !hasReferenceUrl()) return
+  const next =
+    forceState !== undefined ? forceState : !referenceStructureVisible.value
+  referenceStructureVisible.value = next
+  try {
+    await viewerInstance.value.visual.structureVisibility(REFERENCE_STRUCTURE_INDEX, next)
+  } catch (e) {
+    console.warn('PDBe Molstar: toggle reference structure visibility failed', e)
+  }
+}
+
 const toggleAlphaFoldView = async (forceState?: boolean) => {
   if (viewerInstance.value && props.pdbUrl) {
     try {
@@ -662,8 +702,10 @@ defineExpose({
   highlightResidues,
   clearHighlight,
   toggleAlphaFoldView,
+  toggleReferenceStructureVisibility,
   isSpinning: readonly(isSpinning),
   alphafoldViewEnabled: readonly(alphafoldViewEnabled),
+  referenceStructureVisible: readonly(referenceStructureVisible),
   dispose: () => {
     if (viewerInstance.value) {
       try {

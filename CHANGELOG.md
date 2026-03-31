@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Designs / reference UI**: **Enter** in the advanced **Chains** field submits like **Reference structure** **Reference structure**, **Chains**, and **Show input target structure** are saved to **`localStorage`**. Floating Mol\* toolbar adds a **Ref** button (outlined when hidden) to show or hide the overlaid reference structure.
 - **Designs custom filters**: Filter panel includes **Custom filters** with a (+) control to add rows of **column**, **operator**, and **value**. All custom rules combine with **AND** with existing filters and affect the visible table rows and structure navigation.  Custom filters are persisted in **localStorage**.
 - **Reference chains**: Advanced options include an optional **Chains** field (comma or space separated IDs). When set, TM-align uses only those reference chains and the overlaid structure shows only those chains; leave blank for previous behaviour (longest reference chain for alignment, full reference in the overlay).
 - **Structure viewer details**: Columns turned on in **Toggle Columns** also appear as cards next to the fixed **Design Data** / **Scores** blocks—numeric (including numeric strings) and boolean values under **Scores** (with colour bars; booleans Yes/No with green/red), other strings under **Design Data**. Omits fields already shown in the fixed rows or in the primary scores list to avoid duplicates.

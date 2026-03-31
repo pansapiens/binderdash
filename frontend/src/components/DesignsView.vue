@@ -689,8 +689,21 @@
               @click="toggleAlphaFoldView"
               text
               rounded
-              :class="{ 'p-button-outlined': alphafoldViewEnabled, 'plddt-disabled': !alphafoldViewEnabled }"
+              :class="{ 'p-button-outlined': alphafoldViewEnabled, 'strikethrough-disabled': !alphafoldViewEnabled }"
               tooltip="Toggle AlphaFold pLDDT coloring"
+            />
+            <Button
+              label="Ref"
+              @click="toggleReferenceStructureVisibility"
+              text
+              rounded
+              :disabled="!referenceViewerUrl"
+              :class="{
+                'p-button-outlined': referenceViewerUrl && !referenceStructureVisible,
+                'strikethrough-disabled': referenceViewerUrl && !referenceStructureVisible,
+              }"
+              tooltip="Toggle reference structure visibility"
+              aria-label="Toggle reference structure visibility"
             />
           </div>
         </div>
@@ -776,6 +789,7 @@
                 id="adv-reference-chains"
                 placeholder="Optional — comma or space separated (e.g. A, B); TM-align and overlay use only these reference chains"
                 class="advanced-input"
+                @keydown.enter="onReferenceManualEnter"
               />
             </div>
             <div class="advanced-actions">
@@ -993,6 +1007,7 @@ function resetViewerControlsPosition() {
 }
 
 const REF_STORE_PREFIX = 'binderdash-adv-ref:'
+const ADV_REF_GLOBAL_KEY = 'binderdash-adv-ref-ui-global'
 
 const referenceStructureHelp =
   'Enter a 4-letter PDB ID (e.g. 1crn), an https URL to a .pdb / .mmCIF file (.gz OK), or a PDBTM entry or JSON URL (e.g. pdbtm.unitmp.org/entry/6lfl or …/api/v1/entry/6lfl.json). PDBTM loads the RCSB structure and shows membrane planes when metadata is available.'
@@ -1022,6 +1037,7 @@ const referenceMetrics = ref<{
 const referenceMembraneData = ref<MembraneData | null>(null)
 const isSpinning = ref(false)
 const alphafoldViewEnabled = ref(true)
+const referenceStructureVisible = ref(true)
 const goodRatingPending = ref(false)
 const exportIncludeAllColumns = ref(false)
 const selectTopCount = ref<number | null>(null)
@@ -1245,6 +1261,12 @@ const toggleAlphaFoldView = async () => {
     // Update local state to reflect the change
     alphafoldViewEnabled.value = molstarViewerRef.value.alphafoldViewEnabled
   }
+}
+
+const toggleReferenceStructureVisibility = async () => {
+  if (!molstarViewerRef.value || !referenceViewerUrl.value) return
+  await molstarViewerRef.value.toggleReferenceStructureVisibility()
+  referenceStructureVisible.value = molstarViewerRef.value.referenceStructureVisible
 }
 
 const toggleColumnSelector = () => {
@@ -1560,6 +1582,36 @@ const restoreAdvancedRef = (runId: string) => {
     /* ignore */
   }
 }
+
+const persistGlobalAdvRef = () => {
+  try {
+    localStorage.setItem(
+      ADV_REF_GLOBAL_KEY,
+      JSON.stringify({
+        manual: referenceManualSource.value,
+        chains: referenceChainIdsInput.value,
+        useInput: showInputTargetStructure.value,
+      })
+    )
+  } catch {
+    /* ignore */
+  }
+}
+
+const loadGlobalAdvRef = () => {
+  try {
+    const raw = localStorage.getItem(ADV_REF_GLOBAL_KEY)
+    if (!raw) return
+    const o = JSON.parse(raw) as Record<string, unknown>
+    if (typeof o.manual === 'string') referenceManualSource.value = o.manual
+    if (typeof o.chains === 'string') referenceChainIdsInput.value = o.chains
+    if (typeof o.useInput === 'boolean') showInputTargetStructure.value = o.useInput
+  } catch {
+    /* ignore */
+  }
+}
+
+loadGlobalAdvRef()
 
 const revokeReferenceBlob = () => {
   if (referenceBlobUrlToRevoke.value) {
@@ -1993,6 +2045,18 @@ watch(() => molstarViewerRef.value?.alphafoldViewEnabled, (newAlphaFoldState) =>
   }
 }, { immediate: true })
 
+watch(() => molstarViewerRef.value?.referenceStructureVisible, (v) => {
+  if (v !== undefined) {
+    referenceStructureVisible.value = v
+  }
+}, { immediate: true })
+
+watch(referenceViewerUrl, (url) => {
+  if (!url) {
+    referenceStructureVisible.value = true
+  }
+})
+
 // Update length range when designs are loaded
 watch(() => designsStore.designs, () => {
   updateLengthRange()
@@ -2067,6 +2131,7 @@ watch(
   () => {
     const rid = designsStore.currentStructure?.design.run_id
     if (rid) persistAdvancedRef(rid)
+    persistGlobalAdvRef()
   }
 )
 
@@ -2819,7 +2884,7 @@ defineExpose({
   white-space: nowrap;
 }
 
-.viewer-controls :deep(.p-button.plddt-disabled .p-button-label) {
+.viewer-controls :deep(.p-button.strikethrough-disabled .p-button-label) {
   text-decoration: line-through;
 }
 
