@@ -11,7 +11,7 @@ import re
 import tempfile
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import requests
@@ -211,6 +211,32 @@ def _load_structure_from_bytes(data: bytes, fmt: str) -> Structure.Structure:
         os.unlink(tmp_path)
 
 
+def _normalize_reference_chain_ids(chain_ids: List[str]) -> List[str]:
+    seen: set[str] = set()
+    out: List[str] = []
+    for cid in chain_ids:
+        s = cid.strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
+def parse_reference_chain_list(raw: Optional[str]) -> Optional[List[str]]:
+    """Split comma/whitespace-separated chain IDs; ``None`` or blank means use default behaviour."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    parts = [p for p in re.split(r"[\s,]+", s) if p]
+    if not parts:
+        return None
+    norm = _normalize_reference_chain_ids(parts)
+    return norm or None
+
+
 def _longest_protein_chain(structure: Structure.Structure) -> Any:
     best_chain = None
     best_len = 0
@@ -228,6 +254,45 @@ def _longest_protein_chain(structure: Structure.Structure) -> Any:
                 best_len = n
                 best_chain = chain
     return best_chain
+
+
+def _find_chain_in_model(model: Any, chain_id: str) -> Any:
+    want = chain_id.strip()
+    for ch in model:
+        cid = str(ch.id).strip()
+        if cid == want:
+            return ch
+    return None
+
+
+def _reference_chains_coords_and_seq(
+    ref_structure: Structure.Structure, chain_ids: List[str]
+) -> Tuple[np.ndarray, str]:
+    model = next(ref_structure.get_models())
+    coords_parts: List[np.ndarray] = []
+    seq_parts: List[str] = []
+    for cid in chain_ids:
+        chain = _find_chain_in_model(model, cid)
+        if chain is None:
+            raise ValueError(f"Reference chain {cid!r} not found")
+        c, s = _chain_coords_and_seq(chain)
+        if len(s) < 1:
+            raise ValueError(f"Reference chain {cid!r} has no usable residues for alignment")
+        coords_parts.append(np.asarray(c, dtype=np.float64))
+        seq_parts.append(s)
+    if not coords_parts:
+        raise ValueError("No reference chains specified")
+    coords = np.vstack(coords_parts)
+    seq = "".join(seq_parts)
+    return coords, seq
+
+
+def _subset_structure_to_chains(structure: Structure.Structure, keep_ids: set[str]) -> None:
+    for model in structure:
+        for ch in list(model):
+            cid = str(ch.id).strip()
+            if cid not in keep_ids:
+                model.detach_child(ch.id)
 
 
 def _chain_coords_and_seq(chain: Any) -> Tuple[np.ndarray, str]:
@@ -327,18 +392,34 @@ def superpose_reference_onto_design(
     ref_format: str,
     design_path: Path,
     pdbtm_membrane: Optional[dict[str, Any]] = None,
+    reference_chain_ids: Optional[List[str]] = None,
 ) -> Tuple[bytes, dict[str, Any]]:
-    """TM-align reference (first structure) onto design; return mmCIF bytes and metrics."""
+    """TM-align reference onto design; return mmCIF bytes and metrics.
+
+    If ``reference_chain_ids`` is set, TM-align uses only those reference chains (concatenated
+    in list order) and the returned structure contains only those chains. Otherwise the longest
+    reference protein chain is used for alignment and the full reference structure is returned.
+    """
     design_structure = _load_structure_from_path(design_path)
     ref_structure = _load_structure_from_bytes(ref_bytes, ref_format)
 
     d_chain = _longest_protein_chain(design_structure)
-    r_chain = _longest_protein_chain(ref_structure)
-    if d_chain is None or r_chain is None:
-        raise ValueError("Could not find protein chains with Cα atoms for alignment")
+    if d_chain is None:
+        raise ValueError("Could not find protein chains with Cα atoms for alignment on design")
 
     coords_d, seq_d = _chain_coords_and_seq(d_chain)
-    coords_r, seq_r = _chain_coords_and_seq(r_chain)
+    if reference_chain_ids:
+        ordered = _normalize_reference_chain_ids(reference_chain_ids)
+        if not ordered:
+            raise ValueError("No valid reference chain IDs after parsing")
+        keep_set = set(ordered)
+        coords_r, seq_r = _reference_chains_coords_and_seq(ref_structure, ordered)
+    else:
+        r_chain = _longest_protein_chain(ref_structure)
+        if r_chain is None:
+            raise ValueError("Could not find protein chains with Cα atoms for alignment on reference")
+        coords_r, seq_r = _chain_coords_and_seq(r_chain)
+
     if len(seq_d) < 3 or len(seq_r) < 3:
         raise ValueError("Insufficient residues for TM-align")
 
@@ -351,6 +432,8 @@ def superpose_reference_onto_design(
 
     ref_copy = ref_structure.copy()
     ref_copy.id = "ref_aligned"
+    if reference_chain_ids:
+        _subset_structure_to_chains(ref_copy, keep_set)
     _apply_tm_to_structure(ref_copy, u, t)
 
     io = MMCIFIO()
@@ -385,6 +468,7 @@ def superpose_reference_onto_design(
 def superpose_reference_path_onto_design(
     ref_path: Path,
     design_path: Path,
+    reference_chain_ids: Optional[List[str]] = None,
 ) -> Tuple[bytes, dict[str, Any]]:
     """Load reference from disk (same formats as design) and TM-align onto design."""
     lower = ref_path.name.lower()
@@ -396,4 +480,6 @@ def superpose_reference_path_onto_design(
     else:
         fmt = "mmcif" if lower.endswith(".cif") else "pdb"
         data = ref_path.read_bytes()
-    return superpose_reference_onto_design(data, fmt, design_path, None)
+    return superpose_reference_onto_design(
+        data, fmt, design_path, None, reference_chain_ids
+    )

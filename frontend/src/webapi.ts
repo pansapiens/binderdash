@@ -217,7 +217,12 @@ export const runsApi = {
     getAlignedReferenceUrl(
         runId: string,
         alignFilename: string,
-        options: { mode: 'manual' | 'input_target'; source?: string; inputTargetId?: string }
+        options: {
+            mode: 'manual' | 'input_target'
+            source?: string
+            inputTargetId?: string
+            referenceChains?: string
+        }
     ): string {
         const params = new URLSearchParams()
         params.set('align_filename', alignFilename)
@@ -228,6 +233,8 @@ export const runsApi = {
         if (options.mode === 'input_target' && options.inputTargetId != null) {
             params.set('input_target_id', options.inputTargetId)
         }
+        const rc = options.referenceChains?.trim()
+        if (rc) params.set('reference_chains', rc)
         return `${API_BASE}/api/runs/${runId}/files/reference?${params.toString()}`
     },
 

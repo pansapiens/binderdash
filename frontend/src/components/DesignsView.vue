@@ -615,6 +615,15 @@
                 />
               </div>
             </template>
+            <div class="advanced-row advanced-row--full">
+              <label for="adv-reference-chains" class="advanced-label">Chains</label>
+              <InputText
+                v-model="referenceChainIdsInput"
+                id="adv-reference-chains"
+                placeholder="Optional — comma or space separated (e.g. A, B); TM-align and overlay use only these reference chains"
+                class="advanced-input"
+              />
+            </div>
             <div class="advanced-actions">
               <Button
                 label="Load reference"
@@ -842,6 +851,7 @@ const referenceViewerUrl = ref('')
 const referenceBlobUrlToRevoke = ref<string | null>(null)
 const referenceOverlayActive = ref(false)
 const referenceManualSource = ref('')
+const referenceChainIdsInput = ref('')
 const showInputTargetStructure = ref(false)
 const selectedInputTargetId = ref<string | null>(null)
 const inputTargetsList = ref<Array<{ id: string; label: string }>>([])
@@ -1340,6 +1350,7 @@ const persistAdvancedRef = (runId: string) => {
       REF_STORE_PREFIX + runId,
       JSON.stringify({
         manual: referenceManualSource.value,
+        chains: referenceChainIdsInput.value,
         useInput: showInputTargetStructure.value,
         inputId: selectedInputTargetId.value,
         overlay: referenceOverlayActive.value,
@@ -1356,6 +1367,7 @@ const restoreAdvancedRef = (runId: string) => {
     if (!raw) return
     const o = JSON.parse(raw) as Record<string, unknown>
     if (typeof o.manual === 'string') referenceManualSource.value = o.manual
+    if (typeof o.chains === 'string') referenceChainIdsInput.value = o.chains
     if (typeof o.useInput === 'boolean') showInputTargetStructure.value = o.useInput
     if (o.inputId != null && o.inputId !== '') selectedInputTargetId.value = String(o.inputId)
     if (typeof o.overlay === 'boolean') referenceOverlayActive.value = o.overlay
@@ -1422,6 +1434,7 @@ const loadReferenceOverlay = async (silent = false) => {
       requestUrl = runsApi.getAlignedReferenceUrl(runId, filename, {
         mode: 'input_target',
         inputTargetId: tid,
+        referenceChains: referenceChainIdsInput.value,
       })
     } else {
       const inputEl = document.getElementById(
@@ -1436,6 +1449,7 @@ const loadReferenceOverlay = async (silent = false) => {
       requestUrl = runsApi.getAlignedReferenceUrl(runId, filename, {
         mode: 'manual',
         source: src,
+        referenceChains: referenceChainIdsInput.value,
       })
     }
     const res = await fetch(requestUrl, { credentials: 'include' })
@@ -1837,10 +1851,13 @@ watch(
   }
 )
 
-watch([referenceManualSource, showInputTargetStructure, selectedInputTargetId], () => {
-  const rid = designsStore.currentStructure?.design.run_id
-  if (rid) persistAdvancedRef(rid)
-})
+watch(
+  [referenceManualSource, referenceChainIdsInput, showInputTargetStructure, selectedInputTargetId],
+  () => {
+    const rid = designsStore.currentStructure?.design.run_id
+    if (rid) persistAdvancedRef(rid)
+  }
+)
 
 watch(
   () => designsStore.currentStructure,

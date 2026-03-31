@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from ..auth import (
@@ -24,6 +24,7 @@ from ..util.input_targets import find_input_target_by_id
 from ..util.superpose import (
     PDB_ID_PATTERN,
     fetch_reference_structure,
+    parse_reference_chain_list,
     superpose_reference_onto_design,
     superpose_reference_path_onto_design,
 )
@@ -58,6 +59,7 @@ def _sync_aligned_reference(
     mode: str,
     source: Optional[str],
     input_target_id: Optional[str],
+    reference_chains: Optional[str],
 ) -> Tuple[bytes, Dict[str, Any]]:
     run_metadata = get_run_metadata(run_id)
     if not run_metadata:
@@ -69,9 +71,11 @@ def _sync_aligned_reference(
     if design_path is None or not design_path.exists():
         raise FileNotFoundError("Design structure not found")
 
+    chain_key = (reference_chains or "").strip()
     cache_key = (
-        f"{run_id}\x1f{align_filename}\x1f{mode}\x1f{source or ''}\x1f{input_target_id or ''}\x1fmmcif"
+        f"{run_id}\x1f{align_filename}\x1f{mode}\x1f{source or ''}\x1f{input_target_id or ''}\x1f{chain_key}\x1fmmcif"
     )
+    ref_chain_ids = parse_reference_chain_list(reference_chains)
     cached = _reference_cache_get(cache_key)
     if cached is not None:
         return cached
@@ -96,7 +100,7 @@ def _sync_aligned_reference(
         except requests.RequestException as e:
             raise ValueError(f"Failed to download reference: {e}") from e
         out, metrics = superpose_reference_onto_design(
-            ref_bytes, fmt, design_path, pdbtm_membrane
+            ref_bytes, fmt, design_path, pdbtm_membrane, ref_chain_ids
         )
     elif mode_l == "input_target":
         if not input_target_id:
@@ -106,7 +110,9 @@ def _sync_aligned_reference(
             raise ValueError("Unknown input_target_id")
         if not info.path.is_file():
             raise ValueError("Input target file not found on disk")
-        out, metrics = superpose_reference_path_onto_design(info.path, design_path)
+        out, metrics = superpose_reference_path_onto_design(
+            info.path, design_path, ref_chain_ids
+        )
     else:
         raise ValueError("mode must be manual or input_target")
 
@@ -233,6 +239,10 @@ async def get_aligned_reference_structure(
     mode: str = "manual",
     source: Optional[str] = None,
     input_target_id: Optional[str] = None,
+    reference_chains: Optional[str] = Query(
+        None,
+        description="Optional comma/space-separated reference chain IDs (limits TM-align and returned structure)",
+    ),
     current_user: Optional[LocalUser] = Depends(get_current_user_optional_with_query),
 ):
     """Return the reference structure superimposed onto the given design (TM-align, mmCIF)."""
@@ -244,6 +254,7 @@ async def get_aligned_reference_structure(
             mode,
             source,
             input_target_id,
+            reference_chains,
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
