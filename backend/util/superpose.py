@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import gzip
+import json
+import logging
 import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import requests
@@ -18,8 +20,108 @@ from tmtools import tm_align
 from tmtools.io import get_residue_data
 
 PDB_ID_PATTERN = re.compile(r"^[0-9][A-Za-z0-9]{3}$")
+_PDBTM_ENTRY_RE = re.compile(
+    r"^https?://pdbtm\.unitmp\.org/entry/([0-9][A-Za-z0-9]{3})/?$",
+    re.IGNORECASE,
+)
+_PDBTM_JSON_RE = re.compile(
+    r"^https?://pdbtm\.unitmp\.org/api/v1/entry/([0-9][A-Za-z0-9]{3})\.json/?$",
+    re.IGNORECASE,
+)
 _MAX_FETCH_BYTES = 50 * 1024 * 1024
 _REQUEST_TIMEOUT = 120
+_LOGGER = logging.getLogger(__name__)
+
+
+def parse_pdbtm_pdb_id_from_url(url: str) -> Optional[str]:
+    """Return upper-case PDB ID if ``url`` is a PDBTM entry or JSON API URL."""
+    u = url.strip().split("?", 1)[0].split("#", 1)[0]
+    m = _PDBTM_ENTRY_RE.match(u) or _PDBTM_JSON_RE.match(u)
+    return m.group(1).upper() if m else None
+
+
+def _pdbtm_matrix_to_Rt(membrane: dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]:
+    tm = membrane["transformation_matrix"]
+    rx, ry, rz = tm["rowx"], tm["rowy"], tm["rowz"]
+    r = np.array(
+        [
+            [float(rx["x"]), float(rx["y"]), float(rx["z"])],
+            [float(ry["x"]), float(ry["y"]), float(ry["z"])],
+            [float(rz["x"]), float(rz["y"]), float(rz["z"])],
+        ],
+        dtype=np.float64,
+    )
+    tvec = np.array([float(rx["t"]), float(ry["t"]), float(rz["t"])], dtype=np.float64)
+    return r, tvec
+
+
+def _extract_pdbtm_membrane(entry_json: dict[str, Any]) -> dict[str, Any]:
+    ann = entry_json.get("additional_entry_annotations") or {}
+    m = ann.get("membrane")
+    if not isinstance(m, dict):
+        raise ValueError("PDBTM entry has no membrane annotation")
+    if "transformation_matrix" not in m or "radius" not in m:
+        raise ValueError("PDBTM membrane data incomplete (need transformation_matrix, radius)")
+    return m
+
+
+def compute_membrane_in_design_space(
+    pdbtm_membrane: dict[str, Any],
+    u_tm: np.ndarray,
+    t_tm: np.ndarray,
+) -> dict[str, Any]:
+    """Map PDBTM membrane geometry from deposited coordinates into design space after TM-align."""
+    r, tv = _pdbtm_matrix_to_Rt(pdbtm_membrane)
+    r_inv = np.linalg.inv(r)
+
+    n_raw = pdbtm_membrane.get("normal") or {}
+    nx = float(n_raw.get("x", 0.0))
+    ny = float(n_raw.get("y", 0.0))
+    nz = float(n_raw.get("z", 0.0))
+    hz = float(np.sqrt(nx * nx + ny * ny + nz * nz))
+    if hz < 1e-6:
+        raise ValueError("PDBTM membrane normal magnitude is zero")
+
+    dir_mem = np.array([nx, ny, nz], dtype=np.float64) / hz
+    plane1_mem = dir_mem * hz
+    plane2_mem = -dir_mem * hz
+    centroid_mem = np.zeros(3, dtype=np.float64)
+
+    def mem_to_pdb(p_mem: np.ndarray) -> np.ndarray:
+        return r_inv @ (p_mem - tv)
+
+    plane1_pdb = mem_to_pdb(plane1_mem)
+    plane2_pdb = mem_to_pdb(plane2_mem)
+    centroid_pdb = mem_to_pdb(centroid_mem)
+    n_pdb = r_inv @ dir_mem
+    n_norm = np.linalg.norm(n_pdb)
+    if n_norm < 1e-9:
+        raise ValueError("Invalid PDBTM membrane normal after transform")
+    n_pdb_u = n_pdb / n_norm
+
+    u = np.asarray(u_tm, dtype=np.float64)
+    t = np.asarray(t_tm, dtype=np.float64).reshape(3)
+
+    def pdb_to_design(p: np.ndarray) -> np.ndarray:
+        return u @ p + t
+
+    plane1_design = pdb_to_design(plane1_pdb)
+    plane2_design = pdb_to_design(plane2_pdb)
+    centroid_design = pdb_to_design(centroid_pdb)
+    n_design = u @ n_pdb_u
+    n_dn = np.linalg.norm(n_design)
+    if n_dn < 1e-9:
+        raise ValueError("Invalid membrane normal in design space")
+    n_design = n_design / n_dn
+
+    radius = float(pdbtm_membrane["radius"])
+    return {
+        "plane1": [float(plane1_design[i]) for i in range(3)],
+        "plane2": [float(plane2_design[i]) for i in range(3)],
+        "normal": [float(n_design[i]) for i in range(3)],
+        "centroid": [float(centroid_design[i]) for i in range(3)],
+        "radius": radius,
+    }
 
 
 def _load_structure_from_path(path: Path) -> Structure.Structure:
@@ -108,8 +210,10 @@ def _apply_tm_to_structure(
                     atom.set_coord(r @ c + tr)
 
 
-def fetch_reference_structure(source: str) -> Tuple[bytes, str]:
-    """Return decompressed structure bytes and format hint ``pdb`` or ``mmcif``."""
+def fetch_reference_structure(
+    source: str,
+) -> Tuple[bytes, str, Optional[dict[str, Any]]]:
+    """Return structure bytes, format hint (``pdb`` / ``mmcif``), optional PDBTM membrane dict."""
     s = source.strip()
     if not s:
         raise ValueError("Empty reference source")
@@ -120,9 +224,25 @@ def fetch_reference_structure(source: str) -> Tuple[bytes, str]:
         r.raise_for_status()
         if len(r.content) > _MAX_FETCH_BYTES:
             raise ValueError("Downloaded structure exceeds size limit")
-        return r.content, "mmcif"
+        return r.content, "mmcif", None
 
     if s.lower().startswith(("http://", "https://")):
+        pdbtm_id = parse_pdbtm_pdb_id_from_url(s)
+        if pdbtm_id:
+            json_url = f"https://pdbtm.unitmp.org/api/v1/entry/{pdbtm_id.lower()}.json"
+            jr = requests.get(json_url, timeout=_REQUEST_TIMEOUT)
+            jr.raise_for_status()
+            if len(jr.content) > _MAX_FETCH_BYTES:
+                raise ValueError("PDBTM JSON exceeds size limit")
+            entry = json.loads(jr.content.decode("utf-8"))
+            membrane_raw = _extract_pdbtm_membrane(entry)
+            cif_url = f"https://files.rcsb.org/download/{pdbtm_id}.cif"
+            cr = requests.get(cif_url, timeout=_REQUEST_TIMEOUT)
+            cr.raise_for_status()
+            if len(cr.content) > _MAX_FETCH_BYTES:
+                raise ValueError("Downloaded structure exceeds size limit")
+            return cr.content, "mmcif", membrane_raw
+
         r = requests.get(s, timeout=_REQUEST_TIMEOUT)
         r.raise_for_status()
         if len(r.content) > _MAX_FETCH_BYTES:
@@ -133,11 +253,12 @@ def fetch_reference_structure(source: str) -> Tuple[bytes, str]:
             data = gzip.decompress(data)
             lower = lower[:-3]
         if lower.endswith(".cif"):
-            return data, "mmcif"
-        return data, "pdb"
+            return data, "mmcif", None
+        return data, "pdb", None
 
     raise ValueError(
-        "Source must be a 4-character PDB ID or an http(s) URL to a structure file"
+        "Source must be a 4-character PDB ID, an http(s) URL to a structure file, "
+        "or a PDBTM entry / JSON URL (pdbtm.unitmp.org)"
     )
 
 
@@ -145,6 +266,7 @@ def superpose_reference_onto_design(
     ref_bytes: bytes,
     ref_format: str,
     design_path: Path,
+    pdbtm_membrane: Optional[dict[str, Any]] = None,
 ) -> Tuple[bytes, dict[str, Any]]:
     """TM-align reference (first structure) onto design; return mmCIF bytes and metrics."""
     design_structure = _load_structure_from_path(design_path)
@@ -184,12 +306,19 @@ def superpose_reference_onto_design(
     finally:
         os.unlink(tmp_path)
 
-    metrics = {
+    metrics: Dict[str, Any] = {
         "tm_score_norm_design": float(result.tm_norm_chain2),
         "tm_score_norm_reference": float(result.tm_norm_chain1),
         "rmsd": float(result.rmsd),
         "aligned_length": sum(1 for c in result.seqM if c == ":"),
     }
+    if pdbtm_membrane is not None:
+        try:
+            metrics["membrane"] = compute_membrane_in_design_space(
+                pdbtm_membrane, u, t
+            )
+        except (ValueError, KeyError, TypeError) as e:
+            _LOGGER.warning("PDBTM membrane transform failed: %s", e)
     return out, metrics
 
 
@@ -207,4 +336,4 @@ def superpose_reference_path_onto_design(
     else:
         fmt = "mmcif" if lower.endswith(".cif") else "pdb"
         data = ref_path.read_bytes()
-    return superpose_reference_onto_design(data, fmt, design_path)
+    return superpose_reference_onto_design(data, fmt, design_path, None)

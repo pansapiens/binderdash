@@ -43,12 +43,15 @@ services:
       - ./:/app
     working_dir: /app/frontend
     command: ["pnpm", "run", "watch:build"]
+    environment:
+      # Vite + molstar/pdbe-molstar exceeds Node’s default old-space (~1 GiB) in slim containers.
+      - NODE_OPTIONS=--max-old-space-size=3072
     restart: unless-stopped
     user: "1000:1000"
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 4G
           cpus: '1.0'
         reservations:
           memory: 512M

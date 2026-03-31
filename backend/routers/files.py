@@ -86,15 +86,18 @@ def _sync_aligned_reference(
             or s.lower().startswith(("http://", "https://"))
         ):
             raise ValueError(
-                "source must be a 4-character PDB ID or an http(s) URL to a structure file"
+                "source must be a 4-character PDB ID, an http(s) URL to a structure file, "
+                "or a PDBTM entry / JSON URL"
             )
         try:
-            ref_bytes, fmt = fetch_reference_structure(s)
+            ref_bytes, fmt, pdbtm_membrane = fetch_reference_structure(s)
         except ValueError:
             raise
         except requests.RequestException as e:
             raise ValueError(f"Failed to download reference: {e}") from e
-        out, metrics = superpose_reference_onto_design(ref_bytes, fmt, design_path)
+        out, metrics = superpose_reference_onto_design(
+            ref_bytes, fmt, design_path, pdbtm_membrane
+        )
     elif mode_l == "input_target":
         if not input_target_id:
             raise ValueError("input_target mode requires input_target_id")
@@ -258,6 +261,29 @@ async def get_aligned_reference_structure(
         "X-Binderdash-RMSD": f"{metrics['rmsd']:.6f}",
         "X-Binderdash-Aligned-Length": str(int(metrics["aligned_length"])),
     }
+    mem = metrics.get("membrane")
+    if isinstance(mem, dict):
+        p1 = mem.get("plane1")
+        p2 = mem.get("plane2")
+        n = mem.get("normal")
+        c = mem.get("centroid")
+        rad = mem.get("radius")
+        if (
+            isinstance(p1, (list, tuple))
+            and len(p1) == 3
+            and isinstance(p2, (list, tuple))
+            and len(p2) == 3
+            and isinstance(n, (list, tuple))
+            and len(n) == 3
+            and isinstance(c, (list, tuple))
+            and len(c) == 3
+            and isinstance(rad, (int, float))
+        ):
+            headers["X-Binderdash-Membrane-Plane1"] = f"{float(p1[0]):.6f},{float(p1[1]):.6f},{float(p1[2]):.6f}"
+            headers["X-Binderdash-Membrane-Plane2"] = f"{float(p2[0]):.6f},{float(p2[1]):.6f},{float(p2[2]):.6f}"
+            headers["X-Binderdash-Membrane-Normal"] = f"{float(n[0]):.6f},{float(n[1]):.6f},{float(n[2]):.6f}"
+            headers["X-Binderdash-Membrane-Centroid"] = f"{float(c[0]):.6f},{float(c[1]):.6f},{float(c[2]):.6f}"
+            headers["X-Binderdash-Membrane-Radius"] = f"{float(rad):.6f}"
     return Response(content=content, media_type="chemical/x-mmcif", headers=headers)
 
 

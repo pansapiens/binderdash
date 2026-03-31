@@ -428,6 +428,7 @@
             :pdb-url="getPdbUrl()"
             :reference-url="referenceViewerUrl"
             reference-data-format="mmcif"
+            :membrane-data="referenceMembraneData"
             :structure-info="designsStore.currentStructure"
             :auto-focus="true"
             :show-controls="false"
@@ -573,8 +574,8 @@
                 </div>
                 <InputText
                   v-model="referenceManualSource"
-                  input-id="adv-reference-source"
-                  placeholder="PDB ID (e.g. 1crn) or https://… to .pdb / .cif (.gz OK)"
+                  id="adv-reference-source"
+                  placeholder="PDB ID, https://… .pdb/.cif (.gz), or PDBTM entry/JSON URL"
                   class="advanced-input"
                   @keydown.enter="onReferenceManualEnter"
                 />
@@ -648,6 +649,7 @@ import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import Dialog from 'primevue/dialog'
 import MolstarViewer from './MolstarViewer.vue'
+import type { MembraneData } from '../membraneOverlay'
 import { runsApi } from '../webapi'
 import { useDesignsStore, useAppStore, useAuthStore, useFolderStore } from '../stores'
 
@@ -794,7 +796,7 @@ function resetViewerControlsPosition() {
 const REF_STORE_PREFIX = 'binderdash-adv-ref:'
 
 const referenceStructureHelp =
-  'Enter a 4-letter PDB ID (e.g. 1crn) or an https URL to a .pdb / .mmCIF file (.gz OK).'
+  'Enter a 4-letter PDB ID (e.g. 1crn), an https URL to a .pdb / .mmCIF file (.gz OK), or a PDBTM entry or JSON URL (e.g. pdbtm.unitmp.org/entry/6lfl or …/api/v1/entry/6lfl.json). PDBTM loads the RCSB structure and shows membrane planes when metadata is available.'
 
 const referenceStructureTooltipOptions = {
   value: referenceStructureHelp,
@@ -817,6 +819,7 @@ const referenceMetrics = ref<{
   rmsd: number
   alignedLength: number
 } | null>(null)
+const referenceMembraneData = ref<MembraneData | null>(null)
 const isSpinning = ref(false)
 const alphafoldViewEnabled = ref(true)
 const goodRatingPending = ref(false)
@@ -1339,8 +1342,30 @@ const clearReferenceOverlay = () => {
   revokeReferenceBlob()
   referenceOverlayActive.value = false
   referenceMetrics.value = null
+  referenceMembraneData.value = null
   const cs = designsStore.currentStructure
   if (cs?.design.run_id) persistAdvancedRef(cs.design.run_id)
+}
+
+const parseMembraneHeaders = (res: Response): MembraneData | null => {
+  const p1h = res.headers.get('X-Binderdash-Membrane-Plane1')
+  const p2h = res.headers.get('X-Binderdash-Membrane-Plane2')
+  const nh = res.headers.get('X-Binderdash-Membrane-Normal')
+  const ch = res.headers.get('X-Binderdash-Membrane-Centroid')
+  const rh = res.headers.get('X-Binderdash-Membrane-Radius')
+  if (!p1h || !p2h || !nh || !ch || !rh) return null
+  const tri = (s: string): [number, number, number] | null => {
+    const a = s.split(',').map((x) => parseFloat(x.trim()))
+    if (a.length !== 3 || a.some((x) => Number.isNaN(x))) return null
+    return [a[0], a[1], a[2]]
+  }
+  const plane1 = tri(p1h)
+  const plane2 = tri(p2h)
+  const normal = tri(nh)
+  const centroid = tri(ch)
+  const radius = parseFloat(rh)
+  if (!plane1 || !plane2 || !normal || !centroid || Number.isNaN(radius)) return null
+  return { plane1, plane2, normal, centroid, radius }
 }
 
 const loadReferenceOverlay = async (silent = false) => {
@@ -1349,6 +1374,7 @@ const loadReferenceOverlay = async (silent = false) => {
   revokeReferenceBlob()
   referenceLoading.value = true
   referenceMetrics.value = null
+  referenceMembraneData.value = null
   try {
     const runId = cs.design.run_id
     const filename = cs.filename
@@ -1364,6 +1390,13 @@ const loadReferenceOverlay = async (silent = false) => {
         inputTargetId: tid,
       })
     } else {
+      const inputEl = document.getElementById(
+        'adv-reference-source',
+      ) as HTMLInputElement | null
+      const domSrc = inputEl?.value?.trim() ?? ''
+      if (domSrc && domSrc !== referenceManualSource.value.trim()) {
+        referenceManualSource.value = domSrc
+      }
       const src = referenceManualSource.value.trim()
       if (!src) throw new Error('Enter a PDB ID or URL')
       requestUrl = runsApi.getAlignedReferenceUrl(runId, filename, {
@@ -1399,6 +1432,7 @@ const loadReferenceOverlay = async (silent = false) => {
         alignedLength: parseInt(alenH, 10),
       }
     }
+    referenceMembraneData.value = parseMembraneHeaders(res)
     const blob = await res.blob()
     const objectUrl = URL.createObjectURL(blob)
     referenceBlobUrlToRevoke.value = objectUrl
@@ -1410,6 +1444,7 @@ const loadReferenceOverlay = async (silent = false) => {
     }
   } catch (e: unknown) {
     referenceOverlayActive.value = false
+    referenceMembraneData.value = null
     const msg = e instanceof Error ? e.message : String(e)
     if (!silent) {
       toast.add({ severity: 'error', summary: 'Reference failed', detail: msg, life: 5000 })
@@ -1641,6 +1676,7 @@ watch(
       if (!runId) {
         revokeReferenceBlob()
         referenceMetrics.value = null
+        referenceMembraneData.value = null
         inputTargetsList.value = []
         selectedInputTargetId.value = null
         return
@@ -1650,6 +1686,7 @@ watch(
       }
       revokeReferenceBlob()
       referenceMetrics.value = null
+      referenceMembraneData.value = null
       restoreAdvancedRef(runId)
       const needInputTargets =
         showAdvancedOptions.value ||

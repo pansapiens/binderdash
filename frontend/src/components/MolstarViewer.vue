@@ -15,16 +15,30 @@
         </div>
       </div>
     </div>
-    <div 
-      ref="molstarContainer" 
-      class="molstar-viewer" 
+    <div
+      ref="molstarContainer"
+      class="molstar-viewer"
       v-show="!loading && !error"
     ></div>
+    <canvas
+      v-show="!loading && !error"
+      ref="membraneCanvasEl"
+      class="molstar-membrane-overlay"
+      aria-hidden="true"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick, readonly } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick, readonly } from 'vue'
+import { PDBeMolstarPlugin } from 'pdbe-molstar/lib/viewer'
+import 'pdbe-molstar/lib/styles/pdbe-molstar-light.scss'
+import type { MembraneData } from '../membraneOverlay'
+import { paintMembraneScreenOverlay } from '../membraneScreenOverlay'
+
+if (typeof window !== 'undefined') {
+  window.PDBeMolstarPlugin = PDBeMolstarPlugin
+}
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
@@ -45,6 +59,8 @@ const props = defineProps<{
    * Aligned references are mmCIF; without this, Mol* may mis-parse blob URLs as PDB.
    */
   referenceDataFormat?: 'pdb' | 'mmcif'
+  /** PDBTM-derived membrane planes in design coordinates (from reference API headers). */
+  membraneData?: MembraneData | null
   structureInfo?: any
   autoFocus?: boolean
   showControls?: boolean
@@ -53,44 +69,24 @@ const props = defineProps<{
 
 // State
 const molstarContainer = ref<HTMLElement | null>(null)
+const membraneCanvasEl = ref<HTMLCanvasElement | null>(null)
 const viewerInstance = ref<any>(null)
+let membraneDidDrawSub: { unsubscribe: () => void } | null = null
+let membraneResizeObserver: ResizeObserver | null = null
 const loading = ref(false)
 const error = ref<string | null>(null)
 const isSpinning = ref(false)
 const alphafoldViewEnabled = ref(true)
+/** False after unmount; avoids parsing against a torn-down plugin state tree. */
+const viewerAlive = ref(true)
+onBeforeUnmount(() => {
+  viewerAlive.value = false
+})
+
+let loadStructureTail: Promise<void> = Promise.resolve()
 
 // Methods
-const loadMolstarResources = () => {
-  return new Promise<void>((resolve, reject) => {
-    // Check if already loaded
-    if (window.PDBeMolstarPlugin) {
-      resolve()
-      return
-    }
-    
-    // Load CSS
-    const cssLink = document.createElement('link')
-    cssLink.rel = 'stylesheet'
-    cssLink.type = 'text/css'
-    cssLink.href = 'https://cdn.jsdelivr.net/npm/pdbe-molstar@3.8.0/build/pdbe-molstar-light.css'
-    document.head.appendChild(cssLink)
-    
-    // Load JS
-    const script = document.createElement('script')
-    script.type = 'text/javascript'
-    script.src = 'https://cdn.jsdelivr.net/npm/pdbe-molstar@3.8.0/build/pdbe-molstar-plugin.js'
-    script.onload = () => {
-      // Wait a bit for the plugin to fully initialize
-      setTimeout(() => {
-        resolve()
-      }, 200)
-    }
-    script.onerror = () => {
-      reject(new Error('Failed to load PDBe Molstar from CDN'))
-    }
-    document.head.appendChild(script)
-  })
-}
+const loadMolstarResources = () => Promise.resolve()
 
 const getFormatFromUrl = (url: string): string => {
   let lower = url.toLowerCase()
@@ -213,8 +209,97 @@ const referenceOverlayVisualOptions = () => ({
   hideControls: getHideControlsForPluginUpdate(),
 })
 
-const appendReferenceStructure = async () => {
-  if (!viewerInstance.value || !hasReferenceUrl()) return
+const unsubscribeMembranePaint = () => {
+  membraneDidDrawSub?.unsubscribe()
+  membraneDidDrawSub = null
+}
+
+const clearMembraneCanvasPixels = () => {
+  const overlay = membraneCanvasEl.value
+  if (!overlay) return
+  const ctx = overlay.getContext('2d')
+  if (ctx && overlay.width > 0 && overlay.height > 0) {
+    ctx.clearRect(0, 0, overlay.width, overlay.height)
+  }
+}
+
+const clearMembraneOverlayOnly = () => {
+  unsubscribeMembranePaint()
+  clearMembraneCanvasPixels()
+}
+
+const syncMembraneCanvasLayout = () => {
+  const container = molstarContainer.value
+  const overlay = membraneCanvasEl.value
+  if (!container || !overlay) return
+  const gl = container.querySelector('canvas') as HTMLCanvasElement | null
+  if (!gl || gl.width < 2 || gl.height < 2) return
+  overlay.width = gl.width
+  overlay.height = gl.height
+  const cr = container.getBoundingClientRect()
+  const gr = gl.getBoundingClientRect()
+  overlay.style.left = `${gr.left - cr.left}px`
+  overlay.style.top = `${gr.top - cr.top}px`
+  overlay.style.width = `${gr.width}px`
+  overlay.style.height = `${gr.height}px`
+}
+
+const paintMembraneIfActive = () => {
+  const overlay = membraneCanvasEl.value
+  const c3d = viewerInstance.value?.plugin?.canvas3d
+  const md = props.membraneData
+  if (!overlay || !c3d?.camera?.project) {
+    clearMembraneCanvasPixels()
+    return
+  }
+  if (!md || !hasReferenceUrl()) {
+    clearMembraneCanvasPixels()
+    return
+  }
+  syncMembraneCanvasLayout()
+  const ctx = overlay.getContext('2d')
+  if (!ctx || overlay.width < 2 || overlay.height < 2) return
+  paintMembraneScreenOverlay(
+    ctx,
+    (o, p) => c3d.camera.project(o, p),
+    overlay.width,
+    overlay.height,
+    md,
+  )
+}
+
+const setupMembraneResizeObserver = () => {
+  membraneResizeObserver?.disconnect()
+  const el = molstarContainer.value
+  if (!el || typeof ResizeObserver === 'undefined') return
+  membraneResizeObserver = new ResizeObserver(() => {
+    paintMembraneIfActive()
+  })
+  membraneResizeObserver.observe(el)
+}
+
+const syncMembraneAfterReference = async () => {
+  unsubscribeMembranePaint()
+  clearMembraneCanvasPixels()
+  if (!props.membraneData || !hasReferenceUrl()) return
+  await nextTick()
+  const c3d = viewerInstance.value?.plugin?.canvas3d
+  if (!c3d?.didDraw?.subscribe) return
+  try {
+    membraneDidDrawSub = c3d.didDraw.subscribe(() => {
+      paintMembraneIfActive()
+    })
+  } catch {
+    /* ignore */
+  }
+  setupMembraneResizeObserver()
+  requestAnimationFrame(() => {
+    paintMembraneIfActive()
+  })
+}
+
+const appendReferenceStructure = async (): Promise<boolean> => {
+  if (!viewerInstance.value || !hasReferenceUrl()) return false
   const url = props.referenceUrl!.trim()
   const updateOptions = {
     customData: {
@@ -228,7 +313,7 @@ const appendReferenceStructure = async () => {
   const success = await viewerInstance.value.visual.update(updateOptions, false)
   if (!success) {
     console.warn('PDBe Molstar: could not append reference structure')
-    return
+    return false
   }
   try {
     const vis = viewerInstance.value.visual
@@ -238,6 +323,7 @@ const appendReferenceStructure = async () => {
   } catch (e) {
     console.warn('PDBe Molstar: visibility tweak for reference het/coarse failed', e)
   }
+  return true
 }
 
 const ensurePrimaryHetCoarseVisible = async () => {
@@ -251,7 +337,8 @@ const ensurePrimaryHetCoarseVisible = async () => {
   }
 }
 
-const loadStructure = async () => {
+const runLoadStructure = async (): Promise<void> => {
+  if (!viewerAlive.value) return
   if (!molstarContainer.value) {
     return
   }
@@ -271,6 +358,7 @@ const loadStructure = async () => {
     error.value = null
 
     await loadMolstarResources()
+    if (!viewerAlive.value) return
 
     if (!window.PDBeMolstarPlugin) {
       throw new Error('PDBeMolstarPlugin not available after loading resources')
@@ -279,6 +367,7 @@ const loadStructure = async () => {
     const ref = hasReferenceUrl()
 
     if (viewerInstance.value && !ref) {
+      clearMembraneOverlayOnly()
       const updateOptions = {
         customData: {
           url: props.pdbUrl,
@@ -289,34 +378,53 @@ const loadStructure = async () => {
         ...sharedVisualOptions(),
       }
       const success = await viewerInstance.value.visual.update(updateOptions, true)
+      if (!viewerAlive.value) return
       if (success) {
         await ensurePrimaryHetCoarseVisible()
         if (props.autoFocus !== false) {
           await focusOnStructure()
         }
-        loading.value = false
         return
       }
       await fullReload()
+      if (!viewerAlive.value) return
       return
     }
 
     await fullReload()
+    if (!viewerAlive.value) return
     if (ref) {
-      await appendReferenceStructure()
+      const refOk = await appendReferenceStructure()
+      if (!viewerAlive.value) return
+      if (refOk) {
+        await syncMembraneAfterReference()
+      } else {
+        clearMembraneOverlayOnly()
+      }
       if (props.autoFocus !== false) {
         await focusOnStructure()
       }
     }
   } catch (err) {
+    if (!viewerAlive.value) return
     console.error('Error loading Molstar viewer:', err)
     error.value = (err as Error).message || 'Failed to load structure'
+  } finally {
     loading.value = false
   }
 }
 
+/** Serialised so rapid table / prev-next switches do not overlap Mol* loads (avoids Invalid data cell). */
+const loadStructure = (): Promise<void> => {
+  const next = loadStructureTail.then(() => runLoadStructure())
+  loadStructureTail = next.catch(() => undefined)
+  return next
+}
+
 const fullReload = async () => {
+  if (!viewerAlive.value) return
   lastLayoutShowControlsKnown.value = null
+  clearMembraneOverlayOnly()
   // Clear previous viewer
   if (viewerInstance.value) {
     try {
@@ -325,14 +433,16 @@ const fullReload = async () => {
       console.warn('Error cleaning up previous viewer:', e)
     }
   }
-  
+
   // Clear container
   if (molstarContainer.value) {
     molstarContainer.value.innerHTML = ''
   }
-  
+
+  if (!viewerAlive.value || !molstarContainer.value) return
+
   // Create plugin instance
-  const viewer = new window.PDBeMolstarPlugin()
+  const viewer = new PDBeMolstarPlugin()
   
   const appearance = primaryStructureVisualOptions()
   // Set options following the documentation pattern
@@ -364,10 +474,12 @@ const fullReload = async () => {
   
   // Call render method to display the 3D view
   await viewer.render(molstarContainer.value, options)
+  if (!viewerAlive.value) return
 
   viewerInstance.value = viewer
 
   await nextTick()
+  if (!viewerAlive.value) return
   syncLayoutShowControlsFromPlugin()
   if (lastLayoutShowControlsKnown.value == null) {
     seedLayoutShowControlsFromProps()
@@ -378,13 +490,12 @@ const fullReload = async () => {
   if (props.autoFocus !== false) {
     await focusOnStructure()
   }
-
-  loading.value = false
 }
 
 // Watchers
 watch(
-  () => [props.pdbUrl, props.referenceUrl ?? '', props.referenceDataFormat ?? ''] as const,
+  () =>
+    [props.pdbUrl, props.referenceUrl ?? '', props.referenceDataFormat ?? '', props.membraneData] as const,
   () => {
     nextTick(() => {
       loadStructure()
@@ -401,6 +512,9 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  membraneResizeObserver?.disconnect()
+  membraneResizeObserver = null
+  clearMembraneOverlayOnly()
   if (viewerInstance.value) {
     try {
       // Clean up the viewer instance
@@ -522,16 +636,15 @@ const toggleAlphaFoldView = async (forceState?: boolean) => {
       if (success) {
         await ensurePrimaryHetCoarseVisible()
         if (hasReferenceUrl()) {
-          await appendReferenceStructure()
+          const refOk = await appendReferenceStructure()
+          if (refOk) await syncMembraneAfterReference()
+          else clearMembraneOverlayOnly()
         }
         if (props.autoFocus !== false) {
           await focusOnStructure()
         }
       } else {
-        await fullReload()
-        if (hasReferenceUrl()) {
-          await appendReferenceStructure()
-        }
+        await loadStructure()
       }
     } catch (e) {
       console.warn('Error toggling AlphaFold view:', e)
@@ -576,6 +689,12 @@ defineExpose({
 .molstar-viewer {
   width: 100%;
   height: 100%;
+}
+
+.molstar-membrane-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
 }
 
 .molstar-loading {
