@@ -50,6 +50,17 @@ export interface FilterState {
     target_sequence: { value: any; matchMode: string };
 }
 
+export type ColumnDataType = 'text' | 'numeric' | 'boolean' | 'date'
+
+export interface CustomFilter {
+    id: string
+    column: string
+    operator: string
+    value: any
+    /** When false, the rule does not filter the table and structure cards for this column are greyed out (synced with sidebar toggles). */
+    enabled?: boolean
+}
+
 export interface ColumnConfig {
     field: string;
     header: string;

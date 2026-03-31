@@ -157,6 +157,100 @@
               />
               <label for="best-mpnn-only" class="ml-2">Show only best MPNN variant per backbone</label>
             </div>
+            <div class="custom-filters-section">
+              <div class="custom-filters-header">
+                <h4 class="custom-filters-title">Custom filters</h4>
+                <Button
+                  icon="pi pi-plus"
+                  rounded
+                  variant="outlined"
+                  size="small"
+                  v-tooltip.bottom="'Add filter'"
+                  aria-label="Add custom filter"
+                  @click="designsStore.addCustomFilter"
+                />
+              </div>
+              <div
+                v-for="cf in designsStore.customFilters"
+                :key="cf.id"
+                class="custom-filter-row-box"
+                :class="{ 'custom-filter-row-box--disabled': cf.enabled === false }"
+              >
+                <div class="custom-filter-row">
+                  <div class="custom-filter-row-top">
+                    <InputSwitch
+                      :modelValue="cf.enabled !== false"
+                      class="custom-filter-row-enable"
+                      :inputId="'cf-en-' + cf.id"
+                      :aria-label="'Enable custom filter row'"
+                      @update:modelValue="designsStore.updateCustomFilter(cf.id, { enabled: $event })"
+                    />
+                    <Dropdown
+                      :modelValue="cf.column"
+                      :options="customFilterColumnOptions"
+                      optionLabel="label"
+                      optionValue="value"
+                      placeholder="Column"
+                      class="custom-filter-column"
+                      filter
+                      showClear
+                      :disabled="cf.enabled === false"
+                      @update:modelValue="onCustomFilterColumnChange(cf.id, $event)"
+                    />
+                    <Button
+                      icon="pi pi-times"
+                      rounded
+                      variant="outlined"
+                      severity="danger"
+                      size="small"
+                      aria-label="Remove filter"
+                      @click="designsStore.removeCustomFilter(cf.id)"
+                    />
+                  </div>
+                  <div class="custom-filter-row-bottom">
+                    <Dropdown
+                      :modelValue="cf.operator"
+                      :options="designsStore.getOperatorsForColumn(cf.column)"
+                      optionLabel="label"
+                      optionValue="value"
+                      placeholder="Operator"
+                      class="custom-filter-operator"
+                      :disabled="!cf.column || cf.enabled === false"
+                      @update:modelValue="designsStore.updateCustomFilter(cf.id, { operator: $event })"
+                    />
+                    <InputNumber
+                      v-if="showCustomFilterValueInput(cf) && customFilterColumnType(cf.column) === 'numeric'"
+                      :modelValue="cf.value"
+                      class="custom-filter-value"
+                      mode="decimal"
+                      :minFractionDigits="0"
+                      :maxFractionDigits="10"
+                      :step="0.0001"
+                      :disabled="!cf.column || cf.enabled === false"
+                      @update:modelValue="designsStore.updateCustomFilter(cf.id, { value: $event })"
+                    />
+                    <Dropdown
+                      v-else-if="showCustomFilterValueInput(cf) && customFilterColumnType(cf.column) === 'boolean'"
+                      :modelValue="cf.value"
+                      :options="booleanFilterValueOptions"
+                      optionLabel="label"
+                      optionValue="value"
+                      placeholder="Value"
+                      class="custom-filter-value"
+                      :disabled="!cf.column || cf.enabled === false"
+                      @update:modelValue="designsStore.updateCustomFilter(cf.id, { value: $event })"
+                    />
+                    <InputText
+                      v-else-if="showCustomFilterValueInput(cf)"
+                      :modelValue="cf.value ?? ''"
+                      class="custom-filter-value"
+                      :disabled="!cf.column || cf.enabled === false"
+                      @update:modelValue="designsStore.updateCustomFilter(cf.id, { value: $event })"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
             <div class="filter-actions">
               <Button 
                 label="Clear Filters" 
@@ -406,9 +500,27 @@
                   v-for="field in extraVisibleDesignDataFields"
                   :key="'dd-extra-' + field"
                 >
-                  <div class="detail-item">
-                    <div class="detail-label">{{ columnHeaderForDetail(field) }}</div>
+                  <div
+                    class="detail-item"
+                    :class="{ 'detail-item--structure-suppressed': isStructureCardContentHidden(field) }"
+                  >
+                    <div class="detail-label-row">
+                      <i
+                        v-if="designsStore.isFieldReferencedByCustomFilter(field)"
+                        class="pi pi-filter detail-filter-icon"
+                        aria-hidden="true"
+                      />
+                      <div class="detail-label">{{ columnHeaderForDetail(field) }}</div>
+                      <InputSwitch
+                        v-if="designsStore.isFieldReferencedByCustomFilter(field)"
+                        :modelValue="designsStore.allFiltersForFieldEnabled(field)"
+                        class="detail-filter-toggle"
+                        :aria-label="`Enable filtering for ${columnHeaderForDetail(field)}`"
+                        @update:modelValue="(v: boolean) => designsStore.setAllCustomFiltersEnabledForField(field, v)"
+                      />
+                    </div>
                     <div
+                      v-show="!isStructureCardContentHidden(field)"
                       class="detail-value truncate-ellipsis"
                       :title="String(getDetailFieldValue(designsStore.currentStructure.design, field) ?? '')"
                     >
@@ -424,20 +536,48 @@
               <div class="details-grid">
                 <template v-for="scoreField in displayScores" :key="scoreField">
                   <div
-                    v-if="hasValidValue(getScoreValue(designsStore.currentStructure.design, scoreField))"
+                    v-if="hasValidValue(getScoreValue(designsStore.currentStructure.design, scoreField)) || designsStore.isFieldReferencedByCustomFilter(scoreField)"
                     class="detail-item"
+                    :class="{ 'detail-item--structure-suppressed': isStructureCardContentHidden(scoreField) }"
                   >
-                    <div class="score-bar" :style="{ backgroundColor: scoreColor(scoreField, getScoreValue(designsStore.currentStructure.design, scoreField)) }"></div>
-                    <div class="detail-label">{{ formatScoreHeader(scoreField) }}</div>
-                    <div class="detail-value">{{ formatScore(getScoreValue(designsStore.currentStructure.design, scoreField)) }}</div>
+                    <div
+                      v-show="!isStructureCardContentHidden(scoreField)"
+                      class="score-bar"
+                      :style="{ backgroundColor: scoreColor(scoreField, getScoreValue(designsStore.currentStructure.design, scoreField)) }"
+                    ></div>
+                    <div class="detail-label-row">
+                      <i
+                        v-if="designsStore.isFieldReferencedByCustomFilter(scoreField)"
+                        class="pi pi-filter detail-filter-icon"
+                        aria-hidden="true"
+                      />
+                      <div class="detail-label">{{ formatScoreHeader(scoreField) }}</div>
+                      <InputSwitch
+                        v-if="designsStore.isFieldReferencedByCustomFilter(scoreField)"
+                        :modelValue="designsStore.allFiltersForFieldEnabled(scoreField)"
+                        class="detail-filter-toggle"
+                        :aria-label="`Enable filtering for ${formatScoreHeader(scoreField)}`"
+                        @update:modelValue="(v: boolean) => designsStore.setAllCustomFiltersEnabledForField(scoreField, v)"
+                      />
+                    </div>
+                    <div
+                      v-show="!isStructureCardContentHidden(scoreField)"
+                      class="detail-value"
+                    >
+                      {{ formatScore(getScoreValue(designsStore.currentStructure.design, scoreField)) }}
+                    </div>
                   </div>
                 </template>
                 <template
                   v-for="scoreField in extraVisibleScoreFields"
                   :key="'sc-extra-' + scoreField"
                 >
-                  <div class="detail-item">
+                  <div
+                    class="detail-item"
+                    :class="{ 'detail-item--structure-suppressed': isStructureCardContentHidden(scoreField) }"
+                  >
                     <div
+                      v-show="!isStructureCardContentHidden(scoreField)"
                       class="score-bar"
                       :style="{
                         backgroundColor: extraScoreBarColor(
@@ -446,8 +586,22 @@
                         )
                       }"
                     ></div>
-                    <div class="detail-label">{{ columnHeaderForDetail(scoreField) }}</div>
-                    <div class="detail-value">
+                    <div class="detail-label-row">
+                      <i
+                        v-if="designsStore.isFieldReferencedByCustomFilter(scoreField)"
+                        class="pi pi-filter detail-filter-icon"
+                        aria-hidden="true"
+                      />
+                      <div class="detail-label">{{ columnHeaderForDetail(scoreField) }}</div>
+                      <InputSwitch
+                        v-if="designsStore.isFieldReferencedByCustomFilter(scoreField)"
+                        :modelValue="designsStore.allFiltersForFieldEnabled(scoreField)"
+                        class="detail-filter-toggle"
+                        :aria-label="`Enable filtering for ${columnHeaderForDetail(scoreField)}`"
+                        @update:modelValue="(v: boolean) => designsStore.setAllCustomFiltersEnabledForField(scoreField, v)"
+                      />
+                    </div>
+                    <div v-show="!isStructureCardContentHidden(scoreField)" class="detail-value">
                       {{ formatExtraScoreValue(getDetailFieldValue(designsStore.currentStructure.design, scoreField)) }}
                     </div>
                   </div>
@@ -685,6 +839,7 @@ import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
+import InputSwitch from 'primevue/inputswitch'
 import Dropdown from 'primevue/dropdown'
 import Slider from 'primevue/slider'
 import SplitButton from 'primevue/splitbutton'
@@ -695,6 +850,7 @@ import MolstarViewer from './MolstarViewer.vue'
 import type { MembraneData } from '../membraneOverlay'
 import { runsApi } from '../webapi'
 import { useDesignsStore, useAppStore, useAuthStore, useFolderStore } from '../stores'
+import type { CustomFilter } from '../types/store'
 
 const toast = useToast()
 
@@ -1103,6 +1259,35 @@ const toggleFilterPanel = () => {
 
 const toggleColumn = (field: string): void => {
   designsStore.toggleColumn(field)
+}
+
+const customFilterColumnOptions = computed(() =>
+  designsStore.columns.map(c => ({ label: c.header, value: c.field }))
+)
+
+const booleanFilterValueOptions = [
+  { label: 'true', value: true },
+  { label: 'false', value: false },
+  { label: 'None', value: null }
+]
+
+function customFilterColumnType(field: string): string {
+  return designsStore.columns.find(c => c.field === field)?.filterType ?? 'text'
+}
+
+function showCustomFilterValueInput(cf: CustomFilter): boolean {
+  if (!cf.column) return false
+  return cf.operator !== 'is_empty' && cf.operator !== 'is_not_empty'
+}
+
+function onCustomFilterColumnChange(id: string, column: string | null) {
+  const field = column ?? ''
+  const ops = designsStore.getOperatorsForColumn(field)
+  const firstOp = ops[0]?.value ?? 'eq'
+  const colType = designsStore.columns.find(c => c.field === field)?.filterType ?? 'text'
+  let value: string | number | boolean | null = null
+  if (colType === 'boolean') value = true
+  designsStore.updateCustomFilter(id, { column: field, operator: firstOp, value, enabled: true })
 }
 
 const clearFilters = () => {
@@ -1709,12 +1894,38 @@ const extraScoreBarColor = (field: string, raw: unknown): string => {
   return scoreColor(field, raw)
 }
 
+/** Columns shown in structure Design Data / Scores cards: toggled columns plus any field used in an active custom filter. */
+const structureDetailFieldSource = computed((): string[] => {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const field of designsStore.visibleColumns) {
+    if (seen.has(field)) continue
+    seen.add(field)
+    out.push(field)
+  }
+  for (const f of designsStore.customFilters) {
+    const field = f.column?.trim()
+    if (!field || seen.has(field)) continue
+    seen.add(field)
+    out.push(field)
+  }
+  return out
+})
+
+/** When true, score/value body is hidden but label row + filter switch stay visible (custom-filter cards only). */
+function isStructureCardContentHidden(field: string): boolean {
+  return (
+    designsStore.isFieldReferencedByCustomFilter(field) &&
+    !designsStore.allFiltersForFieldEnabled(field)
+  )
+}
+
 const extraVisibleScoreFields = computed((): string[] => {
   const design = designsStore.currentStructure?.design as Record<string, unknown> | undefined
   if (!design) return []
   const primary = new Set(displayScores.value)
   const out: string[] = []
-  for (const field of designsStore.visibleColumns) {
+  for (const field of structureDetailFieldSource.value) {
     if (STATIC_STRUCTURE_DETAIL_FIELDS.has(field) || primary.has(field)) continue
     const v = getDetailFieldValue(design, field)
     if (v !== null && v !== undefined && typeof v === 'object') continue
@@ -1728,7 +1939,7 @@ const extraVisibleDesignDataFields = computed((): string[] => {
   if (!design) return []
   const primary = new Set(displayScores.value)
   const out: string[] = []
-  for (const field of designsStore.visibleColumns) {
+  for (const field of structureDetailFieldSource.value) {
     if (STATIC_STRUCTURE_DETAIL_FIELDS.has(field) || primary.has(field)) continue
     const v = getDetailFieldValue(design, field)
     if (isStringDetailValue(v) && !isNumericDetailValue(v)) out.push(field)
@@ -1995,6 +2206,82 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.custom-filters-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e9ecef;
+}
+
+.custom-filters-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.custom-filters-title {
+  margin: 0;
+  font-size: 1rem;
+  color: #495057;
+  font-weight: 600;
+}
+
+.custom-filter-row-box {
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  background: #ffffff;
+  transition: background 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
+}
+
+.custom-filter-row-box--disabled {
+  background: #f1f3f5;
+  opacity: 0.92;
+  border-color: #dee2e6;
+}
+
+.custom-filter-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.custom-filter-row-enable {
+  flex-shrink: 0;
+  transform: scale(0.85);
+  transform-origin: center left;
+}
+
+.custom-filter-row-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.custom-filter-row-bottom {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.custom-filter-column {
+  flex: 1;
+  min-width: 0;
+}
+
+.custom-filter-operator {
+  flex: 1;
+  min-width: 90px;
+}
+
+.custom-filter-value {
+  flex: 1;
+  min-width: 80px;
 }
 
 .filter-row {
@@ -2339,6 +2626,36 @@ defineExpose({
   letter-spacing: 0.02em;
 }
 
+.detail-label-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.detail-label-row .detail-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-filter-icon {
+  font-size: 0.75rem;
+  color: #6c757d;
+  flex-shrink: 0;
+}
+
+.detail-filter-toggle {
+  flex-shrink: 0;
+  transform: scale(0.72);
+  transform-origin: center right;
+}
+
+.detail-filter-toggle :deep(.p-inputswitch) {
+  width: 2.25rem;
+  height: 1.25rem;
+}
+
 .detail-value {
   font-size: 1rem;
   color: #343a40;
@@ -2363,6 +2680,11 @@ defineExpose({
 .detail-item:hover {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
   border-color: #e2e6ea;
+}
+
+.detail-item--structure-suppressed {
+  opacity: 0.92;
+  border-style: dashed;
 }
 
 /* Removed full-width spanning for file item to match other cards */

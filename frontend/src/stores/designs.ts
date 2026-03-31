@@ -7,7 +7,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { localeComparator, resolveFieldData, sort } from '@primeuix/utils/object'
 import { designsApi } from '../webapi'
-import type { Design, FilterState, ColumnConfig, StructureInfo } from '../types/store'
+import type { Design, FilterState, ColumnConfig, StructureInfo, CustomFilter } from '../types/store'
 
 export const useDesignsStore = defineStore('designs', () => {
     // State
@@ -27,12 +27,225 @@ export const useDesignsStore = defineStore('designs', () => {
         target_sequence: { value: null, matchMode: 'regex' }
     })
     const bestMpnnOnly = ref(false)
+    const customFilters = ref<CustomFilter[]>([])
+    const CUSTOM_FILTERS_STORAGE_KEY = 'binderdash:custom-filters-v1'
+
+    const loadCustomFiltersFromStorage = () => {
+        if (typeof localStorage === 'undefined') return
+        try {
+            const raw = localStorage.getItem(CUSTOM_FILTERS_STORAGE_KEY)
+            if (!raw) return
+            const parsed = JSON.parse(raw) as { filters?: unknown[] }
+            if (Array.isArray(parsed.filters)) {
+                customFilters.value = parsed.filters.map((f: any) => ({
+                    id: typeof f?.id === 'string' ? f.id : crypto.randomUUID(),
+                    column: typeof f?.column === 'string' ? f.column : '',
+                    operator: typeof f?.operator === 'string' ? f.operator : 'eq',
+                    value: f?.value,
+                    enabled: f?.enabled !== false
+                }))
+            }
+        } catch (e) {
+            console.warn('Failed to load custom filters from localStorage', e)
+        }
+    }
+
+    const persistCustomFiltersToStorage = () => {
+        if (typeof localStorage === 'undefined') return
+        try {
+            localStorage.setItem(
+                CUSTOM_FILTERS_STORAGE_KEY,
+                JSON.stringify({
+                    filters: customFilters.value
+                })
+            )
+        } catch {
+            /* quota / private mode */
+        }
+    }
+
+    loadCustomFiltersFromStorage()
+
+    watch(customFilters, () => persistCustomFiltersToStorage(), { deep: true })
+
+    const isFieldReferencedByCustomFilter = (field: string): boolean => {
+        const t = field.trim()
+        if (!t) return false
+        return customFilters.value.some(f => f.column?.trim() === t)
+    }
+
+    /** True when every custom filter row targeting this column is enabled (undefined counts as enabled). */
+    const allFiltersForFieldEnabled = (field: string): boolean => {
+        const t = field.trim()
+        if (!t) return true
+        const relevant = customFilters.value.filter(f => f.column?.trim() === t)
+        if (relevant.length === 0) return true
+        return relevant.every(f => f.enabled !== false)
+    }
+
+    const setAllCustomFiltersEnabledForField = (field: string, enabled: boolean) => {
+        const t = field.trim()
+        if (!t) return
+        customFilters.value = customFilters.value.map(f =>
+            f.column?.trim() === t ? { ...f, enabled } : f
+        )
+    }
+
     const columns = ref<ColumnConfig[]>([])
     const visibleColumns = ref<string[]>(['design_id', 'project_id', 'run_name', 'method', 'Length'])
     const loading = ref(false)
     const currentNavDesignId = ref<string | null>(null)
     const tableSortField = ref<string | undefined>(undefined)
     const tableSortOrder = ref<number | undefined>(undefined)
+
+    const operatorOptionsNumeric = [
+        { label: '==', value: 'eq' },
+        { label: '!=', value: 'ne' },
+        { label: '>', value: 'gt' },
+        { label: '>=', value: 'gte' },
+        { label: '<', value: 'lt' },
+        { label: '<=', value: 'lte' },
+        { label: 'is empty', value: 'is_empty' },
+        { label: 'is not empty', value: 'is_not_empty' }
+    ]
+
+    const operatorOptionsText = [
+        { label: '==', value: 'eq' },
+        { label: '!=', value: 'ne' },
+        { label: 'contains', value: 'contains' },
+        { label: 'does not contain', value: 'not_contains' },
+        { label: 'starts with', value: 'starts_with' },
+        { label: 'ends with', value: 'ends_with' },
+        { label: 'is empty', value: 'is_empty' },
+        { label: 'is not empty', value: 'is_not_empty' }
+    ]
+
+    const operatorOptionsBoolean = [
+        { label: '==', value: 'eq' },
+        { label: 'is empty', value: 'is_empty' },
+        { label: 'is not empty', value: 'is_not_empty' }
+    ]
+
+    function getColumnFilterType(field: string): string {
+        return columns.value.find(c => c.field === field)?.filterType ?? 'text'
+    }
+
+    function getOperatorsForColumn(field: string) {
+        if (!field) return operatorOptionsText
+        const t = getColumnFilterType(field)
+        if (t === 'numeric') return operatorOptionsNumeric
+        if (t === 'boolean') return operatorOptionsBoolean
+        return operatorOptionsText
+    }
+
+    function cellIsEmptyForFilter(raw: unknown): boolean {
+        return raw == null || raw === ''
+    }
+
+    function toNumericForFilter(raw: unknown): number | null {
+        if (raw == null || raw === '') return null
+        if (typeof raw === 'number' && !Number.isNaN(raw)) return raw
+        const n = Number(raw)
+        return Number.isNaN(n) ? null : n
+    }
+
+    function normalizeBooleanCell(raw: unknown): 'true' | 'false' | 'empty' {
+        if (raw == null || raw === '') return 'empty'
+        if (raw === true || raw === 1 || raw === '1') return 'true'
+        if (typeof raw === 'string' && raw.toLowerCase() === 'true') return 'true'
+        if (raw === false || raw === 0 || raw === '0') return 'false'
+        if (typeof raw === 'string' && raw.toLowerCase() === 'false') return 'false'
+        return 'empty'
+    }
+
+    function passesCustomFilter(design: Design, filter: CustomFilter): boolean {
+        if (!filter.column) return true
+        const colType = getColumnFilterType(filter.column)
+        const op = filter.operator
+        const raw = (design as Record<string, unknown>)[filter.column]
+
+        if (op === 'is_empty') return cellIsEmptyForFilter(raw)
+        if (op === 'is_not_empty') return !cellIsEmptyForFilter(raw)
+
+        if (colType === 'boolean') {
+            if (op !== 'eq') return true
+            if (filter.value === undefined) return true
+            const cell = normalizeBooleanCell(raw)
+            if (filter.value === null) return cell === 'empty'
+            if (filter.value === true) return cell === 'true'
+            if (filter.value === false) return cell === 'false'
+            return true
+        }
+
+        if (colType === 'numeric') {
+            const nRow = toNumericForFilter(raw)
+            if (nRow === null) return false
+            if (filter.value === null || filter.value === undefined) return true
+            const nFilter = toNumericForFilter(filter.value)
+            if (nFilter === null) return true
+            switch (op) {
+                case 'eq':
+                    return nRow === nFilter
+                case 'ne':
+                    return nRow !== nFilter
+                case 'gt':
+                    return nRow > nFilter
+                case 'gte':
+                    return nRow >= nFilter
+                case 'lt':
+                    return nRow < nFilter
+                case 'lte':
+                    return nRow <= nFilter
+                default:
+                    return true
+            }
+        }
+
+        const rowStr = raw == null ? '' : String(raw)
+        if (op === 'eq') {
+            if (filter.value === null || filter.value === undefined) return true
+            return rowStr === String(filter.value)
+        }
+        if (op === 'ne') {
+            if (filter.value === null || filter.value === undefined) return true
+            return rowStr !== String(filter.value)
+        }
+        if (cellIsEmptyForFilter(raw)) return false
+        if (filter.value === null || filter.value === undefined) return true
+        const fv = String(filter.value)
+        switch (op) {
+            case 'contains':
+                return rowStr.toLowerCase().includes(fv.toLowerCase())
+            case 'not_contains':
+                return !rowStr.toLowerCase().includes(fv.toLowerCase())
+            case 'starts_with':
+                return rowStr.toLowerCase().startsWith(fv.toLowerCase())
+            case 'ends_with':
+                return rowStr.toLowerCase().endsWith(fv.toLowerCase())
+            default:
+                return true
+        }
+    }
+
+    const addCustomFilter = () => {
+        customFilters.value.push({
+            id: crypto.randomUUID(),
+            column: '',
+            operator: 'eq',
+            value: null,
+            enabled: true
+        })
+    }
+
+    const removeCustomFilter = (id: string) => {
+        customFilters.value = customFilters.value.filter(f => f.id !== id)
+    }
+
+    const updateCustomFilter = (id: string, patch: Partial<Omit<CustomFilter, 'id'>>) => {
+        const idx = customFilters.value.findIndex(f => f.id === id)
+        if (idx < 0) return
+        customFilters.value[idx] = { ...customFilters.value[idx], ...patch }
+    }
 
     // Getters
     const filteredDesigns = computed(() => {
@@ -148,6 +361,13 @@ export const useDesignsStore = defineStore('designs', () => {
                     return targetSequence.toLowerCase().includes(targetSequencePattern.toLowerCase())
                 }
             })
+        }
+
+        const activeCustomFilters = customFilters.value.filter(f => f.enabled !== false)
+        if (activeCustomFilters.length > 0) {
+            filtered = filtered.filter(design =>
+                activeCustomFilters.every(f => passesCustomFilter(design, f))
+            )
         }
 
         // Filter by selected run IDs - show only selected runs, or nothing if none selected
@@ -498,6 +718,7 @@ export const useDesignsStore = defineStore('designs', () => {
             length_max: { value: null, matchMode: 'lte' },
             target_sequence: { value: null, matchMode: 'regex' }
         }
+        customFilters.value = []
     }
 
     const toggleBestMpnnOnly = () => {
@@ -695,31 +916,52 @@ export const useDesignsStore = defineStore('designs', () => {
             'pdb_file', 'run_path', 'run_id', 'target_sequence'
         ])
 
+        const dynamicKeys = new Set<string>()
+        for (const design of designs) {
+            for (const key of Object.keys(design)) {
+                if (!existingFields.has(key)) dynamicKeys.add(key)
+            }
+        }
+
         const otherColumns: ColumnConfig[] = []
-        designs.forEach(design => {
-            Object.keys(design).forEach(key => {
-                if (!existingFields.has(key) && !otherColumns.some(col => col.field === key)) {
-                    // Determine column type and properties
-                    const value = design[key]
-                    const isNumeric = typeof value === 'number' && !isNaN(value)
-                    const isDate = value instanceof Date || (typeof value === 'string' && !isNaN(Date.parse(value)))
-
-                    let filterType = 'text'
-                    if (isNumeric) filterType = 'numeric'
-                    else if (isDate) filterType = 'date'
-
-                    otherColumns.push({
-                        field: key,
-                        header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-                        sortable: isNumeric || isDate,
-                        filter: true,
-                        filterType,
-                        showFilterMenu: false,
-                        style: 'min-width: 120px'
-                    })
+        for (const key of dynamicKeys) {
+            let sample: unknown
+            for (const design of designs) {
+                const v = design[key]
+                if (v != null && v !== '') {
+                    sample = v
+                    break
                 }
+            }
+
+            let filterType = 'text'
+            let sortable = false
+            if (sample === undefined) {
+                filterType = 'text'
+            } else if (typeof sample === 'boolean') {
+                filterType = 'boolean'
+                sortable = true
+            } else if (typeof sample === 'number' && !Number.isNaN(sample)) {
+                filterType = 'numeric'
+                sortable = true
+            } else if (sample instanceof Date) {
+                filterType = 'date'
+                sortable = true
+            } else if (typeof sample === 'string' && sample.trim() !== '' && !Number.isNaN(Number(sample))) {
+                filterType = 'numeric'
+                sortable = true
+            }
+
+            otherColumns.push({
+                field: key,
+                header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                sortable,
+                filter: true,
+                filterType,
+                showFilterMenu: false,
+                style: 'min-width: 120px'
             })
-        })
+        }
 
         return [...baseColumns, ...scoreColumns, ...metadataColumns, ...otherColumns]
     }
@@ -731,6 +973,10 @@ export const useDesignsStore = defineStore('designs', () => {
         selectedRunIds,
         filters,
         bestMpnnOnly,
+        customFilters,
+        isFieldReferencedByCustomFilter,
+        allFiltersForFieldEnabled,
+        setAllCustomFiltersEnabledForField,
         columns,
         visibleColumns,
         loading,
@@ -751,6 +997,10 @@ export const useDesignsStore = defineStore('designs', () => {
         fetchDesigns,
         setFilters,
         clearFilters,
+        addCustomFilter,
+        removeCustomFilter,
+        updateCustomFilter,
+        getOperatorsForColumn,
         toggleBestMpnnOnly,
         selectDesigns,
         toggleColumn,
