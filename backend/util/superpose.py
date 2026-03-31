@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import copy
 import gzip
 import json
 import logging
 import os
 import re
 import tempfile
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -31,6 +33,43 @@ _PDBTM_JSON_RE = re.compile(
 _MAX_FETCH_BYTES = 50 * 1024 * 1024
 _REQUEST_TIMEOUT = 120
 _LOGGER = logging.getLogger(__name__)
+
+_REFERENCE_FETCH_CACHE: "OrderedDict[str, Tuple[bytes, str, Optional[dict[str, Any]]]]" = (
+    OrderedDict()
+)
+_REFERENCE_FETCH_CACHE_MAX = 128
+
+
+def _reference_fetch_cache_get(
+    key: str,
+) -> Optional[Tuple[bytes, str, Optional[dict[str, Any]]]]:
+    if key not in _REFERENCE_FETCH_CACHE:
+        return None
+    val = _REFERENCE_FETCH_CACHE.pop(key)
+    _REFERENCE_FETCH_CACHE[key] = val
+    return val
+
+
+def _reference_fetch_cache_put(
+    key: str, payload: Tuple[bytes, str, Optional[dict[str, Any]]]
+) -> None:
+    if key in _REFERENCE_FETCH_CACHE:
+        del _REFERENCE_FETCH_CACHE[key]
+    _REFERENCE_FETCH_CACHE[key] = payload
+    while len(_REFERENCE_FETCH_CACHE) > _REFERENCE_FETCH_CACHE_MAX:
+        _REFERENCE_FETCH_CACHE.popitem(last=False)
+
+
+def _reference_fetch_cache_key(source_stripped: str) -> Optional[str]:
+    """Stable key for HTTP/PDB fetches; None if source is not a cacheable shape."""
+    if PDB_ID_PATTERN.match(source_stripped):
+        return f"pdb_id:{source_stripped.upper()}"
+    if source_stripped.lower().startswith(("http://", "https://")):
+        pdbtm_id = parse_pdbtm_pdb_id_from_url(source_stripped)
+        if pdbtm_id:
+            return f"pdbtm:{pdbtm_id}"
+        return f"url:{source_stripped}"
+    return None
 
 
 def parse_pdbtm_pdb_id_from_url(url: str) -> Optional[str]:
@@ -213,10 +252,21 @@ def _apply_tm_to_structure(
 def fetch_reference_structure(
     source: str,
 ) -> Tuple[bytes, str, Optional[dict[str, Any]]]:
-    """Return structure bytes, format hint (``pdb`` / ``mmcif``), optional PDBTM membrane dict."""
+    """Return structure bytes, format hint (``pdb`` / ``mmcif``), optional PDBTM membrane dict.
+
+    RCSB / PDBTM / URL downloads are cached in-process (LRU) so repeated references do not
+    re-hit the network.
+    """
     s = source.strip()
     if not s:
         raise ValueError("Empty reference source")
+
+    cache_key = _reference_fetch_cache_key(s)
+    if cache_key is not None:
+        hit = _reference_fetch_cache_get(cache_key)
+        if hit is not None:
+            b, fmt, mem = hit
+            return b, fmt, copy.deepcopy(mem) if mem is not None else None
 
     if PDB_ID_PATTERN.match(s):
         url = f"https://files.rcsb.org/download/{s.upper()}.cif"
@@ -224,7 +274,10 @@ def fetch_reference_structure(
         r.raise_for_status()
         if len(r.content) > _MAX_FETCH_BYTES:
             raise ValueError("Downloaded structure exceeds size limit")
-        return r.content, "mmcif", None
+        out: Tuple[bytes, str, Optional[dict[str, Any]]] = (r.content, "mmcif", None)
+        if cache_key is not None:
+            _reference_fetch_cache_put(cache_key, out)
+        return out[0], out[1], out[2]
 
     if s.lower().startswith(("http://", "https://")):
         pdbtm_id = parse_pdbtm_pdb_id_from_url(s)
@@ -241,7 +294,10 @@ def fetch_reference_structure(
             cr.raise_for_status()
             if len(cr.content) > _MAX_FETCH_BYTES:
                 raise ValueError("Downloaded structure exceeds size limit")
-            return cr.content, "mmcif", membrane_raw
+            mem_stored = copy.deepcopy(membrane_raw)
+            if cache_key is not None:
+                _reference_fetch_cache_put(cache_key, (cr.content, "mmcif", mem_stored))
+            return cr.content, "mmcif", copy.deepcopy(mem_stored)
 
         r = requests.get(s, timeout=_REQUEST_TIMEOUT)
         r.raise_for_status()
@@ -253,8 +309,12 @@ def fetch_reference_structure(
             data = gzip.decompress(data)
             lower = lower[:-3]
         if lower.endswith(".cif"):
-            return data, "mmcif", None
-        return data, "pdb", None
+            out = (data, "mmcif", None)
+        else:
+            out = (data, "pdb", None)
+        if cache_key is not None:
+            _reference_fetch_cache_put(cache_key, out)
+        return out[0], out[1], out[2]
 
     raise ValueError(
         "Source must be a 4-character PDB ID, an http(s) URL to a structure file, "
