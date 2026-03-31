@@ -402,6 +402,20 @@
                     />
                   </div>
                 </div>
+                <template
+                  v-for="field in extraVisibleDesignDataFields"
+                  :key="'dd-extra-' + field"
+                >
+                  <div class="detail-item">
+                    <div class="detail-label">{{ columnHeaderForDetail(field) }}</div>
+                    <div
+                      class="detail-value truncate-ellipsis"
+                      :title="String(getDetailFieldValue(designsStore.currentStructure.design, field) ?? '')"
+                    >
+                      {{ getDetailFieldValue(designsStore.currentStructure.design, field) }}
+                    </div>
+                  </div>
+                </template>
               </div>
             </div>
 
@@ -416,6 +430,26 @@
                     <div class="score-bar" :style="{ backgroundColor: scoreColor(scoreField, getScoreValue(designsStore.currentStructure.design, scoreField)) }"></div>
                     <div class="detail-label">{{ formatScoreHeader(scoreField) }}</div>
                     <div class="detail-value">{{ formatScore(getScoreValue(designsStore.currentStructure.design, scoreField)) }}</div>
+                  </div>
+                </template>
+                <template
+                  v-for="scoreField in extraVisibleScoreFields"
+                  :key="'sc-extra-' + scoreField"
+                >
+                  <div class="detail-item">
+                    <div
+                      class="score-bar"
+                      :style="{
+                        backgroundColor: extraScoreBarColor(
+                          scoreField,
+                          getDetailFieldValue(designsStore.currentStructure.design, scoreField)
+                        )
+                      }"
+                    ></div>
+                    <div class="detail-label">{{ columnHeaderForDetail(scoreField) }}</div>
+                    <div class="detail-value">
+                      {{ formatExtraScoreValue(getDetailFieldValue(designsStore.currentStructure.design, scoreField)) }}
+                    </div>
                   </div>
                 </template>
               </div>
@@ -1617,6 +1651,76 @@ const scoreColor = (field: string, raw: any): string => {
   return colorFromT(t)
 }
 
+const STATIC_STRUCTURE_DETAIL_FIELDS = new Set([
+  'design_id',
+  'project_id',
+  'run_name',
+  'method',
+  'Length',
+  'length'
+])
+
+const isBooleanDetailValue = (v: unknown): boolean => v === true || v === false
+
+const isNumericDetailValue = (v: unknown): boolean => {
+  if (v === null || v === undefined || v === '') return false
+  if (typeof v === 'boolean') return false
+  const n = Number(v)
+  return Number.isFinite(n)
+}
+
+const isStringDetailValue = (v: unknown): boolean => typeof v === 'string' && v !== ''
+
+const getDetailFieldValue = (design: Record<string, unknown> | undefined, field: string): unknown => {
+  if (!design) return undefined
+  return getScoreValue(design, field)
+}
+
+const columnHeaderForDetail = (field: string): string => {
+  const col = designsStore.columns.find(c => c.field === field)
+  if (col?.header) return col.header
+  return formatScoreHeader(field)
+}
+
+const formatExtraScoreValue = (value: unknown): string => {
+  if (value === true) return 'Yes'
+  if (value === false) return 'No'
+  if (isNumericDetailValue(value)) return Number(value).toFixed(3)
+  return ''
+}
+
+const extraScoreBarColor = (field: string, raw: unknown): string => {
+  if (raw === true) return '#2ecc71'
+  if (raw === false) return '#e74c3c'
+  return scoreColor(field, raw)
+}
+
+const extraVisibleScoreFields = computed((): string[] => {
+  const design = designsStore.currentStructure?.design as Record<string, unknown> | undefined
+  if (!design) return []
+  const primary = new Set(displayScores.value)
+  const out: string[] = []
+  for (const field of designsStore.visibleColumns) {
+    if (STATIC_STRUCTURE_DETAIL_FIELDS.has(field) || primary.has(field)) continue
+    const v = getDetailFieldValue(design, field)
+    if (v !== null && v !== undefined && typeof v === 'object') continue
+    if (isBooleanDetailValue(v) || isNumericDetailValue(v)) out.push(field)
+  }
+  return out
+})
+
+const extraVisibleDesignDataFields = computed((): string[] => {
+  const design = designsStore.currentStructure?.design as Record<string, unknown> | undefined
+  if (!design) return []
+  const primary = new Set(displayScores.value)
+  const out: string[] = []
+  for (const field of designsStore.visibleColumns) {
+    if (STATIC_STRUCTURE_DETAIL_FIELDS.has(field) || primary.has(field)) continue
+    const v = getDetailFieldValue(design, field)
+    if (isStringDetailValue(v) && !isNumericDetailValue(v)) out.push(field)
+  }
+  return out
+})
 
 const getVisibleColumns = () => {
   // If columns haven't been loaded yet, return empty array
