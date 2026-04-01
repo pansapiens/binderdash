@@ -773,13 +773,24 @@
                     aria-label="Reference structure help"
                   />
                 </div>
-                <InputText
-                  v-model="referenceManualSource"
-                  id="adv-reference-source"
-                  placeholder="PDB ID, https://… .pdb/.cif (.gz), or PDBTM entry/JSON URL"
-                  class="advanced-input"
-                  @keydown.enter="onReferenceManualEnter"
-                />
+                <div class="advanced-reference-source-controls">
+                  <Dropdown
+                    v-model="referenceManualSourceKind"
+                    :options="referenceSourceKindOptions"
+                    option-label="label"
+                    option-value="value"
+                    input-id="adv-reference-source-kind"
+                    aria-label="Reference structure source"
+                    class="advanced-reference-source-kind"
+                  />
+                  <InputText
+                    v-model="referenceManualSource"
+                    id="adv-reference-source"
+                    placeholder="PDB ID or https://… (.pdb / .mmCIF, .gz)"
+                    class="advanced-input advanced-input--in-reference-row"
+                    @keydown.enter="onReferenceManualEnter"
+                  />
+                </div>
               </div>
             </template>
             <div class="advanced-row advanced-row--full">
@@ -1010,7 +1021,35 @@ const REF_STORE_PREFIX = 'binderdash-adv-ref:'
 const ADV_REF_GLOBAL_KEY = 'binderdash-adv-ref-ui-global'
 
 const referenceStructureHelp =
-  'Enter a 4-letter PDB ID (e.g. 1crn), an https URL to a .pdb / .mmCIF file (.gz OK), or a PDBTM entry or JSON URL (e.g. pdbtm.unitmp.org/entry/6lfl or …/api/v1/entry/6lfl.json). PDBTM loads the RCSB structure and shows membrane planes when metadata is available.'
+  'Use Source: RCSB PDB for a 4-letter code from files.rcsb.org; PDBTM for the same code via pdbtm.unitmp.org/entry/{id} (RCSB coordinates + membrane overlay when available); URL for any http(s) link to a structure file or a PDBTM entry/JSON URL — http(s) inputs always use URL resolution regardless of Source. Plain PDB IDs ignore the URL option and load from RCSB unless you switch to PDBTM.'
+
+const REFERENCE_SOURCE_KINDS = ['rcsb', 'pdbtm', 'url'] as const
+type ReferenceManualSourceKind = (typeof REFERENCE_SOURCE_KINDS)[number]
+
+const referenceSourceKindOptions: Array<{ label: string; value: ReferenceManualSourceKind }> = [
+  { label: 'RCSB PDB', value: 'rcsb' },
+  { label: 'PDBTM', value: 'pdbtm' },
+  { label: 'URL', value: 'url' },
+]
+
+const PDB_ID_FOR_REFERENCE_RE = /^[0-9][A-Za-z0-9]{3}$/i
+
+function resolveManualReferenceSourceForApi(
+  raw: string,
+  kind: ReferenceManualSourceKind,
+): string {
+  const s = raw.trim()
+  if (!s) return s
+  if (/^https?:\/\//i.test(s)) return s
+  if (PDB_ID_FOR_REFERENCE_RE.test(s)) {
+    const id = s.toUpperCase()
+    if (kind === 'pdbtm') {
+      return `https://pdbtm.unitmp.org/entry/${id}`
+    }
+    return id
+  }
+  return s
+}
 
 const referenceStructureTooltipOptions = {
   value: referenceStructureHelp,
@@ -1022,6 +1061,7 @@ const referenceViewerUrl = ref('')
 const referenceBlobUrlToRevoke = ref<string | null>(null)
 const referenceOverlayActive = ref(false)
 const referenceManualSource = ref('')
+const referenceManualSourceKind = ref<ReferenceManualSourceKind>('rcsb')
 const referenceChainIdsInput = ref('')
 const showInputTargetStructure = ref(false)
 const selectedInputTargetId = ref<string | null>(null)
@@ -1557,6 +1597,7 @@ const persistAdvancedRef = (runId: string) => {
       REF_STORE_PREFIX + runId,
       JSON.stringify({
         manual: referenceManualSource.value,
+        sourceKind: referenceManualSourceKind.value,
         chains: referenceChainIdsInput.value,
         useInput: showInputTargetStructure.value,
         inputId: selectedInputTargetId.value,
@@ -1574,6 +1615,12 @@ const restoreAdvancedRef = (runId: string) => {
     if (!raw) return
     const o = JSON.parse(raw) as Record<string, unknown>
     if (typeof o.manual === 'string') referenceManualSource.value = o.manual
+    if (
+      typeof o.sourceKind === 'string' &&
+      (REFERENCE_SOURCE_KINDS as readonly string[]).includes(o.sourceKind)
+    ) {
+      referenceManualSourceKind.value = o.sourceKind as ReferenceManualSourceKind
+    }
     if (typeof o.chains === 'string') referenceChainIdsInput.value = o.chains
     if (typeof o.useInput === 'boolean') showInputTargetStructure.value = o.useInput
     if (o.inputId != null && o.inputId !== '') selectedInputTargetId.value = String(o.inputId)
@@ -1589,6 +1636,7 @@ const persistGlobalAdvRef = () => {
       ADV_REF_GLOBAL_KEY,
       JSON.stringify({
         manual: referenceManualSource.value,
+        sourceKind: referenceManualSourceKind.value,
         chains: referenceChainIdsInput.value,
         useInput: showInputTargetStructure.value,
       })
@@ -1604,6 +1652,12 @@ const loadGlobalAdvRef = () => {
     if (!raw) return
     const o = JSON.parse(raw) as Record<string, unknown>
     if (typeof o.manual === 'string') referenceManualSource.value = o.manual
+    if (
+      typeof o.sourceKind === 'string' &&
+      (REFERENCE_SOURCE_KINDS as readonly string[]).includes(o.sourceKind)
+    ) {
+      referenceManualSourceKind.value = o.sourceKind as ReferenceManualSourceKind
+    }
     if (typeof o.chains === 'string') referenceChainIdsInput.value = o.chains
     if (typeof o.useInput === 'boolean') showInputTargetStructure.value = o.useInput
   } catch {
@@ -1683,9 +1737,13 @@ const loadReferenceOverlay = async (silent = false) => {
       }
       const src = referenceManualSource.value.trim()
       if (!src) throw new Error('Enter a PDB ID or URL')
+      const resolved = resolveManualReferenceSourceForApi(
+        src,
+        referenceManualSourceKind.value,
+      )
       requestUrl = runsApi.getAlignedReferenceUrl(runId, filename, {
         mode: 'manual',
-        source: src,
+        source: resolved,
         referenceChains: referenceChainIdsInput.value,
       })
     }
@@ -2127,7 +2185,13 @@ watch(
 )
 
 watch(
-  [referenceManualSource, referenceChainIdsInput, showInputTargetStructure, selectedInputTargetId],
+  [
+    referenceManualSource,
+    referenceManualSourceKind,
+    referenceChainIdsInput,
+    showInputTargetStructure,
+    selectedInputTargetId,
+  ],
   () => {
     const rid = designsStore.currentStructure?.design.run_id
     if (rid) persistAdvancedRef(rid)
@@ -2504,10 +2568,27 @@ defineExpose({
   color: #495057;
 }
 
+.advanced-reference-source-controls {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 200px;
+}
+
+.advanced-reference-source-kind {
+  flex-shrink: 0;
+  width: 9.75rem;
+}
+
 .advanced-input {
   flex: 1;
   min-width: 200px;
   max-width: 100%;
+}
+
+.advanced-input--in-reference-row {
+  min-width: 0;
 }
 
 .advanced-dropdown {

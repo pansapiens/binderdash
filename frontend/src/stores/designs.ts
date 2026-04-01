@@ -99,12 +99,12 @@ export const useDesignsStore = defineStore('designs', () => {
     const tableSortOrder = ref<number | undefined>(undefined)
 
     const operatorOptionsNumeric = [
+        { label: '<=', value: 'lte' },
+        { label: '>=', value: 'gte' },
         { label: '==', value: 'eq' },
         { label: '!=', value: 'ne' },
         { label: '>', value: 'gt' },
-        { label: '>=', value: 'gte' },
         { label: '<', value: 'lt' },
-        { label: '<=', value: 'lte' },
         { label: 'is empty', value: 'is_empty' },
         { label: 'is not empty', value: 'is_not_empty' }
     ]
