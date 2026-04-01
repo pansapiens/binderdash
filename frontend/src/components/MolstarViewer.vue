@@ -268,7 +268,7 @@ const paintMembraneIfActive = () => {
     clearMembraneCanvasPixels()
     return
   }
-  if (!md || !hasReferenceUrl()) {
+  if (!md || !hasReferenceUrl() || !referenceStructureVisible.value) {
     clearMembraneCanvasPixels()
     return
   }
@@ -521,17 +521,6 @@ watch(
   { immediate: false }
 )
 
-watch(
-  () => props.referenceUrl?.trim() ?? '',
-  (url, prev) => {
-    if (!url) {
-      referenceStructureVisible.value = true
-    } else if (prev != null && url !== prev) {
-      referenceStructureVisible.value = true
-    }
-  }
-)
-
 // Lifecycle
 onMounted(() => {
   if (props.pdbUrl) {
@@ -654,6 +643,12 @@ const toggleReferenceStructureVisibility = async (forceState?: boolean) => {
   } catch (e) {
     console.warn('PDBe Molstar: toggle reference structure visibility failed', e)
   }
+  paintMembraneIfActive()
+}
+
+/** Call when the user clears the overlay so the next load defaults to reference visible. */
+const resetReferenceVisibilityPreference = () => {
+  referenceStructureVisible.value = true
 }
 
 const toggleAlphaFoldView = async (forceState?: boolean) => {
@@ -703,6 +698,7 @@ defineExpose({
   clearHighlight,
   toggleAlphaFoldView,
   toggleReferenceStructureVisibility,
+  resetReferenceVisibilityPreference,
   isSpinning: readonly(isSpinning),
   alphafoldViewEnabled: readonly(alphafoldViewEnabled),
   referenceStructureVisible: readonly(referenceStructureVisible),

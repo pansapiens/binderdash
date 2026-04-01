@@ -1680,6 +1680,8 @@ const clearReferenceOverlay = () => {
   referenceOverlayActive.value = false
   referenceMetrics.value = null
   referenceMembraneData.value = null
+  referenceStructureVisible.value = true
+  molstarViewerRef.value?.resetReferenceVisibilityPreference?.()
   const cs = designsStore.currentStructure
   if (cs?.design.run_id) persistAdvancedRef(cs.design.run_id)
 }
@@ -1708,10 +1710,11 @@ const parseMembraneHeaders = (res: Response): MembraneData | null => {
 const loadReferenceOverlay = async (silent = false) => {
   const cs = designsStore.currentStructure
   if (!cs) return
-  revokeReferenceBlob()
+  const previousBlobUrl = referenceBlobUrlToRevoke.value
   referenceLoading.value = true
   referenceMetrics.value = null
   referenceMembraneData.value = null
+  let responseOk = false
   try {
     const runId = cs.design.run_id
     const filename = cs.filename
@@ -1763,6 +1766,7 @@ const loadReferenceOverlay = async (silent = false) => {
       }
       throw new Error(detail || `HTTP ${res.status}`)
     }
+    responseOk = true
     const tmD = res.headers.get('X-Binderdash-TM-Norm-Design')
     const tmR = res.headers.get('X-Binderdash-TM-Norm-Reference')
     const rmsdH = res.headers.get('X-Binderdash-RMSD')
@@ -1778,6 +1782,9 @@ const loadReferenceOverlay = async (silent = false) => {
     referenceMembraneData.value = parseMembraneHeaders(res)
     const blob = await res.blob()
     const objectUrl = URL.createObjectURL(blob)
+    if (previousBlobUrl) {
+      URL.revokeObjectURL(previousBlobUrl)
+    }
     referenceBlobUrlToRevoke.value = objectUrl
     referenceViewerUrl.value = objectUrl
     referenceOverlayActive.value = true
@@ -1788,6 +1795,9 @@ const loadReferenceOverlay = async (silent = false) => {
   } catch (e: unknown) {
     referenceOverlayActive.value = false
     referenceMembraneData.value = null
+    if (responseOk) {
+      revokeReferenceBlob()
+    }
     const msg = e instanceof Error ? e.message : String(e)
     if (!silent) {
       toast.add({ severity: 'error', summary: 'Reference failed', detail: msg, life: 5000 })
@@ -2108,12 +2118,6 @@ watch(() => molstarViewerRef.value?.referenceStructureVisible, (v) => {
     referenceStructureVisible.value = v
   }
 }, { immediate: true })
-
-watch(referenceViewerUrl, (url) => {
-  if (!url) {
-    referenceStructureVisible.value = true
-  }
-})
 
 // Update length range when designs are loaded
 watch(() => designsStore.designs, () => {
