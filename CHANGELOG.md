@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents recursive walking into `batches/` subdirectories for nf-binder-design bindcraft runs
   - Correctly handles PDB file paths for nf-binder-design runs vs regular runs
 - Normalised run table columns on the backend to coalesce equivalent fields (e.g., `Sequence`/`sequence`, `Length`/`length`) during ingestion. This prevents duplicate columns appearing in `DesignsView` when mixing RFD and BindCraft runs.
+- **Folder browser**: Removed redundant **Select All** / **Deselect All** buttons above Scan Results; selection uses the DataTable header checkbox. Removed the **Detected Runs** / “x of y selected” table header bar (the **Scan Results** heading above the table remains).
 
 ### Fixed
 - **Mol\* viewer / design switching**: Rapid table or floating prev/next selection could overlap async Mol\* loads and trigger **`Invalid data cell`** in **`parseTrajectory`** (stale data-tree refs). **`loadStructure`** is now **serialised** via a promise chain, **`toggleAlphaFoldView`** uses **`loadStructure()`** instead of a concurrent **`fullReload`**, and **`viewerAlive` / `onBeforeUnmount`** plus checks after awaits avoid work on a torn-down viewer.

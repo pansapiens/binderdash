@@ -39,15 +39,11 @@ test.describe('Binderdash Workflow', () => {
         // Wait for scan to complete (look for success message or table update)
         await page.waitForSelector('text=Scan Results', { timeout: 30000 });
 
-        // Wait for the scan results table to be populated
-        await expect(page.locator('text=Detected Runs')).toBeVisible();
-
-        // Verify scan results are displayed with specific count
-        const scanResultsTable = page.locator('text=Detected Runs').locator('..').locator('..');
-        await expect(scanResultsTable).toBeVisible();
+        const scanResultsSection = page.locator('.scan-results');
+        await expect(scanResultsSection.locator('table')).toBeVisible();
 
         // Verify we have scan results rows visible
-        const scanResults = page.locator('table').last().locator('tbody tr');
+        const scanResults = scanResultsSection.locator('tbody tr');
         await expect(scanResults.first()).toBeVisible();
 
         // Step 4: Click on the "Designs" tab

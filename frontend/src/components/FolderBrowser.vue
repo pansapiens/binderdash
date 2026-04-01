@@ -66,26 +66,8 @@
 
 
     <div v-if="folderStore.scanResults.length > 0" class="scan-results">
-      <div class="scan-results-header">
-        <h3>Scan Results ({{ folderStore.scanResults.length }} runs found)</h3>
-        <div class="scan-results-controls">
-          <Button 
-            label="Select All" 
-            icon="pi pi-check-square" 
-            @click="selectAllRuns"
-            size="small"
-            outlined
-          />
-          <Button 
-            label="Deselect All" 
-            icon="pi pi-square" 
-            @click="deselectAllRuns"
-            size="small"
-            outlined
-          />
-        </div>
-      </div>
-      
+      <h3>Scan Results ({{ folderStore.scanResults.length }} runs found)</h3>
+
       <DataTable 
         :value="folderStore.scanResults" 
         v-model:selection="folderStore.selectedRuns"
@@ -106,15 +88,6 @@
         :reorderableColumns="true"
         :rowHover="true"
       >
-        <template #header>
-          <div class="flex justify-content-between align-items-center">
-            <span class="text-xl font-bold">Detected Runs&nbsp;</span>
-            <span class="text-sm text-muted">
-              ({{ folderStore.selectedRuns.length }} of {{ folderStore.scanResults.length }} selected)
-            </span>
-          </div>
-        </template>
-
         <template #empty>
           <div class="text-center p-4">
             <i class="pi pi-search" style="font-size: 3rem; color: #6c757d;"></i>
@@ -142,9 +115,9 @@
             <Tag :value="data.method" :severity="getMethodSeverity(data.method)" />
           </template>
         </Column>
-        <Column field="metadata.pdb_count" header="PDB Files" sortable style="min-width: 100px">
+        <Column field="metadata.pdb_count" header="Designs" sortable style="min-width: 100px">
           <template #body="{ data }">
-            <Badge :value="data.metadata.pdb_count" severity="info" />
+            {{ data.metadata.pdb_count ?? '-' }}
           </template>
         </Column>
         <Column field="path" header="Path" style="min-width: 200px">
@@ -172,7 +145,6 @@ import Button from 'primevue/button'
 import Chip from 'primevue/chip'
 import DataTable from 'primevue/datatable'
 import Tag from 'primevue/tag'
-import Badge from 'primevue/badge'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import { useFolderStore, useRunsStore } from '../stores'
@@ -330,14 +302,6 @@ const scanSelectedFolders = async () => {
 
 const clearSelection = () => {
   folderStore.clearSelection()
-}
-
-const selectAllRuns = () => {
-  folderStore.selectAllRuns()
-}
-
-const deselectAllRuns = () => {
-  folderStore.deselectAllRuns()
 }
 
 // Auto-sync selected runs - no need for manual include button
@@ -565,23 +529,6 @@ const findNodeByKey = (nodes: any[], targetKey: string): any => {
 .scan-results h3 {
   margin: 0 0 1rem 0;
   color: #495057;
-}
-
-.scan-results-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-.scan-results-header h3 {
-  margin: 0;
-  color: #495057;
-}
-
-.scan-results-controls {
-  display: flex;
-  gap: 0.5rem;
 }
 
 .run-path {

@@ -137,14 +137,6 @@ export const useFolderStore = defineStore('folders', () => {
         }
     }
 
-    const selectAllRuns = () => {
-        selectedRuns.value = [...scanResults.value]
-    }
-
-    const deselectAllRuns = () => {
-        selectedRuns.value = []
-    }
-
     const clearSelection = () => {
         selectedKeys.value = {}
         selectedRuns.value = []
@@ -195,8 +187,6 @@ export const useFolderStore = defineStore('folders', () => {
         toggleNodeSelection,
         scanSelectedFolders,
         scanFolders,
-        selectAllRuns,
-        deselectAllRuns,
         clearSelection,
         expandNode,
         collapseNode,
