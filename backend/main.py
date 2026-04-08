@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
@@ -12,7 +13,8 @@ from .routers import designs as designs_routes
 from .routers import files as files_routes
 from .routers import plots as plots_routes
 from .routers import runs as runs_routes
-from .settings import CORS_ALLOWED_ORIGINS, settings
+from .persistence.factory import default_sqlite_url, init_designs_repository_from_url
+from .settings import CORS_ALLOWED_ORIGINS, raw_settings, settings
 
 
 _root_level = getattr(logging, settings.log_level, logging.INFO)
@@ -24,7 +26,17 @@ logging.getLogger().setLevel(_root_level)
 logger = logging.getLogger(__name__)
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    db_url = (raw_settings.database or "").strip() or default_sqlite_url()
+    init_designs_repository_from_url(db_url)
+    from .cache import hydrate_caches_from_repository
+
+    hydrate_caches_from_repository()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,12 +1,17 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_user_optional
-from ..cache import designs_cache, get_run_metadata, refresh_designs_cache
+from ..cache import (
+    designs_cache,
+    get_run_metadata,
+    patch_design_in_cache,
+    refresh_designs_cache,
+)
 from ..routers.files import _resolve_structure_path
 from ..run_discovery import update_design_good_flag, update_design_tag
 from ..schemas import (
@@ -72,11 +77,12 @@ async def patch_design_good(
         if "not found" in msg.lower() or "no results" in msg.lower():
             raise HTTPException(status_code=404, detail=msg) from e
         raise HTTPException(status_code=400, detail=msg) from e
-    except OSError as e:
-        logger.error("Error writing design good flag: %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
 
-    refresh_designs_cache()
+    updates: Dict[str, Any] = {"good": body.good}
+    if not patch_design_in_cache(
+        body.run_id, body.design_id, body.source_path, updates
+    ):
+        refresh_designs_cache()
     return {"ok": True, "run_id": body.run_id, "design_id": body.design_id, "good": body.good}
 
 
@@ -111,11 +117,12 @@ async def patch_design_tag(
         if "not found" in msg.lower() or "no results" in msg.lower():
             raise HTTPException(status_code=404, detail=msg) from e
         raise HTTPException(status_code=400, detail=msg) from e
-    except OSError as e:
-        logger.error("Error writing design tag: %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
 
-    refresh_designs_cache()
+    updates: Dict[str, Any] = {"tag": tag}
+    if not patch_design_in_cache(
+        body.run_id, body.design_id, body.source_path, updates
+    ):
+        refresh_designs_cache()
     return {"ok": True, "run_id": body.run_id, "design_id": body.design_id, "tag": tag}
 
 
@@ -190,6 +197,12 @@ def _tag_placement_sync(body: TagPlacementRequest) -> TagPlacementResponse:
                 )
             )
             continue
+        patch_design_in_cache(
+            item.run_id,
+            item.design_id,
+            item.source_path,
+            {"tag": tag},
+        )
         results.append(
             TagPlacementResultRow(
                 run_id=item.run_id,

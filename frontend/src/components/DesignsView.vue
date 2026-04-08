@@ -1120,7 +1120,7 @@ import MolstarViewer from './MolstarViewer.vue'
 import type { MembraneData } from '../membraneOverlay'
 import { designsApi, runsApi } from '../webapi'
 import type { TagMetricsRow, TagPlacementResultRow } from '../webapi'
-import { useDesignsStore, useAppStore, useAuthStore, useFolderStore } from '../stores'
+import { useDesignsStore, useAppStore, useAuthStore } from '../stores'
 import type { CustomFilter } from '../types/store'
 
 const toast = useToast()
@@ -1129,7 +1129,6 @@ const toast = useToast()
 const designsStore = useDesignsStore()
 const appStore = useAppStore()
 const authStore = useAuthStore()
-const folderStore = useFolderStore()
 
 // Local UI state (not shared across components)
 const showColumnSelector = ref(false)
@@ -2774,18 +2773,6 @@ watch(() => authStore.canLoadData, (canLoad) => {
     loadDesigns()
   }
 }, { immediate: true })
-
-// Watch for changes in selected runs and update designs store
-watch(() => folderStore.selectedRuns, (newSelectedRuns) => {
-  if (newSelectedRuns && newSelectedRuns.length > 0) {
-    // Update the designs store with the selected run IDs
-    const runIds = newSelectedRuns.map(run => run.run_id)
-    designsStore.setSelectedRunIds(runIds)
-  } else {
-    // Clear the run filter if no runs are selected
-    designsStore.setSelectedRunIds([])
-  }
-}, { deep: true, immediate: true })
 
 // Sync spinning state when viewer changes
 watch(() => molstarViewerRef.value?.isSpinning, (newSpinningState) => {

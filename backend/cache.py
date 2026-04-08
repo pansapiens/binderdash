@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -54,20 +55,80 @@ def _get_design_score(design: Dict[str, Any]) -> Tuple[bool, float]:
     return (False, float("inf"))
 
 
+def hydrate_caches_from_repository() -> None:
+    global run_cache, designs_cache
+    from .persistence.factory import get_designs_repository
+
+    repo = get_designs_repository()
+    run_cache.clear()
+    designs_cache.clear()
+    if not repo.is_enabled():
+        logger.info("hydrate_caches_from_repository: persistence disabled, caches empty")
+        return
+    for row in repo.list_run_records():
+        rj = row["run_json"]
+        run_dict = json.loads(rj) if isinstance(rj, str) else rj
+        rid = run_dict.get("run_id") or row["run_id"]
+        run_dict["run_id"] = rid
+        run_cache[rid] = run_dict
+    refresh_designs_cache()
+    logger.info(
+        "Hydrated from database: %s runs, %s designs",
+        len(run_cache),
+        len(designs_cache),
+    )
+
+
+def patch_design_in_cache(
+    run_id: str,
+    design_id: str,
+    source_path: Optional[str],
+    updates: Dict[str, Any],
+) -> bool:
+    sp = (source_path or "").strip()
+    for d in designs_cache:
+        if str(d.get("run_id")) != str(run_id):
+            continue
+        if str(d.get("design_id")) != str(design_id):
+            continue
+        dsp = str(d.get("source_path") or "").strip()
+        if dsp != sp:
+            continue
+        for k, v in updates.items():
+            if v is None and k in ("tag", "good"):
+                d.pop(k, None)
+            else:
+                d[k] = v
+        return True
+    return False
+
+
 def refresh_designs_cache():
     global designs_cache
     try:
         _refresh_t = Timer(logger, "refresh_designs_cache").start()
         designs_cache.clear()
         _parse_t = Timer(logger, "refresh_designs_cache.parse").start()
-        for run in run_cache.values():
-            designs_cache.extend(parse_designs_from_run(run))
+        from .persistence.factory import get_designs_repository
+
+        repo = get_designs_repository()
+        rows: List[Dict[str, Any]] = []
+        if repo.is_enabled():
+            allowed = set(run_cache.keys())
+            rows = [
+                d
+                for d in repo.list_all_design_dicts()
+                if str(d.get("run_id")) in allowed
+            ]
+        else:
+            for run in run_cache.values():
+                rows.extend(parse_designs_from_run(run))
         _parse_t.log()
 
         designs_with_score: List[Dict[str, Any]] = []
         designs_without_score: List[Dict[str, Any]] = []
 
-        for design in designs_cache:
+        for design in rows:
             has_score, _ = _get_design_score(design)
             if has_score:
                 designs_with_score.append(design)

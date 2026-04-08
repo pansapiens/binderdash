@@ -10,7 +10,7 @@
         <div class="no-data-content">
           <i class="pi pi-chart-line" style="font-size: 3rem; color: #6c757d;"></i>
           <h3>No Data Available</h3>
-          <p>Scan some folders first to generate plots and analytics</p>
+          <p>Ingest runs on the <strong>Ingest Runs</strong> tab, select them on <strong>Select Runs</strong>, then choose runs here or rely on the same selection.</p>
         </div>
       </div>
 

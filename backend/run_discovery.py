@@ -1,7 +1,6 @@
 import logging
 import os
 import re
-import shutil
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -17,14 +16,6 @@ from .util.profiling import Timer
 
 
 logger = logging.getLogger(__name__)
-
-
-def _ensure_original_results_table_backup(table_path: Path) -> None:
-    """Create a hidden one-time backup: .{name}.orig.{ext} alongside the table."""
-    backup_path = table_path.with_name(f".{table_path.stem}.orig{table_path.suffix}")
-    if backup_path.exists():
-        return
-    shutil.copy2(table_path, backup_path)
 
 
 def get_target_sequence(
@@ -563,59 +554,20 @@ def update_design_good_flag(
     good: Optional[bool],
     source_path: Optional[str] = None,
 ) -> None:
-    """Write the ``good`` flag for one row in the run's results table on disk.
+    """Persist ``good`` in the configured database (see ``DATABASE``)."""
+    from .persistence.factory import get_designs_repository
 
-    Pass ``good=None`` to clear the cell (empty / missing in the exported table).
-
-    For merged runs, pass ``source_path`` from the design row so the correct
-    fragment table is updated.
-    """
-    results_table = run_metadata.get("results_table")
-    if not results_table:
-        raise ValueError("Run has no results_table path configured")
-
-    signature = run_metadata.get("signature", {})
-    merged_paths = list(run_metadata.get("merged_paths") or [run_metadata["path"]])
-
-    ordered_bases = list(merged_paths)
-    if source_path and source_path in merged_paths:
-        ordered_bases = [source_path] + [p for p in merged_paths if p != source_path]
-
-    saw_table = False
-    for base in ordered_bases:
-        table_path = Path(base) / results_table
-        if not table_path.is_file():
-            continue
-
-        saw_table = True
-        sep = "\t" if table_path.suffix.lower() == ".tsv" else ","
-        df = pd.read_csv(table_path, sep=sep)
-        id_col = resolve_design_id_column(df, signature)
-        if not id_col:
-            raise ValueError("Could not resolve design id column in results table")
-
-        mask = df[id_col].astype(str) == str(design_id)
-        if not mask.any():
-            continue
-
-        if good is None:
-            if "good" not in df.columns:
-                return
-            df["good"] = df["good"].astype(object)
-            df.loc[mask, "good"] = np.nan
-        else:
-            if "good" not in df.columns:
-                df["good"] = False
-            df.loc[mask, "good"] = bool(good)
-        _ensure_original_results_table_backup(table_path)
-        df.to_csv(table_path, sep=sep, index=False, na_rep="")
-        return
-
-    if not saw_table:
+    repo = get_designs_repository()
+    if not repo.is_enabled():
         raise ValueError(
-            f"Results table not found at {results_table!r} under run path(s)"
+            "DATABASE is not configured or persistence is disabled; set DATABASE in .env"
         )
-    raise ValueError(f"Design {design_id!r} not found in results table")
+    rid = str(run_metadata.get("run_id", ""))
+    ok = repo.update_design_good(rid, str(design_id), good, source_path=source_path)
+    if not ok:
+        raise ValueError(
+            f"Design {design_id!r} not found for run {rid!r} in the database"
+        )
 
 
 def update_design_tag(
@@ -624,53 +576,20 @@ def update_design_tag(
     tag: Optional[str],
     source_path: Optional[str] = None,
 ) -> None:
-    """Write the ``tag`` column (N / C / cleared) for one row in the run's results table."""
-    results_table = run_metadata.get("results_table")
-    if not results_table:
-        raise ValueError("Run has no results_table path configured")
+    """Persist ``tag`` (N / C / cleared) in the configured database (see ``DATABASE``)."""
+    from .persistence.factory import get_designs_repository
 
-    signature = run_metadata.get("signature", {})
-    merged_paths = list(run_metadata.get("merged_paths") or [run_metadata["path"]])
-
-    ordered_bases = list(merged_paths)
-    if source_path and source_path in merged_paths:
-        ordered_bases = [source_path] + [p for p in merged_paths if p != source_path]
-
-    saw_table = False
-    for base in ordered_bases:
-        table_path = Path(base) / results_table
-        if not table_path.is_file():
-            continue
-
-        saw_table = True
-        sep = "\t" if table_path.suffix.lower() == ".tsv" else ","
-        df = pd.read_csv(table_path, sep=sep)
-        id_col = resolve_design_id_column(df, signature)
-        if not id_col:
-            raise ValueError("Could not resolve design id column in results table")
-
-        mask = df[id_col].astype(str) == str(design_id)
-        if not mask.any():
-            continue
-
-        if "tag" not in df.columns:
-            df["tag"] = np.nan
-
-        df["tag"] = df["tag"].astype(object)
-        if tag is None:
-            df.loc[mask, "tag"] = np.nan
-        else:
-            df.loc[mask, "tag"] = str(tag)
-
-        _ensure_original_results_table_backup(table_path)
-        df.to_csv(table_path, sep=sep, index=False, na_rep="")
-        return
-
-    if not saw_table:
+    repo = get_designs_repository()
+    if not repo.is_enabled():
         raise ValueError(
-            f"Results table not found at {results_table!r} under run path(s)"
+            "DATABASE is not configured or persistence is disabled; set DATABASE in .env"
         )
-    raise ValueError(f"Design {design_id!r} not found in results table")
+    rid = str(run_metadata.get("run_id", ""))
+    ok = repo.update_design_tag(rid, str(design_id), tag, source_path=source_path)
+    if not ok:
+        raise ValueError(
+            f"Design {design_id!r} not found for run {rid!r} in the database"
+        )
 
 
 def load_run_table(run_metadata: Dict[str, Any]) -> Optional[pd.DataFrame]:

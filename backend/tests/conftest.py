@@ -1,0 +1,41 @@
+from pathlib import Path
+
+import pytest
+
+from backend.persistence.factory import set_designs_repository
+from backend.persistence.noop_repo import NoopDesignsRepository
+from backend.persistence.sqlite_repo import SqliteDesignsRepository
+
+
+@pytest.fixture
+def sqlite_designs_repo(tmp_path: Path):
+    url = f"sqlite:///{tmp_path}/designs.sqlite"
+    repo = SqliteDesignsRepository(url)
+    repo.init_schema()
+    set_designs_repository(repo)
+    yield repo
+    set_designs_repository(NoopDesignsRepository())
+
+
+@pytest.fixture
+def api_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import backend.main as main_mod
+    from backend.auth import get_current_user_optional
+    from fastapi.testclient import TestClient
+
+    patched_settings = main_mod.settings.model_copy(update={"auth_disabled": True})
+    monkeypatch.setattr(main_mod, "settings", patched_settings)
+    monkeypatch.setattr(
+        main_mod,
+        "default_sqlite_url",
+        lambda: f"sqlite:///{tmp_path}/api.sqlite",
+    )
+
+    async def _auth_bypass():
+        return None
+
+    app = main_mod.app
+    app.dependency_overrides[get_current_user_optional] = _auth_bypass
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()

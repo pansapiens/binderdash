@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Backend for binderdash"
 dependencies = [
     "fastapi",
+    "httpx",
     "uvicorn[standard]",
     "pydantic-settings",
     "pandas",

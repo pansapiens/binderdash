@@ -20,6 +20,24 @@ class TokenData(BaseModel):
 
 class ScanRequest(BaseModel):
     folders: List[str]
+    force_rescan_of_ingested: bool = False
+
+
+class IngestRequest(BaseModel):
+    runs: List[Dict[str, Any]]
+
+
+class IngestPreviewRequest(BaseModel):
+    runs: List[Dict[str, Any]]
+
+
+class IngestPreviewReingestItem(BaseModel):
+    run_group_key: str
+    display_name: str
+
+
+class IngestPreviewResponse(BaseModel):
+    reingest: List[IngestPreviewReingestItem]
 
 
 class RunMetadata(BaseModel):

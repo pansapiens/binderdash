@@ -37,6 +37,15 @@ interface RunsResponse {
     runs: Run[];
 }
 
+export interface IngestPreviewReingestItem {
+    run_group_key: string
+    display_name: string
+}
+
+export interface IngestPreviewResponse {
+    reingest: IngestPreviewReingestItem[]
+}
+
 interface Design {
     design_id: string;
     project_id: string;
@@ -219,10 +228,43 @@ export const runsApi = {
      * @param folders - List of folder paths to scan
      * @returns Promise with discovered runs
      */
-    async scanRuns(folders: string[]): Promise<RunsResponse> {
+    async scanRuns(
+        folders: string[],
+        options?: { forceRescanOfIngested?: boolean }
+    ): Promise<RunsResponse> {
         return await apiRequest<RunsResponse>(`${API_BASE}/api/runs/scan`, {
             method: 'POST',
-            body: JSON.stringify({ folders }),
+            body: JSON.stringify({
+                folders,
+                force_rescan_of_ingested: options?.forceRescanOfIngested ?? false
+            }),
+            requireAuth: true
+        })
+    },
+
+    /**
+     * List runs in the payload that already exist in the database (re-ingest will reset tag/good).
+     */
+    async ingestPreview(
+        runs: Array<Record<string, unknown>>
+    ): Promise<IngestPreviewResponse> {
+        return await apiRequest<IngestPreviewResponse>(
+            `${API_BASE}/api/runs/ingest-preview`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ runs }),
+                requireAuth: true
+            }
+        )
+    },
+
+    /**
+     * Persist discovered runs to the database (stable run_id per run_group_key).
+     */
+    async ingestRuns(runs: Array<Record<string, unknown>>): Promise<RunsResponse> {
+        return await apiRequest<RunsResponse>(`${API_BASE}/api/runs/ingest`, {
+            method: 'POST',
+            body: JSON.stringify({ runs }),
             requireAuth: true
         })
     },

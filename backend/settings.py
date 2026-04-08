@@ -10,6 +10,7 @@ class RawSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
     )
+    database: str = ""
     run_base_dirs: str = ""
     allowed_users: str = ""
     local_users: str = ""

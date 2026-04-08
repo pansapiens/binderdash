@@ -1,30 +1,40 @@
 <template>
   <div class="folder-browser">
     <div class="browser-header">
-      <h2>Folder Browser</h2>
-      <div class="browser-controls">
-        <Button 
-          label="Refresh" 
-          icon="pi pi-refresh" 
-          @click="refreshTree"
-          :loading="folderStore.loading"
-          severity="secondary"
-          outlined
-        />
-        <Button 
-          label="Scan Selected Folders" 
-          icon="pi pi-search" 
-          @click="scanSelectedFolders"
-          :loading="folderStore.scanning"
-          :disabled="selectedFolderNodes.length === 0"
-        />
-        <Button 
-          label="Clear Selection" 
-          icon="pi pi-times" 
-          @click="clearSelection"
-          :disabled="selectedFolderNodes.length === 0"
-          severity="secondary"
-        />
+      <h2>Ingest Runs</h2>
+      <div class="header-actions">
+        <div class="browser-controls">
+          <Button 
+            label="Refresh" 
+            icon="pi pi-refresh" 
+            @click="refreshTree"
+            :loading="folderStore.loading"
+            severity="secondary"
+            outlined
+          />
+          <Button 
+            label="Scan Selected Folders" 
+            icon="pi pi-search" 
+            @click="scanSelectedFolders"
+            :loading="folderStore.scanning"
+            :disabled="selectedFolderNodes.length === 0"
+          />
+          <Button 
+            label="Clear Selection" 
+            icon="pi pi-times" 
+            @click="clearSelection"
+            :disabled="selectedFolderNodes.length === 0"
+            severity="secondary"
+          />
+        </div>
+        <div class="scan-options">
+          <Checkbox
+            v-model="forceRescanOfIngested"
+            input-id="forceRescanOfIngested"
+            binary
+          />
+          <label for="forceRescanOfIngested">Force rescan of ingested</label>
+        </div>
       </div>
     </div>
 
@@ -67,6 +77,18 @@
 
     <div v-if="folderStore.scanResults.length > 0" class="scan-results">
       <h3>Scan Results ({{ folderStore.scanResults.length }} runs found)</h3>
+      <p class="scan-results-hint">
+        Only runs discovered in this scan appear here. If <strong>Force rescan of ingested</strong> is off, runs already in the database are omitted even when their folders are selected. <strong>Ingest selected runs</strong> loads each chosen run from disk into the database. If a run was already ingested, you will be asked to confirm first because that replaces stored designs and clears saved <strong>tag</strong> and <strong>good</strong> values.
+      </p>
+      <div class="ingest-actions">
+        <Button
+          label="Ingest selected runs"
+          icon="pi pi-download"
+          :loading="ingesting"
+          :disabled="folderStore.selectedRuns.length === 0"
+          @click="ingestSelectedRuns"
+        />
+      </div>
 
       <DataTable 
         :value="folderStore.scanResults" 
@@ -133,30 +155,69 @@
       </DataTable>
     </div>
     
+    <Dialog
+      v-model:visible="reingestDialogVisible"
+      modal
+      header="Re-ingest runs?"
+      :style="{ width: 'min(32rem, 95vw)' }"
+      :closable="true"
+      @hide="onReingestDialogHide"
+    >
+      <p class="reingest-lead">
+        These runs are already in the database. Ingesting again will replace stored designs and reset any <strong>tag</strong> and <strong>good</strong> values you set earlier:
+      </p>
+      <ul class="reingest-list">
+        <li v-for="item in pendingReingest" :key="item.run_group_key">
+          {{ item.display_name }}
+        </li>
+      </ul>
+      <template #footer>
+        <Button
+          label="Cancel"
+          severity="secondary"
+          outlined
+          @click="reingestDialogVisible = false"
+        />
+        <Button
+          label="Ingest anyway"
+          severity="warn"
+          icon="pi pi-exclamation-triangle"
+          :loading="ingesting"
+          @click="confirmReingestIngest"
+        />
+      </template>
+    </Dialog>
+
     <Toast />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import TreeTable from 'primevue/treetable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
-import Chip from 'primevue/chip'
+import Checkbox from 'primevue/checkbox'
 import DataTable from 'primevue/datatable'
+import Dialog from 'primevue/dialog'
 import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
-import { useFolderStore, useRunsStore } from '../stores'
+import { useFolderStore } from '../stores'
+import type { Run } from '../types/store'
+import { runsApi } from '../webapi'
+import type { IngestPreviewReingestItem } from '../webapi'
 
-// Define emits
-const emit = defineEmits(['runs-scanned'])
+const emit = defineEmits(['ingestComplete'])
 
 const toast = useToast()
 
 // Use Pinia stores
 const folderStore = useFolderStore()
-const runsStore = useRunsStore()
+const forceRescanOfIngested = ref(false)
+const ingesting = ref(false)
+const reingestDialogVisible = ref(false)
+const pendingReingest = ref<IngestPreviewReingestItem[]>([])
 
 // Local UI state (not shared across components)
 const filters = ref<any>(null)
@@ -278,7 +339,10 @@ const scanSelectedFolders = async () => {
   if (selectedFolderNodes.value.length === 0) return
 
   try {
-    const runs = await folderStore.scanFolders(selectedFolderNodes.value.map(folder => folder.path))
+    const runs = await folderStore.scanFolders(
+      selectedFolderNodes.value.map((folder) => folder.path),
+      { forceRescanOfIngested: forceRescanOfIngested.value }
+    )
 
     toast.add({
       severity: 'success',
@@ -286,9 +350,6 @@ const scanSelectedFolders = async () => {
       detail: `Found ${runs.length} runs in selected folders`,
       life: 3000
     })
-
-    // Emit event to notify parent that runs have been scanned
-    emit('runs-scanned', runs)
   } catch (error) {
     console.error('Error scanning folders:', error)
     toast.add({
@@ -304,15 +365,71 @@ const clearSelection = () => {
   folderStore.clearSelection()
 }
 
-// Auto-sync selected runs - no need for manual include button
-// Watch for changes in selected runs and automatically emit the event
-watch(() => folderStore.selectedRuns, (newSelectedRuns, oldSelectedRuns) => {
-  // Only emit if there are actually selected runs and the selection has changed
-  if (newSelectedRuns.length > 0 && newSelectedRuns !== oldSelectedRuns) {
-    emit('runs-scanned', newSelectedRuns)
+const doIngest = async (rows: Run[]) => {
+  ingesting.value = true
+  try {
+    await runsApi.ingestRuns(rows as unknown as Record<string, unknown>[])
+    toast.add({
+      severity: 'success',
+      summary: 'Ingest complete',
+      detail: `${rows.length} run(s) updated in the database.`,
+      life: 4000
+    })
+    reingestDialogVisible.value = false
+    pendingReingest.value = []
+    emit('ingestComplete')
+  } catch (error) {
+    console.error('Ingest failed:', error)
+    toast.add({
+      severity: 'error',
+      summary: 'Ingest failed',
+      detail: error instanceof Error ? error.message : 'Request failed',
+      life: 5000
+    })
+  } finally {
+    ingesting.value = false
   }
-}, { deep: true })
+}
 
+const ingestSelectedRuns = async () => {
+  const rows = folderStore.selectedRuns
+  if (rows.length === 0) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Nothing selected',
+      detail: 'Select one or more rows in the scan results table before ingesting.',
+      life: 4000
+    })
+    return
+  }
+  try {
+    const preview = await runsApi.ingestPreview(
+      rows as unknown as Record<string, unknown>[]
+    )
+    if (preview.reingest.length > 0) {
+      pendingReingest.value = preview.reingest
+      reingestDialogVisible.value = true
+      return
+    }
+    await doIngest(rows)
+  } catch (error) {
+    console.error('Ingest preview failed:', error)
+    toast.add({
+      severity: 'error',
+      summary: 'Ingest failed',
+      detail: error instanceof Error ? error.message : 'Request failed',
+      life: 5000
+    })
+  }
+}
+
+const confirmReingestIngest = async () => {
+  await doIngest(folderStore.selectedRuns)
+}
+
+const onReingestDialogHide = () => {
+  pendingReingest.value = []
+}
 
 const onNodeSelect = (event: any): void => {
   console.log('Node selected:', event.node)
@@ -453,7 +570,9 @@ const findNodeByKey = (nodes: any[], targetKey: string): any => {
 .browser-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 1rem;
   padding-bottom: 1rem;
   border-bottom: 1px solid #e9ecef;
 }
@@ -463,9 +582,46 @@ const findNodeByKey = (nodes: any[], targetKey: string): any => {
   color: #495057;
 }
 
+.header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
 .browser-controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.scan-options {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.scan-options label {
+  cursor: pointer;
+  color: #495057;
+  font-size: 0.95rem;
+}
+
+.reingest-lead {
+  margin: 0 0 0.75rem 0;
+  color: #495057;
+  line-height: 1.5;
+}
+
+.reingest-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #495057;
+}
+
+.reingest-list li {
+  margin-bottom: 0.35rem;
 }
 
 .browser-content {
@@ -527,8 +683,18 @@ const findNodeByKey = (nodes: any[], targetKey: string): any => {
 }
 
 .scan-results h3 {
-  margin: 0 0 1rem 0;
+  margin: 0 0 0.5rem 0;
   color: #495057;
+}
+
+.scan-results-hint {
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+  color: #6c757d;
+}
+
+.ingest-actions {
+  margin-bottom: 1rem;
 }
 
 .run-path {

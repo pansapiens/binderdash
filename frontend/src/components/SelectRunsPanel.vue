@@ -1,0 +1,333 @@
+<template>
+  <div class="select-runs-panel">
+    <div class="panel-header">
+      <h2>Select Runs</h2>
+      <p class="hint">
+        Choose ingested runs to drive the Designs table and (by default) plots. Run name filter applies after you type at least three characters.
+      </p>
+      <div class="filters">
+        <div class="filter-field">
+          <label for="sr-project">Project</label>
+          <Dropdown
+            id="sr-project"
+            v-model="projectFilter"
+            :options="projectOptions"
+            option-label="label"
+            option-value="value"
+            placeholder="All projects"
+            show-clear
+            class="filter-dropdown"
+          />
+        </div>
+        <div class="filter-field">
+          <label for="sr-method">Method</label>
+          <Dropdown
+            id="sr-method"
+            v-model="methodFilter"
+            :options="methodOptions"
+            option-label="label"
+            option-value="value"
+            placeholder="All methods"
+            show-clear
+            class="filter-dropdown"
+          />
+        </div>
+        <div class="filter-field grow">
+          <label for="sr-name">Run name</label>
+          <InputText
+            id="sr-name"
+            v-model="nameInput"
+            placeholder="Type 3+ characters to filter"
+            class="filter-input"
+          />
+        </div>
+        <Button
+          label="Refresh list"
+          icon="pi pi-refresh"
+          severity="secondary"
+          outlined
+          :loading="runsStore.loading"
+          @click="runsStore.fetchRuns()"
+        />
+      </div>
+    </div>
+
+    <DataTable
+      v-model:selection="tableSelection"
+      :value="filteredRuns"
+      data-key="run_id"
+      stripedRows
+      paginator
+      :rows="10"
+      :rowsPerPageOptions="[5, 10, 20, 50]"
+      paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
+      currentPageReportTemplate="Showing {first} to {last} of {totalRecords} runs"
+      showGridlines
+      :resizableColumns="true"
+      columnResizeMode="fit"
+      :reorderableColumns="true"
+      :rowHover="true"
+      :loading="runsStore.loading"
+    >
+      <template #empty>
+        <div class="empty-msg">
+          <i class="pi pi-inbox empty-icon" aria-hidden="true" />
+          <p v-if="runsStore.loading">Loading runs…</p>
+          <template v-else>
+            <h3>No ingested runs</h3>
+            <p>Use <strong>Ingest Runs</strong> to add runs from disk.</p>
+          </template>
+        </div>
+      </template>
+      <Column selectionMode="multiple" headerStyle="width: 3rem" />
+      <Column field="metadata.name" header="Name" sortable style="min-width: 150px">
+        <template #body="{ data }">
+          <div class="run-name">
+            <i :class="getMethodIcon(data.method)" class="protocol-icon" aria-hidden="true" />
+            {{ data.metadata?.name ?? '—' }}
+          </div>
+        </template>
+      </Column>
+      <Column field="project_id" header="Project ID" sortable style="min-width: 120px">
+        <template #body="{ data }">
+          <span class="project-id">{{ data.project_id || '—' }}</span>
+        </template>
+      </Column>
+      <Column field="method" header="Method" sortable style="min-width: 100px">
+        <template #body="{ data }">
+          <Tag :value="data.method" :severity="getMethodSeverity(data.method)" />
+        </template>
+      </Column>
+      <Column field="metadata.pdb_count" header="Designs" sortable style="min-width: 100px">
+        <template #body="{ data }">
+          <Tag
+            v-if="typeof data.metadata?.pdb_count === 'number'"
+            :value="String(data.metadata.pdb_count)"
+            severity="info"
+          />
+          <span v-else class="muted-cell">—</span>
+        </template>
+      </Column>
+      <Column field="path" header="Path" style="min-width: 200px">
+        <template #body="{ data }">
+          <span class="run-path">{{ data.path }}</span>
+        </template>
+      </Column>
+      <Column field="metadata.results_file" header="Results File" style="min-width: 150px">
+        <template #body="{ data }">
+          <span class="results-file">{{ data.metadata?.results_file ?? '—' }}</span>
+        </template>
+      </Column>
+    </DataTable>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import DataTable from 'primevue/datatable'
+import Column from 'primevue/column'
+import Dropdown from 'primevue/dropdown'
+import InputText from 'primevue/inputtext'
+import Button from 'primevue/button'
+import Tag from 'primevue/tag'
+import { useRunsStore, useDesignsStore, usePlotsStore } from '../stores'
+import type { Run } from '../types/store'
+
+const runsStore = useRunsStore()
+const designsStore = useDesignsStore()
+const plotsStore = usePlotsStore()
+
+const projectFilter = ref<string | null>(null)
+const methodFilter = ref<string | null>(null)
+const nameInput = ref('')
+const nameDebounced = ref('')
+let nameTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(nameInput, (v) => {
+  if (nameTimer) clearTimeout(nameTimer)
+  nameTimer = setTimeout(() => {
+    nameDebounced.value = v
+  }, 300)
+})
+
+const projectOptions = computed(() => {
+  const set = new Set<string>()
+  for (const r of runsStore.runs) {
+    if (r.project_id) set.add(r.project_id)
+  }
+  return [...set].sort().map((value) => ({ label: value, value }))
+})
+
+const methodOptions = computed(() => {
+  const set = new Set<string>()
+  for (const r of runsStore.runs) {
+    if (r.method) set.add(r.method)
+  }
+  return [...set].sort().map((value) => ({ label: value, value }))
+})
+
+const filteredRuns = computed(() => {
+  let rows = [...runsStore.runs]
+  if (projectFilter.value) {
+    rows = rows.filter((r) => r.project_id === projectFilter.value)
+  }
+  if (methodFilter.value) {
+    rows = rows.filter((r) => r.method === methodFilter.value)
+  }
+  const q = nameDebounced.value.trim().toLowerCase()
+  if (q.length >= 3) {
+    rows = rows.filter((r) => (r.metadata?.name || '').toLowerCase().includes(q))
+  }
+  return rows
+})
+
+function getMethodSeverity(method: string | undefined): string {
+  switch (method) {
+    case 'bindcraft':
+      return 'success'
+    case 'rfd':
+      return 'info'
+    case 'rfd3':
+      return 'info'
+    default:
+      return 'warning'
+  }
+}
+
+function getMethodIcon(method: string | undefined): string {
+  switch (method) {
+    case 'bindcraft':
+      return 'pi pi-code'
+    case 'rfd':
+      return 'pi pi-file'
+    case 'rfd3':
+      return 'pi pi-box'
+    default:
+      return 'pi pi-info-circle'
+  }
+}
+
+const tableSelection = ref<Run[]>([])
+
+watch(
+  tableSelection,
+  (sel) => {
+    const ids = sel.map((r) => r.run_id)
+    designsStore.setSelectedRunIds(ids)
+    plotsStore.setSelectedRuns(ids)
+  },
+  { deep: true }
+)
+
+watch(
+  () => runsStore.runs,
+  (runs) => {
+    const allowed = new Set(runs.map((r) => r.run_id))
+    tableSelection.value = tableSelection.value.filter((r) => allowed.has(r.run_id))
+  },
+  { deep: true }
+)
+
+onMounted(() => {
+  runsStore.fetchRuns()
+})
+</script>
+
+<style scoped>
+.select-runs-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.panel-header h2 {
+  margin: 0 0 0.5rem 0;
+  color: #495057;
+}
+
+.hint {
+  margin: 0 0 1rem 0;
+  color: #6c757d;
+  font-size: 0.95rem;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  margin-bottom: 0.5rem;
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 10rem;
+}
+
+.filter-field.grow {
+  flex: 1 1 14rem;
+  min-width: 14rem;
+}
+
+.filter-field label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #495057;
+}
+
+.filter-dropdown,
+.filter-input {
+  width: 100%;
+}
+
+.run-path {
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: #6c757d;
+  word-break: break-all;
+}
+
+.project-id {
+  color: #495057;
+}
+
+.run-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.protocol-icon {
+  color: #6c757d;
+}
+
+.muted-cell {
+  color: #6c757d;
+}
+
+.results-file {
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: #6c757d;
+  word-break: break-all;
+}
+
+.empty-msg {
+  padding: 1.5rem;
+  text-align: center;
+  color: #6c757d;
+}
+
+.empty-msg h3 {
+  margin: 0.5rem 0 0.25rem 0;
+  color: #495057;
+  font-size: 1.1rem;
+}
+
+.empty-icon {
+  font-size: 3rem;
+  color: #6c757d;
+}
+</style>

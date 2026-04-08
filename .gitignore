@@ -21,6 +21,8 @@ test-results/
 
 /backend/static/assets/
 /backend/static/index.html
+/backend/data/binderdash.sqlite
+db.sqlite
 
 /example_runs
 

@@ -1,4 +1,5 @@
 import logging
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -9,8 +10,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..auth import get_current_user_optional
 from ..cache import get_run_metadata, refresh_designs_cache, run_cache
 from ..path_policy import is_allowed_path
-from ..run_discovery import find_runs_recursive, load_run_table
-from ..schemas import InputTargetItem, InputTargetsResponse, ScanRequest
+from ..persistence import run_group_key
+from ..persistence.factory import get_designs_repository
+from ..run_discovery import find_runs_recursive, load_run_table, parse_designs_from_run
+from ..schemas import (
+    IngestPreviewRequest,
+    IngestRequest,
+    InputTargetItem,
+    InputTargetsResponse,
+    ScanRequest,
+)
 from ..util.input_targets import list_input_targets
 from ..settings import LocalUser, settings
 from ..util.profiling import Timer
@@ -54,20 +63,81 @@ async def scan_runs(
             runs.extend(folder_runs)
             logger.info(f"Found {len(folder_runs)} runs in {folder_path}")
 
-        _pop_t = Timer(logger, "POST /scan.run_cache_populate").start()
-        for run in runs:
-            run_cache[run["run_id"]] = run
-        _pop_t.log()
-
-        _ref_t = Timer(logger, "POST /scan.refresh_designs_cache").start()
-        refresh_designs_cache()
-        _ref_t.log()
-
-        _scan_t.log(runs=len(runs))
-        return {"runs": runs}
+        merged = merge_runs(runs)
+        if not request.force_rescan_of_ingested:
+            repo = get_designs_repository()
+            if repo.is_enabled():
+                before = len(merged)
+                merged = [
+                    r
+                    for r in merged
+                    if repo.get_run_by_group_key(run_group_key(r)) is None
+                ]
+                if before != len(merged):
+                    logger.info(
+                        "POST /scan omitted %s already-ingested run(s) (force_rescan_of_ingested=false)",
+                        before - len(merged),
+                    )
+        _scan_t.log(runs=len(merged))
+        return {"runs": merged}
     except Exception as e:
         logger.error(f"Error in scan_runs: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ingest-preview")
+async def ingest_preview(
+    body: IngestPreviewRequest,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
+    repo = get_designs_repository()
+    if not repo.is_enabled():
+        return {"reingest": []}
+    merged = merge_runs(body.runs)
+    reingest: List[Dict[str, str]] = []
+    seen: set[str] = set()
+    for run in merged:
+        gk = run_group_key(run)
+        if gk in seen:
+            continue
+        if repo.get_run_by_group_key(gk) is None:
+            continue
+        seen.add(gk)
+        name = (run.get("metadata") or {}).get("name", gk)
+        reingest.append({"run_group_key": gk, "display_name": str(name)})
+    return {"reingest": reingest}
+
+
+@router.post("/ingest")
+async def ingest_runs(
+    body: IngestRequest,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
+    repo = get_designs_repository()
+    if not repo.is_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="DATABASE is not configured or persistence is disabled",
+        )
+    try:
+        merged = merge_runs(body.runs)
+        out: List[Dict[str, Any]] = []
+        for run in merged:
+            gk = run_group_key(run)
+            existing = repo.get_run_by_group_key(gk)
+            run_id = str(existing["run_id"]) if existing else str(uuid.uuid4())
+            run["run_id"] = run_id
+            designs = parse_designs_from_run(run)
+            repo.upsert_run_and_replace_designs(gk, run_id, run, designs)
+            run_cache[run_id] = run
+            out.append(run)
+        refresh_designs_cache()
+        return {"runs": merge_runs(out)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("ingest_runs failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 def merge_runs(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -110,19 +180,28 @@ async def list_runs(
 async def delete_run(
     run_id: str, current_user: Optional[LocalUser] = Depends(get_current_user_optional)
 ):
-    if run_id in run_cache:
-        del run_cache[run_id]
-        return {"message": "Run removed from cache"}
-    else:
+    repo = get_designs_repository()
+    in_cache = run_id in run_cache
+    deleted_db = repo.is_enabled() and repo.delete_run(run_id)
+    if not in_cache and not deleted_db:
         raise HTTPException(status_code=404, detail="Run not found")
+    if in_cache:
+        del run_cache[run_id]
+    refresh_designs_cache()
+    return {"message": "Run removed"}
 
 
 @router.delete("")
 async def clear_runs(
     current_user: Optional[LocalUser] = Depends(get_current_user_optional),
 ):
+    repo = get_designs_repository()
+    if repo.is_enabled():
+        for row in repo.list_run_records():
+            repo.delete_run(row["run_id"])
     run_cache.clear()
-    return {"message": "All runs cleared from cache"}
+    refresh_designs_cache()
+    return {"message": "All runs cleared"}
 
 
 @router.get("/{run_id}/input-targets", response_model=InputTargetsResponse)

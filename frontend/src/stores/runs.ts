@@ -48,10 +48,6 @@ export const useRunsStore = defineStore('runs', () => {
         error.value = null
         try {
             const data = await runsApi.scanRuns(folders)
-            // Add new runs to existing ones (avoid duplicates)
-            const existingRunIds = new Set(runs.value.map(run => run.run_id))
-            const newRuns = data.runs.filter(run => !existingRunIds.has(run.run_id))
-            runs.value.push(...newRuns)
             lastScanned.value = new Date()
             return data.runs
         } catch (err) {

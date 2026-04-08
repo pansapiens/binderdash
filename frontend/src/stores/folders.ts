@@ -98,17 +98,15 @@ export const useFolderStore = defineStore('folders', () => {
         }
     }
 
-    const scanSelectedFolders = async () => {
+    const scanSelectedFolders = async (options?: { forceRescanOfIngested?: boolean }) => {
         if (selectedFolderNodes.value.length === 0) return []
 
         scanning.value = true
         try {
             const folderPaths = selectedFolderNodes.value.map(folder => folder.path)
-            const data = await runsApi.scanRuns(folderPaths)
+            const data = await runsApi.scanRuns(folderPaths, options)
             scanResults.value = data.runs
-
-            // Select all runs by default
-            selectedRuns.value = [...data.runs]
+            selectedRuns.value = []
 
             return data.runs
         } catch (err) {
@@ -119,14 +117,15 @@ export const useFolderStore = defineStore('folders', () => {
         }
     }
 
-    const scanFolders = async (folderPaths: string[]) => {
+    const scanFolders = async (
+        folderPaths: string[],
+        options?: { forceRescanOfIngested?: boolean }
+    ) => {
         scanning.value = true
         try {
-            const data = await runsApi.scanRuns(folderPaths)
+            const data = await runsApi.scanRuns(folderPaths, options)
             scanResults.value = data.runs
-
-            // Select all runs by default
-            selectedRuns.value = [...data.runs]
+            selectedRuns.value = []
 
             return data.runs
         } catch (err) {

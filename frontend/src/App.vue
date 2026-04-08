@@ -7,6 +7,7 @@ import Button from 'primevue/button'
 import RunsView from './components/DesignsView.vue'
 import PlotsView from './components/PlotsView.vue'
 import FolderBrowser from './components/FolderBrowser.vue'
+import SelectRunsPanel from './components/SelectRunsPanel.vue'
 import LoginView from './components/LoginView.vue'
 import { useDesignsStore, usePlotsStore, useRunsStore, useAuthStore } from './stores'
 
@@ -20,15 +21,14 @@ const authStore = useAuthStore()
 const runsViewRef = ref<any>(null)
 const plotsViewRef = ref<any>(null)
 
-// Handle runs scanned event from FolderBrowser
-const handleRunsScanned = (): void => {
-  designsStore.fetchDesigns()
-  runsStore.fetchRuns()
+const onIngestComplete = async (): Promise<void> => {
+  await runsStore.fetchRuns()
+  await designsStore.fetchDesigns()
 }
 
 // Handle tab change to refresh data when switching to Plots tab
 const handleTabChange = async (event: any): Promise<void> => {
-  if (event.index === 1) {
+  if (event.index === 2) {
     await nextTick()
     await plotsViewRef.value?.loadRunData?.()
   }
@@ -91,11 +91,14 @@ const shouldShowLoading = computed(() => {
           <TabPanel header="Designs" value="designs">
             <RunsView ref="runsViewRef" />
           </TabPanel>
+          <TabPanel header="Select Runs" value="select-runs">
+            <SelectRunsPanel />
+          </TabPanel>
           <TabPanel header="Plots" value="plots">
             <PlotsView ref="plotsViewRef" />
           </TabPanel>
-          <TabPanel header="Select Projects/Runs" value="folders">
-            <FolderBrowser @runs-scanned="handleRunsScanned" />
+          <TabPanel header="Ingest Runs" value="ingest">
+            <FolderBrowser @ingest-complete="onIngestComplete" />
           </TabPanel>
         </TabView>
       </main>
