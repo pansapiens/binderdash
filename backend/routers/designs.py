@@ -1,13 +1,25 @@
+import asyncio
 import logging
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_user_optional
 from ..cache import designs_cache, get_run_metadata, refresh_designs_cache
-from ..run_discovery import update_design_good_flag
-from ..schemas import DesignGoodUpdate
+from ..routers.files import _resolve_structure_path
+from ..run_discovery import update_design_good_flag, update_design_tag
+from ..schemas import (
+    DesignGoodUpdate,
+    DesignTagUpdate,
+    TagMetricsResponse,
+    TagMetricsRow,
+    TagPlacementRequest,
+    TagPlacementResponse,
+    TagPlacementResultRow,
+)
 from ..settings import LocalUser
+from ..tag_placement import compute_tag_for_structure_file, compute_tag_metrics_for_structure_file
 
 
 logger = logging.getLogger(__name__)
@@ -66,3 +78,230 @@ async def patch_design_good(
 
     refresh_designs_cache()
     return {"ok": True, "run_id": body.run_id, "design_id": body.design_id, "good": body.good}
+
+
+@router.patch("/tag")
+async def patch_design_tag(
+    body: DesignTagUpdate,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
+    run = get_run_metadata(body.run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    tag = body.tag
+    if tag is not None:
+        u = tag.strip().upper()
+        if u not in ("N", "C"):
+            raise HTTPException(
+                status_code=400,
+                detail="tag must be 'N', 'C', or omitted to clear",
+            )
+        tag = u
+
+    try:
+        update_design_tag(
+            run,
+            body.design_id,
+            tag,
+            source_path=body.source_path,
+        )
+    except ValueError as e:
+        msg = str(e)
+        if "not found" in msg.lower() or "no results" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg) from e
+        raise HTTPException(status_code=400, detail=msg) from e
+    except OSError as e:
+        logger.error("Error writing design tag: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    refresh_designs_cache()
+    return {"ok": True, "run_id": body.run_id, "design_id": body.design_id, "tag": tag}
+
+
+def _tag_placement_sync(body: TagPlacementRequest) -> TagPlacementResponse:
+    results: list[TagPlacementResultRow] = []
+    for item in body.designs:
+        run = get_run_metadata(item.run_id)
+        if not run:
+            results.append(
+                TagPlacementResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error="Run not found",
+                )
+            )
+            continue
+        fn_raw = (item.pdb_file or "").strip()
+        if not fn_raw:
+            results.append(
+                TagPlacementResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error="No structure file for design",
+                )
+            )
+            continue
+        fn = Path(fn_raw).name
+        pdb_path = _resolve_structure_path(
+            run.get("pdb_files", []), fn, run.get("method")
+        )
+        if pdb_path is None or not pdb_path.is_file():
+            results.append(
+                TagPlacementResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error="Structure file not found on disk",
+                )
+            )
+            continue
+        tag, err = compute_tag_for_structure_file(
+            Path(pdb_path),
+            binder_chain=body.binder_chain.strip() or "B",
+            distant_from=body.distant_from,
+            target_chains=body.target_chains,
+            sasa_probe_radius=body.sasa_probe_radius,
+            sasa_n_points=body.sasa_n_points,
+            sasa_threshold=body.sasa_threshold,
+            more_distant_threshold=body.more_distant_threshold,
+        )
+        if err:
+            results.append(
+                TagPlacementResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error=err,
+                )
+            )
+            continue
+        try:
+            update_design_tag(
+                run,
+                item.design_id,
+                tag,
+                source_path=item.source_path,
+            )
+        except ValueError as e:
+            results.append(
+                TagPlacementResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error=str(e),
+                )
+            )
+            continue
+        results.append(
+            TagPlacementResultRow(
+                run_id=item.run_id,
+                design_id=item.design_id,
+                tag=tag,
+            )
+        )
+    return TagPlacementResponse(results=results)
+
+
+def _tag_metrics_sync(body: TagPlacementRequest) -> TagMetricsResponse:
+    results: list[TagMetricsRow] = []
+    for item in body.designs:
+        run = get_run_metadata(item.run_id)
+        if not run:
+            results.append(
+                TagMetricsRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error="Run not found",
+                )
+            )
+            continue
+        fn_raw = (item.pdb_file or "").strip()
+        if not fn_raw:
+            results.append(
+                TagMetricsRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error="No structure file for design",
+                )
+            )
+            continue
+        fn = Path(fn_raw).name
+        pdb_path = _resolve_structure_path(
+            run.get("pdb_files", []), fn, run.get("method")
+        )
+        if pdb_path is None or not pdb_path.is_file():
+            results.append(
+                TagMetricsRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    pdb_file=fn,
+                    error="Structure file not found on disk",
+                )
+            )
+            continue
+        metrics, err = compute_tag_metrics_for_structure_file(
+            Path(pdb_path),
+            binder_chain=body.binder_chain.strip() or "B",
+            distant_from=body.distant_from,
+            target_chains=body.target_chains,
+            sasa_probe_radius=body.sasa_probe_radius,
+            sasa_n_points=body.sasa_n_points,
+            sasa_threshold=body.sasa_threshold,
+            more_distant_threshold=body.more_distant_threshold,
+        )
+        if err:
+            results.append(
+                TagMetricsRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    pdb_file=fn,
+                    error=err,
+                )
+            )
+            continue
+        results.append(
+            TagMetricsRow(
+                run_id=item.run_id,
+                design_id=item.design_id,
+                pdb_file=fn,
+                **metrics,
+            )
+        )
+    return TagMetricsResponse(results=results)
+
+
+@router.post("/refresh-cache")
+async def post_refresh_designs_cache(
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
+    try:
+        refresh_designs_cache()
+        return {"ok": True}
+    except Exception as e:
+        logger.error("refresh-designs-cache failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/tag-metrics", response_model=TagMetricsResponse)
+async def post_tag_metrics(
+    body: TagPlacementRequest,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
+    try:
+        return await asyncio.to_thread(_tag_metrics_sync, body)
+    except Exception as e:
+        logger.error("tag-metrics failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/tag-placement", response_model=TagPlacementResponse)
+async def post_tag_placement(
+    body: TagPlacementRequest,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
+    try:
+        out = await asyncio.to_thread(_tag_placement_sync, body)
+        if body.refresh_cache_after:
+            refresh_designs_cache()
+        return out
+    except Exception as e:
+        logger.error("tag-placement batch failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e

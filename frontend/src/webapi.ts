@@ -54,6 +54,63 @@ interface DesignsResponse {
     designs: Design[];
 }
 
+export interface TagPlacementItem {
+    run_id: string
+    design_id: string
+    pdb_file?: string | null
+    source_path?: string | null
+}
+
+export interface TagPlacementRequest {
+    designs: TagPlacementItem[]
+    binder_chain?: string
+    /** Comma- or space-separated chain IDs for target distance / contact calcs. */
+    target_chains?: string | null
+    distant_from?: string | null
+    sasa_probe_radius?: number
+    sasa_n_points?: number
+    sasa_threshold?: number
+    more_distant_threshold?: number
+    /** When false, server skips rebuilding designs cache (use refreshDesignsCache once after a batch). */
+    refresh_cache_after?: boolean
+}
+
+export interface TagPlacementResultRow {
+    run_id: string
+    design_id: string
+    tag?: string | null
+    error?: string | null
+}
+
+export interface TagPlacementResponse {
+    results: TagPlacementResultRow[]
+}
+
+export interface TagMetricsRow {
+    run_id: string
+    design_id: string
+    pdb_file?: string | null
+    sequence?: string | null
+    n_aa_type?: string | null
+    c_aa_type?: string | null
+    n_sasa?: number | null
+    c_sasa?: number | null
+    n_percent_sasa?: number | null
+    c_percent_sasa?: number | null
+    n_percent_buried?: number | null
+    c_percent_buried?: number | null
+    n_c_dist?: number | null
+    n_dist_target?: number | null
+    c_dist_target?: number | null
+    n_target_contacts?: boolean | null
+    c_target_contacts?: boolean | null
+    predicted_tag?: string | null
+    error?: string | null
+}
+
+export interface TagMetricsResponse {
+    results: TagMetricsRow[]
+}
 
 interface MessageResponse {
     message: string;
@@ -195,7 +252,8 @@ export const runsApi = {
      * @returns URL to the structure file (authentication via cookies)
      */
     getStructureFileUrl(runId: string, filename: string): string {
-        return `${API_BASE}/api/runs/${runId}/files/structure/${filename}`
+        const enc = encodeURIComponent(filename)
+        return `${API_BASE}/api/runs/${runId}/files/structure/${enc}`
     },
     /**
      * Backwards-compatible alias for structure URLs.
@@ -328,6 +386,43 @@ export const designsApi = {
         return await apiRequest<{ ok: boolean }>(`${API_BASE}/api/designs/good`, {
             method: 'PATCH',
             body: JSON.stringify(payload),
+            requireAuth: true
+        })
+    },
+
+    async patchDesignTag(payload: {
+        run_id: string
+        design_id: string
+        tag: 'N' | 'C' | null
+        source_path?: string
+    }): Promise<{ ok: boolean }> {
+        return await apiRequest<{ ok: boolean }>(`${API_BASE}/api/designs/tag`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+            requireAuth: true
+        })
+    },
+
+    async postTagPlacement(payload: TagPlacementRequest): Promise<TagPlacementResponse> {
+        return await apiRequest<TagPlacementResponse>(`${API_BASE}/api/designs/tag-placement`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            requireAuth: true
+        })
+    },
+
+    async postTagMetrics(payload: TagPlacementRequest): Promise<TagMetricsResponse> {
+        return await apiRequest<TagMetricsResponse>(`${API_BASE}/api/designs/tag-metrics`, {
+            method: 'POST',
+            body: JSON.stringify({ ...payload, refresh_cache_after: false }),
+            requireAuth: true
+        })
+    },
+
+    async refreshDesignsCache(): Promise<{ ok: boolean }> {
+        return await apiRequest<{ ok: boolean }>(`${API_BASE}/api/designs/refresh-cache`, {
+            method: 'POST',
+            body: '{}',
             requireAuth: true
         })
     }

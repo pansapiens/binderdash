@@ -26,15 +26,23 @@
       class="molstar-membrane-overlay"
       aria-hidden="true"
     />
+    <canvas
+      v-show="!loading && !error"
+      ref="tagMarkerCanvasEl"
+      class="molstar-tag-marker-overlay"
+      aria-hidden="true"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick, readonly } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick, readonly, withDefaults } from 'vue'
 import { PDBeMolstarPlugin } from 'pdbe-molstar/lib/viewer'
 import 'pdbe-molstar/lib/styles/pdbe-molstar-light.scss'
 import type { MembraneData } from '../membraneOverlay'
 import { paintMembraneScreenOverlay } from '../membraneScreenOverlay'
+import { parseStructureTextTerminalCA } from '../pdbTerminalCa'
+import { paintTagMarkerScreenOverlay } from '../tagMarkerScreenOverlay'
 
 if (typeof window !== 'undefined') {
   window.PDBeMolstarPlugin = PDBeMolstarPlugin
@@ -50,29 +58,40 @@ declare global {
 }
 
 // Props
-const props = defineProps<{
-  pdbUrl: string
-  /** TM-aligned reference (URL or blob URL), shown as a second structure */
-  referenceUrl?: string
-  /**
-   * Format for `referenceUrl` when it has no path suffix (e.g. blob: from our API).
-   * Aligned references are mmCIF; without this, Mol* may mis-parse blob URLs as PDB.
-   */
-  referenceDataFormat?: 'pdb' | 'mmcif'
-  /** PDBTM-derived membrane planes in design coordinates (from reference API headers). */
-  membraneData?: MembraneData | null
-  structureInfo?: any
-  autoFocus?: boolean
-  showControls?: boolean
-  backgroundColor?: { r: number, g: number, b: number }
-}>()
+const props = withDefaults(
+  defineProps<{
+    pdbUrl: string
+    /** TM-aligned reference (URL or blob URL), shown as a second structure */
+    referenceUrl?: string
+    /**
+     * Format for `referenceUrl` when it has no path suffix (e.g. blob: from our API).
+     * Aligned references are mmCIF; without this, Mol* may mis-parse blob URLs as PDB.
+     */
+    referenceDataFormat?: 'pdb' | 'mmcif'
+    /** PDBTM-derived membrane planes in design coordinates (from reference API headers). */
+    membraneData?: MembraneData | null
+    structureInfo?: any
+    autoFocus?: boolean
+    showControls?: boolean
+    backgroundColor?: { r: number, g: number, b: number }
+    /** Visual marker at binder N- or C-terminus (PDB primary structure only). */
+    tagOverlay?: 'none' | 'N' | 'C'
+    tagBinderChain?: string
+  }>(),
+  {
+    tagOverlay: 'none',
+    tagBinderChain: 'B',
+  }
+)
 
 // State
 const molstarContainer = ref<HTMLElement | null>(null)
 const membraneCanvasEl = ref<HTMLCanvasElement | null>(null)
+const tagMarkerCanvasEl = ref<HTMLCanvasElement | null>(null)
 const viewerInstance = ref<any>(null)
-let membraneDidDrawSub: { unsubscribe: () => void } | null = null
-let membraneResizeObserver: ResizeObserver | null = null
+let overlayDidDrawSub: { unsubscribe: () => void } | null = null
+let overlayResizeObserver: ResizeObserver | null = null
+const tagMarkerWorldPos = ref<{ x: number; y: number; z: number } | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const isSpinning = ref(false)
@@ -111,6 +130,38 @@ const getReferenceTrajectoryFormat = (): string => {
 const hasReferenceUrl = (): boolean => {
   const r = props.referenceUrl
   return typeof r === 'string' && r.trim().length > 0
+}
+
+const applyBinderTagOverlay = async () => {
+  if (!viewerAlive.value || !viewerInstance.value) return
+  if (props.tagOverlay === 'none' || !props.pdbUrl) {
+    tagMarkerWorldPos.value = null
+    paintTagMarkerIfActive()
+    return
+  }
+  try {
+    const res = await fetch(props.pdbUrl, { credentials: 'include' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const text = await res.text()
+    const chain = (props.tagBinderChain && props.tagBinderChain.trim()) || 'B'
+    const coords = parseStructureTextTerminalCA(text, chain)
+    if (!coords) {
+      console.warn(
+        'MolstarViewer: could not find terminal CA atoms for binder chain',
+        chain
+      )
+      tagMarkerWorldPos.value = null
+      paintTagMarkerIfActive()
+      return
+    }
+    const pt = props.tagOverlay === 'N' ? coords.n : coords.c
+    tagMarkerWorldPos.value = { x: pt.x, y: pt.y, z: pt.z }
+    paintTagMarkerIfActive()
+  } catch (e) {
+    console.warn('MolstarViewer: His-tag overlay failed', e)
+    tagMarkerWorldPos.value = null
+    paintTagMarkerIfActive()
+  }
 }
 
 const REFERENCE_STRUCTURE_INDEX = 2
@@ -225,9 +276,9 @@ const referenceOverlayVisualOptions = () => ({
   hideControls: getHideControlsForPluginUpdate(),
 })
 
-const unsubscribeMembranePaint = () => {
-  membraneDidDrawSub?.unsubscribe()
-  membraneDidDrawSub = null
+const unsubscribeOverlayPaint = () => {
+  overlayDidDrawSub?.unsubscribe()
+  overlayDidDrawSub = null
 }
 
 const clearMembraneCanvasPixels = () => {
@@ -239,14 +290,24 @@ const clearMembraneCanvasPixels = () => {
   }
 }
 
-const clearMembraneOverlayOnly = () => {
-  unsubscribeMembranePaint()
-  clearMembraneCanvasPixels()
+const clearTagMarkerCanvasPixels = () => {
+  const overlay = tagMarkerCanvasEl.value
+  if (!overlay) return
+  const ctx = overlay.getContext('2d')
+  if (ctx && overlay.width > 0 && overlay.height > 0) {
+    ctx.clearRect(0, 0, overlay.width, overlay.height)
+  }
 }
 
-const syncMembraneCanvasLayout = () => {
+const clearMembraneOverlayOnly = () => {
+  unsubscribeOverlayPaint()
+  clearMembraneCanvasPixels()
+  clearTagMarkerCanvasPixels()
+  tagMarkerWorldPos.value = null
+}
+
+const syncOverlayCanvasLayout = (overlay: HTMLCanvasElement | null) => {
   const container = molstarContainer.value
-  const overlay = membraneCanvasEl.value
   if (!container || !overlay) return
   const gl = container.querySelector('canvas') as HTMLCanvasElement | null
   if (!gl || gl.width < 2 || gl.height < 2) return
@@ -258,6 +319,10 @@ const syncMembraneCanvasLayout = () => {
   overlay.style.top = `${gr.top - cr.top}px`
   overlay.style.width = `${gr.width}px`
   overlay.style.height = `${gr.height}px`
+}
+
+const syncMembraneCanvasLayout = () => {
+  syncOverlayCanvasLayout(membraneCanvasEl.value)
 }
 
 const paintMembraneIfActive = () => {
@@ -284,34 +349,69 @@ const paintMembraneIfActive = () => {
   )
 }
 
-const setupMembraneResizeObserver = () => {
-  membraneResizeObserver?.disconnect()
-  const el = molstarContainer.value
-  if (!el || typeof ResizeObserver === 'undefined') return
-  membraneResizeObserver = new ResizeObserver(() => {
-    paintMembraneIfActive()
-  })
-  membraneResizeObserver.observe(el)
+const paintTagMarkerIfActive = () => {
+  const overlay = tagMarkerCanvasEl.value
+  const c3d = viewerInstance.value?.plugin?.canvas3d
+  const pos = tagMarkerWorldPos.value
+  if (!overlay || !c3d?.camera?.project) {
+    clearTagMarkerCanvasPixels()
+    return
+  }
+  if (props.tagOverlay === 'none' || !pos) {
+    clearTagMarkerCanvasPixels()
+    return
+  }
+  syncOverlayCanvasLayout(overlay)
+  const ctx = overlay.getContext('2d')
+  if (!ctx || overlay.width < 2 || overlay.height < 2) return
+  paintTagMarkerScreenOverlay(
+    ctx,
+    props.tagOverlay,
+    (o, p) => c3d.camera.project(o, p),
+    overlay.width,
+    overlay.height,
+    pos.x,
+    pos.y,
+    pos.z,
+  )
 }
 
-const syncMembraneAfterReference = async () => {
-  unsubscribeMembranePaint()
-  clearMembraneCanvasPixels()
-  if (!props.membraneData || !hasReferenceUrl()) return
+const paintAllOverlays = () => {
+  paintMembraneIfActive()
+  paintTagMarkerIfActive()
+}
+
+const setupOverlayResizeObserver = () => {
+  overlayResizeObserver?.disconnect()
+  const el = molstarContainer.value
+  if (!el || typeof ResizeObserver === 'undefined') return
+  overlayResizeObserver = new ResizeObserver(() => {
+    paintAllOverlays()
+  })
+  overlayResizeObserver.observe(el)
+}
+
+const subscribeOverlayPaint = async () => {
+  unsubscribeOverlayPaint()
   await nextTick()
   const c3d = viewerInstance.value?.plugin?.canvas3d
   if (!c3d?.didDraw?.subscribe) return
   try {
-    membraneDidDrawSub = c3d.didDraw.subscribe(() => {
-      paintMembraneIfActive()
+    overlayDidDrawSub = c3d.didDraw.subscribe(() => {
+      paintAllOverlays()
     })
   } catch {
     /* ignore */
   }
-  setupMembraneResizeObserver()
+  setupOverlayResizeObserver()
   requestAnimationFrame(() => {
-    paintMembraneIfActive()
+    paintAllOverlays()
   })
+}
+
+const syncMembraneAfterReference = async () => {
+  clearMembraneCanvasPixels()
+  await subscribeOverlayPaint()
 }
 
 const appendReferenceStructure = async (): Promise<boolean> => {
@@ -361,6 +461,7 @@ const runLoadStructure = async (): Promise<void> => {
   }
 
   if (!props.pdbUrl) {
+    clearMembraneOverlayOnly()
     viewerInstance.value = null
     if (molstarContainer.value) {
       molstarContainer.value.innerHTML = ''
@@ -401,10 +502,13 @@ const runLoadStructure = async (): Promise<void> => {
         if (props.autoFocus !== false) {
           await focusOnStructure()
         }
+        await applyBinderTagOverlay()
+        await subscribeOverlayPaint()
         return
       }
       await fullReload()
       if (!viewerAlive.value) return
+      await applyBinderTagOverlay()
       return
     }
 
@@ -417,11 +521,13 @@ const runLoadStructure = async (): Promise<void> => {
         await syncMembraneAfterReference()
       } else {
         clearMembraneOverlayOnly()
+        await subscribeOverlayPaint()
       }
       if (props.autoFocus !== false) {
         await focusOnStructure()
       }
     }
+    await applyBinderTagOverlay()
   } catch (err) {
     if (!viewerAlive.value) return
     console.error('Error loading Molstar viewer:', err)
@@ -507,6 +613,8 @@ const fullReload = async () => {
   if (props.autoFocus !== false) {
     await focusOnStructure()
   }
+
+  await subscribeOverlayPaint()
 }
 
 // Watchers
@@ -521,6 +629,14 @@ watch(
   { immediate: false }
 )
 
+watch(
+  () => [props.tagOverlay, props.tagBinderChain] as const,
+  async () => {
+    await nextTick()
+    if (!loading.value) await applyBinderTagOverlay()
+  }
+)
+
 // Lifecycle
 onMounted(() => {
   if (props.pdbUrl) {
@@ -529,8 +645,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  membraneResizeObserver?.disconnect()
-  membraneResizeObserver = null
+  overlayResizeObserver?.disconnect()
+  overlayResizeObserver = null
   clearMembraneOverlayOnly()
   if (viewerInstance.value) {
     try {
@@ -643,7 +759,7 @@ const toggleReferenceStructureVisibility = async (forceState?: boolean) => {
   } catch (e) {
     console.warn('PDBe Molstar: toggle reference structure visibility failed', e)
   }
-  paintMembraneIfActive()
+  paintAllOverlays()
 }
 
 /** Call when the user clears the overlay so the next load defaults to reference visible. */
@@ -673,11 +789,17 @@ const toggleAlphaFoldView = async (forceState?: boolean) => {
         if (hasReferenceUrl()) {
           const refOk = await appendReferenceStructure()
           if (refOk) await syncMembraneAfterReference()
-          else clearMembraneOverlayOnly()
+          else {
+            clearMembraneOverlayOnly()
+            await subscribeOverlayPaint()
+          }
+        } else {
+          await subscribeOverlayPaint()
         }
         if (props.autoFocus !== false) {
           await focusOnStructure()
         }
+        await applyBinderTagOverlay()
       } else {
         await loadStructure()
       }
@@ -733,6 +855,12 @@ defineExpose({
   position: absolute;
   pointer-events: none;
   z-index: 3;
+}
+
+.molstar-tag-marker-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 4;
 }
 
 .molstar-loading {

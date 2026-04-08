@@ -608,6 +608,60 @@ def update_design_good_flag(
     raise ValueError(f"Design {design_id!r} not found in results table")
 
 
+def update_design_tag(
+    run_metadata: Dict[str, Any],
+    design_id: str,
+    tag: Optional[str],
+    source_path: Optional[str] = None,
+) -> None:
+    """Write the ``tag`` column (N / C / cleared) for one row in the run's results table."""
+    results_table = run_metadata.get("results_table")
+    if not results_table:
+        raise ValueError("Run has no results_table path configured")
+
+    signature = run_metadata.get("signature", {})
+    merged_paths = list(run_metadata.get("merged_paths") or [run_metadata["path"]])
+
+    ordered_bases = list(merged_paths)
+    if source_path and source_path in merged_paths:
+        ordered_bases = [source_path] + [p for p in merged_paths if p != source_path]
+
+    saw_table = False
+    for base in ordered_bases:
+        table_path = Path(base) / results_table
+        if not table_path.is_file():
+            continue
+
+        saw_table = True
+        sep = "\t" if table_path.suffix.lower() == ".tsv" else ","
+        df = pd.read_csv(table_path, sep=sep)
+        id_col = resolve_design_id_column(df, signature)
+        if not id_col:
+            raise ValueError("Could not resolve design id column in results table")
+
+        mask = df[id_col].astype(str) == str(design_id)
+        if not mask.any():
+            continue
+
+        if "tag" not in df.columns:
+            df["tag"] = np.nan
+
+        df["tag"] = df["tag"].astype(object)
+        if tag is None:
+            df.loc[mask, "tag"] = np.nan
+        else:
+            df.loc[mask, "tag"] = str(tag)
+
+        df.to_csv(table_path, sep=sep, index=False, na_rep="")
+        return
+
+    if not saw_table:
+        raise ValueError(
+            f"Results table not found at {results_table!r} under run path(s)"
+        )
+    raise ValueError(f"Design {design_id!r} not found in results table")
+
+
 def load_run_table(run_metadata: Dict[str, Any]) -> Optional[pd.DataFrame]:
     _t = Timer(logger, "load_run_table", path=run_metadata.get("path")).start()
     try:

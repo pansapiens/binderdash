@@ -620,6 +620,8 @@
             :structure-info="designsStore.currentStructure"
             :auto-focus="true"
             :show-controls="false"
+            :tag-overlay="tagOverlayMode"
+            :tag-binder-chain="tagPlacementBinderChain"
             ref="molstarViewerRef"
           />
           <div
@@ -705,6 +707,27 @@
               tooltip="Toggle reference structure visibility"
               aria-label="Toggle reference structure visibility"
             />
+            <Button
+              @click="cycleTagOverlay"
+              text
+              rounded
+              v-tooltip.top="tagToolbarTooltip"
+              :aria-label="tagToolbarTooltip"
+              :disabled="!designsStore.currentStructure || tagToolbarPending"
+            >
+              <span class="tag-toolbar-label">
+                Tag:
+                <span
+                  v-if="tagOverlayMode === 'N'"
+                  class="tag-toolbar-mode tag-toolbar-mode--n"
+                >N</span>
+                <span
+                  v-else-if="tagOverlayMode === 'C'"
+                  class="tag-toolbar-mode tag-toolbar-mode--c"
+                >C</span>
+                <span v-else class="tag-toolbar-mode">off</span>
+              </span>
+            </Button>
           </div>
         </div>
 
@@ -722,7 +745,7 @@
               :class="showAdvancedOptions ? 'pi-chevron-down' : 'pi-chevron-right'"
               aria-hidden="true"
             />
-            <span class="advanced-options-disclosure-label">Advanced options</span>
+            <span class="advanced-options-disclosure-label">Reference structure</span>
           </button>
           <div
             v-show="showAdvancedOptions"
@@ -829,6 +852,228 @@
             </div>
           </div>
         </div>
+
+        <div v-if="designsStore.currentStructure" class="advanced-options-section">
+          <button
+            type="button"
+            class="advanced-options-disclosure"
+            @click="toggleTagPlacementOptions"
+            :aria-expanded="showTagPlacementOptions"
+            aria-controls="tag-placement-content"
+            id="tag-placement-disclosure"
+          >
+            <i
+              class="pi advanced-options-chevron"
+              :class="showTagPlacementOptions ? 'pi-chevron-down' : 'pi-chevron-right'"
+              aria-hidden="true"
+            />
+            <span class="advanced-options-disclosure-label">Tag placement</span>
+          </button>
+          <div
+            v-show="showTagPlacementOptions"
+            id="tag-placement-content"
+            role="region"
+            aria-labelledby="tag-placement-disclosure"
+            class="advanced-options-expanded"
+          >
+            <div class="advanced-options-body">
+              <p class="tag-metrics-hint">
+                Metrics for the current Tag placement parameters (SASA, distant from, binder chain).
+                {{ !designsStore.selectedDesigns.length ? 'Select design(s) in the table above.' : '' }}
+              </p>
+              <DataTable
+                v-if="designsStore.selectedDesigns.length"
+                v-model:first="tagMetricsFirst"
+                class="tag-metrics-datatable"
+                :value="tagMetricsRows"
+                :loading="tagMetricsLoading"
+                dataKey="_tmKey"
+                size="small"
+                paginator
+                v-model:rows="tagMetricsPageSize"
+                :rowsPerPageOptions="[1, 5, 10, 25]"
+                paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
+                currentPageReportTemplate="{first}–{last} of {totalRecords}"
+                showGridlines
+                scrollable
+                scrollHeight="280px"
+              >
+                <Column field="design_id" header="Design ID" :style="{ minWidth: '120px' }" frozen />
+                <Column field="n_aa_type" header="N aa" :style="{ minWidth: '64px' }" />
+                <Column field="c_aa_type" header="C aa" :style="{ minWidth: '64px' }" />
+                <Column header="N SASA" :style="{ minWidth: '72px' }">
+                  <template #body="{ data }">{{ formatTagMetricNum(data.n_sasa) }}</template>
+                </Column>
+                <Column header="C SASA" :style="{ minWidth: '72px' }">
+                  <template #body="{ data }">{{ formatTagMetricNum(data.c_sasa) }}</template>
+                </Column>
+                <Column header="N % SASA" :style="{ minWidth: '80px' }">
+                  <template #body="{ data }">{{ formatTagMetricNum(data.n_percent_sasa) }}</template>
+                </Column>
+                <Column header="C % SASA" :style="{ minWidth: '80px' }">
+                  <template #body="{ data }">{{ formatTagMetricNum(data.c_percent_sasa) }}</template>
+                </Column>
+                <Column header="N % buried" :style="{ minWidth: '88px' }">
+                  <template #body="{ data }">
+                    <span :class="tagMetricsCellMutedClass(data.n_percent_sasa)">{{ formatTagMetricNum(data.n_percent_buried) }}</span>
+                  </template>
+                </Column>
+                <Column header="C % buried" :style="{ minWidth: '88px' }">
+                  <template #body="{ data }">
+                    <span :class="tagMetricsCellMutedClass(data.c_percent_sasa)">{{ formatTagMetricNum(data.c_percent_buried) }}</span>
+                  </template>
+                </Column>
+                <Column header="N–C (Å)" :style="{ minWidth: '72px' }">
+                  <template #body="{ data }">{{ formatTagMetricNum(data.n_c_dist) }}</template>
+                </Column>
+                <Column header="N→tgt (Å)" :style="{ minWidth: '80px' }">
+                  <template #body="{ data }">
+                    <span :class="tagMetricsTgtDistClass(data, 'n')">{{ formatTagMetricNum(data.n_dist_target) }}</span>
+                  </template>
+                </Column>
+                <Column header="C→tgt (Å)" :style="{ minWidth: '80px' }">
+                  <template #body="{ data }">
+                    <span :class="tagMetricsTgtDistClass(data, 'c')">{{ formatTagMetricNum(data.c_dist_target) }}</span>
+                  </template>
+                </Column>
+                <Column header="N tgt hit" :style="{ minWidth: '72px' }">
+                  <template #body="{ data }">
+                    <span :class="tagMetricsHitClass(data.n_target_contacts)">{{ formatTagMetricBool(data.n_target_contacts) }}</span>
+                  </template>
+                </Column>
+                <Column header="C tgt hit" :style="{ minWidth: '72px' }">
+                  <template #body="{ data }">
+                    <span :class="tagMetricsHitClass(data.c_target_contacts)">{{ formatTagMetricBool(data.c_target_contacts) }}</span>
+                  </template>
+                </Column>
+                <Column header="Predicted" :style="{ minWidth: '88px' }">
+                  <template #body="{ data }">
+                    <span v-if="data.error" class="tag-metrics-error">—</span>
+                    <span
+                      v-else-if="String(data.predicted_tag ?? '').trim().toUpperCase() === 'N'"
+                      class="tag-metrics-pred tag-metrics-pred--n"
+                    >N</span>
+                    <span
+                      v-else-if="String(data.predicted_tag ?? '').trim().toUpperCase() === 'C'"
+                      class="tag-metrics-pred tag-metrics-pred--c"
+                    >C</span>
+                    <span v-else>{{ data.predicted_tag ?? '—' }}</span>
+                  </template>
+                </Column>
+                <Column field="pdb_file" header="Structure file" :style="{ minWidth: '140px' }" />
+                <Column header="Sequence" :style="{ minWidth: '100px', maxWidth: '140px' }">
+                  <template #body="{ data }">
+                    <span
+                      class="tag-metrics-seq"
+                      :title="data.sequence || undefined"
+                    >{{ data.sequence || '—' }}</span>
+                  </template>
+                </Column>
+                <Column header="Error" :style="{ minWidth: '160px' }">
+                  <template #body="{ data }">
+                    <span v-if="data.error" class="tag-metrics-error">{{ data.error }}</span>
+                    <span v-else>—</span>
+                  </template>
+                </Column>
+              </DataTable>
+              <div class="advanced-actions advanced-actions--tag-top">
+                <Button
+                  label="Auto detect"
+                  icon="pi pi-bolt"
+                  @click="runTagPlacementAutoDetect"
+                  :loading="tagPlacementLoading"
+                  :disabled="designsStore.selectedDesigns.length === 0"
+                />
+              </div>
+              <div class="advanced-row">
+                <Checkbox
+                  v-model="tagPlacementOnlyEmptyTags"
+                  input-id="tag-only-empty"
+                  :binary="true"
+                />
+                <label for="tag-only-empty" class="advanced-checkbox-label">
+                  Only assign empty tags
+                </label>
+              </div>
+              <div class="advanced-row advanced-row--full">
+                <label for="tag-binder-chain" class="advanced-label">Binder chain</label>
+                <InputText
+                  id="tag-binder-chain"
+                  v-model="tagPlacementBinderChain"
+                  maxlength="4"
+                  class="advanced-input"
+                  placeholder="B"
+                />
+              </div>
+              <div class="advanced-row advanced-row--full">
+                <label for="tag-target-chains" class="advanced-label">Target chain(s)</label>
+                <InputText
+                  id="tag-target-chains"
+                  v-model="tagPlacementTargetChains"
+                  class="advanced-input"
+                  placeholder="Comma or space separated, e.g. A or HL"
+                />
+              </div>
+              <div class="advanced-row advanced-row--full">
+                <label for="tag-distant-from" class="advanced-label">Distant from</label>
+                <InputText
+                  id="tag-distant-from"
+                  v-model="tagPlacementDistantFrom"
+                  class="advanced-input"
+                  placeholder="e.g. A118,A142 (optional)"
+                />
+              </div>
+              <div class="advanced-row advanced-row--full">
+                <label for="tag-sasa-probe" class="advanced-label">SASA probe radius (Å)</label>
+                <InputNumber
+                  id="tag-sasa-probe"
+                  v-model="tagPlacementSasaProbe"
+                  :min="0.1"
+                  :max="4"
+                  :step="0.1"
+                  :show-buttons="true"
+                  class="tag-placement-input-number"
+                />
+              </div>
+              <div class="advanced-row advanced-row--full">
+                <label for="tag-sasa-points" class="advanced-label">SASA sphere points</label>
+                <InputNumber
+                  id="tag-sasa-points"
+                  v-model="tagPlacementSasaPoints"
+                  :min="20"
+                  :max="500"
+                  :step="10"
+                  :show-buttons="true"
+                  class="tag-placement-input-number"
+                />
+              </div>
+              <div class="advanced-row advanced-row--full">
+                <label for="tag-sasa-threshold" class="advanced-label">SASA threshold (%)</label>
+                <InputNumber
+                  id="tag-sasa-threshold"
+                  v-model="tagPlacementSasaThreshold"
+                  :min="0"
+                  :max="100"
+                  :step="1"
+                  :show-buttons="true"
+                  class="tag-placement-input-number"
+                />
+              </div>
+              <div class="advanced-row advanced-row--full">
+                <label for="tag-more-dist" class="advanced-label">More distant threshold (Å)</label>
+                <InputNumber
+                  id="tag-more-dist"
+                  v-model="tagPlacementMoreDist"
+                  :min="0"
+                  :max="50"
+                  :step="0.5"
+                  :show-buttons="true"
+                  class="tag-placement-input-number"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div v-else class="no-selection">
@@ -873,7 +1118,8 @@ import Toast from 'primevue/toast'
 import Dialog from 'primevue/dialog'
 import MolstarViewer from './MolstarViewer.vue'
 import type { MembraneData } from '../membraneOverlay'
-import { runsApi } from '../webapi'
+import { designsApi, runsApi } from '../webapi'
+import type { TagMetricsRow, TagPlacementResultRow } from '../webapi'
 import { useDesignsStore, useAppStore, useAuthStore, useFolderStore } from '../stores'
 import type { CustomFilter } from '../types/store'
 
@@ -889,7 +1135,448 @@ const folderStore = useFolderStore()
 const showColumnSelector = ref(false)
 const showFilterPanel = ref(false)
 const showAdvancedOptions = ref(false)
+const showTagPlacementOptions = ref(false)
 const molstarViewerRef = ref<any>(null)
+
+const tagOverlayMode = ref<'none' | 'N' | 'C'>('none')
+const tagToolbarPending = ref(false)
+const TAG_PLACEMENT_DEFAULTS = {
+  binderChain: 'B',
+  targetChains: '',
+  distantFrom: '',
+  sasaProbe: 1.4,
+  sasaPoints: 100,
+  sasaThreshold: 30,
+  moreDist: 5,
+  onlyEmptyTags: false,
+} as const
+
+const tagPlacementBinderChain = ref(TAG_PLACEMENT_DEFAULTS.binderChain)
+const tagPlacementTargetChains = ref(TAG_PLACEMENT_DEFAULTS.targetChains)
+const tagPlacementDistantFrom = ref(TAG_PLACEMENT_DEFAULTS.distantFrom)
+const tagPlacementSasaProbe = ref(TAG_PLACEMENT_DEFAULTS.sasaProbe)
+const tagPlacementSasaPoints = ref(TAG_PLACEMENT_DEFAULTS.sasaPoints)
+const tagPlacementSasaThreshold = ref(TAG_PLACEMENT_DEFAULTS.sasaThreshold)
+const tagPlacementMoreDist = ref(TAG_PLACEMENT_DEFAULTS.moreDist)
+const tagPlacementOnlyEmptyTags = ref(TAG_PLACEMENT_DEFAULTS.onlyEmptyTags)
+const tagPlacementLoading = ref(false)
+
+type TagMetricsTableRow = TagMetricsRow & { _tmKey: string }
+
+const tagMetricsRows = ref<TagMetricsTableRow[]>([])
+const tagMetricsLoading = ref(false)
+const tagMetricsFirst = ref(0)
+const tagMetricsPageSize = ref(1)
+let tagMetricsDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+const formatTagMetricNum = (v: number | null | undefined): string => {
+  if (v == null || Number.isNaN(Number(v))) return '—'
+  const n = Number(v)
+  return Number.isInteger(n) ? String(n) : n.toFixed(2)
+}
+
+const formatTagMetricBool = (v: boolean | null | undefined): string => {
+  if (v === true) return 'Yes'
+  if (v === false) return 'No'
+  return '—'
+}
+
+const tagMetricsCellMutedClass = (percentSasa: number | null | undefined): string => {
+  const threshold = tagPlacementSasaThreshold.value
+  if (percentSasa == null || Number.isNaN(Number(percentSasa))) return ''
+  if (typeof threshold !== 'number' || Number.isNaN(Number(threshold))) return ''
+  return Number(percentSasa) < threshold ? 'tag-metrics-cell tag-metrics-cell--muted' : 'tag-metrics-cell'
+}
+
+const tagMetricsTgtDistClass = (row: TagMetricsRow, which: 'n' | 'c'): string => {
+  const n = row.n_dist_target
+  const c = row.c_dist_target
+  const nn = n == null || Number.isNaN(Number(n)) ? null : Number(n)
+  const cc = c == null || Number.isNaN(Number(c)) ? null : Number(c)
+
+  if (nn == null && cc == null) return ''
+  if (nn != null && cc == null) return which === 'n' ? 'tag-metrics-cell tag-metrics-cell--highlight' : ''
+  if (cc != null && nn == null) return which === 'c' ? 'tag-metrics-cell tag-metrics-cell--highlight' : ''
+  if (nn != null && cc != null) {
+    if (nn === cc) return 'tag-metrics-cell'
+    if (which === 'n') return nn > cc ? 'tag-metrics-cell tag-metrics-cell--highlight' : 'tag-metrics-cell'
+    return cc > nn ? 'tag-metrics-cell tag-metrics-cell--highlight' : 'tag-metrics-cell'
+  }
+  return ''
+}
+
+const tagMetricsHitClass = (v: boolean | null | undefined): string => {
+  if (v === true) return 'tag-metrics-cell tag-metrics-cell--highlight'
+  if (v === false) return 'tag-metrics-cell'
+  return ''
+}
+
+/** Empty target → opposite chain for binder A/B; flipping A↔B updates target if it still matched the old default. */
+const applyOppositeBinderDefaultTargetChains = (
+  oldBinder: string | undefined,
+  newBinder: string | undefined,
+) => {
+  const t = tagPlacementTargetChains.value.trim().toUpperCase()
+  const o = oldBinder != null ? String(oldBinder).trim().toUpperCase() : ''
+  const n = newBinder != null ? String(newBinder).trim().toUpperCase() : ''
+  const opposite = (binder: string) => {
+    if (binder === 'B') return 'A'
+    if (binder === 'A') return 'B'
+    return ''
+  }
+  const pn = opposite(n)
+  if (t === '') {
+    if (pn) tagPlacementTargetChains.value = pn
+    return
+  }
+  const po = opposite(o)
+  if (po && t === po && pn && t !== pn) {
+    tagPlacementTargetChains.value = pn
+  }
+}
+
+const loadTagMetrics = async () => {
+  tagMetricsFirst.value = 0
+  if (!showTagPlacementOptions.value || !designsStore.selectedDesigns.length) {
+    tagMetricsRows.value = []
+    return
+  }
+  tagMetricsLoading.value = true
+  try {
+    const distant = tagPlacementDistantFrom.value.trim()
+    const targetChains = tagPlacementTargetChains.value.trim()
+    const res = await designsApi.postTagMetrics({
+      designs: designsStore.selectedDesigns.map((d) => {
+        const fn = designsStore.getStructureFilename(d)
+        return {
+          run_id: String(d.run_id),
+          design_id: String(d.design_id),
+          pdb_file: fn || undefined,
+          source_path: d.source_path != null ? String(d.source_path) : undefined,
+        }
+      }),
+      binder_chain: tagPlacementBinderChain.value.trim() || 'B',
+      target_chains: targetChains || null,
+      distant_from: distant || null,
+      sasa_probe_radius: tagPlacementSasaProbe.value,
+      sasa_n_points: tagPlacementSasaPoints.value,
+      sasa_threshold: tagPlacementSasaThreshold.value,
+      more_distant_threshold: tagPlacementMoreDist.value,
+    })
+    tagMetricsRows.value = res.results.map((r, i) => ({
+      ...r,
+      _tmKey: `${r.run_id}:${r.design_id}:${i}`,
+    }))
+  } catch (e) {
+    console.warn('Tag metrics load failed', e)
+    tagMetricsRows.value = []
+  } finally {
+    tagMetricsLoading.value = false
+  }
+}
+
+const scheduleTagMetricsLoad = () => {
+  if (tagMetricsDebounceTimer) clearTimeout(tagMetricsDebounceTimer)
+  tagMetricsDebounceTimer = setTimeout(() => {
+    tagMetricsDebounceTimer = null
+    void loadTagMetrics()
+  }, 450)
+}
+
+watch(
+  [
+    showTagPlacementOptions,
+    () => designsStore.selectedDesigns,
+    tagPlacementBinderChain,
+    tagPlacementTargetChains,
+    tagPlacementDistantFrom,
+    tagPlacementSasaProbe,
+    tagPlacementSasaPoints,
+    tagPlacementSasaThreshold,
+    tagPlacementMoreDist,
+  ],
+  () => scheduleTagMetricsLoad(),
+  { deep: true, immediate: true },
+)
+
+const applyTagPlacementDefaults = () => {
+  tagPlacementBinderChain.value = TAG_PLACEMENT_DEFAULTS.binderChain
+  tagPlacementTargetChains.value = TAG_PLACEMENT_DEFAULTS.targetChains
+  tagPlacementDistantFrom.value = TAG_PLACEMENT_DEFAULTS.distantFrom
+  tagPlacementSasaProbe.value = TAG_PLACEMENT_DEFAULTS.sasaProbe
+  tagPlacementSasaPoints.value = TAG_PLACEMENT_DEFAULTS.sasaPoints
+  tagPlacementSasaThreshold.value = TAG_PLACEMENT_DEFAULTS.sasaThreshold
+  tagPlacementMoreDist.value = TAG_PLACEMENT_DEFAULTS.moreDist
+  tagPlacementOnlyEmptyTags.value = TAG_PLACEMENT_DEFAULTS.onlyEmptyTags
+  applyOppositeBinderDefaultTargetChains(undefined, tagPlacementBinderChain.value)
+}
+
+const persistTagPlacementSettings = (runId: string) => {
+  try {
+    const probe = tagPlacementSasaProbe.value
+    const points = tagPlacementSasaPoints.value
+    const threshold = tagPlacementSasaThreshold.value
+    const moreDist = tagPlacementMoreDist.value
+    localStorage.setItem(
+      TAG_PLACEMENT_STORE_PREFIX + runId,
+      JSON.stringify({
+        binderChain: tagPlacementBinderChain.value.trim() || TAG_PLACEMENT_DEFAULTS.binderChain,
+        targetChains: tagPlacementTargetChains.value,
+        distantFrom: tagPlacementDistantFrom.value,
+        sasaProbe: typeof probe === 'number' && !Number.isNaN(probe) ? probe : TAG_PLACEMENT_DEFAULTS.sasaProbe,
+        sasaPoints: typeof points === 'number' && !Number.isNaN(points) ? points : TAG_PLACEMENT_DEFAULTS.sasaPoints,
+        sasaThreshold:
+          typeof threshold === 'number' && !Number.isNaN(threshold)
+            ? threshold
+            : TAG_PLACEMENT_DEFAULTS.sasaThreshold,
+        moreDist:
+          typeof moreDist === 'number' && !Number.isNaN(moreDist) ? moreDist : TAG_PLACEMENT_DEFAULTS.moreDist,
+        onlyAssignEmptyTags: tagPlacementOnlyEmptyTags.value === true,
+      }),
+    )
+  } catch {
+    /* ignore quota */
+  }
+}
+
+const restoreTagPlacementSettings = (runId: string) => {
+  try {
+    const raw = localStorage.getItem(TAG_PLACEMENT_STORE_PREFIX + runId)
+    if (!raw) {
+      applyTagPlacementDefaults()
+      return
+    }
+    const o = JSON.parse(raw) as Record<string, unknown>
+    if (typeof o.binderChain === 'string' && o.binderChain.length <= 4) {
+      tagPlacementBinderChain.value = o.binderChain
+    } else {
+      tagPlacementBinderChain.value = TAG_PLACEMENT_DEFAULTS.binderChain
+    }
+    if (typeof o.targetChains === 'string') {
+      tagPlacementTargetChains.value = o.targetChains
+    } else {
+      tagPlacementTargetChains.value = TAG_PLACEMENT_DEFAULTS.targetChains
+    }
+    if (typeof o.distantFrom === 'string') {
+      tagPlacementDistantFrom.value = o.distantFrom
+    } else {
+      tagPlacementDistantFrom.value = TAG_PLACEMENT_DEFAULTS.distantFrom
+    }
+    const probe = o.sasaProbe
+    if (typeof probe === 'number' && !Number.isNaN(probe) && probe >= 0.1 && probe <= 4) {
+      tagPlacementSasaProbe.value = probe
+    } else {
+      tagPlacementSasaProbe.value = TAG_PLACEMENT_DEFAULTS.sasaProbe
+    }
+    const points = o.sasaPoints
+    if (typeof points === 'number' && !Number.isNaN(points) && points >= 20 && points <= 500) {
+      tagPlacementSasaPoints.value = Math.round(points)
+    } else {
+      tagPlacementSasaPoints.value = TAG_PLACEMENT_DEFAULTS.sasaPoints
+    }
+    const threshold = o.sasaThreshold
+    if (typeof threshold === 'number' && !Number.isNaN(threshold) && threshold >= 0 && threshold <= 100) {
+      tagPlacementSasaThreshold.value = threshold
+    } else {
+      tagPlacementSasaThreshold.value = TAG_PLACEMENT_DEFAULTS.sasaThreshold
+    }
+    const moreDist = o.moreDist
+    if (typeof moreDist === 'number' && !Number.isNaN(moreDist) && moreDist >= 0 && moreDist <= 50) {
+      tagPlacementMoreDist.value = moreDist
+    } else {
+      tagPlacementMoreDist.value = TAG_PLACEMENT_DEFAULTS.moreDist
+    }
+    if (typeof o.onlyAssignEmptyTags === 'boolean') {
+      tagPlacementOnlyEmptyTags.value = o.onlyAssignEmptyTags
+    } else {
+      tagPlacementOnlyEmptyTags.value = TAG_PLACEMENT_DEFAULTS.onlyEmptyTags
+    }
+    applyOppositeBinderDefaultTargetChains(undefined, tagPlacementBinderChain.value)
+  } catch {
+    applyTagPlacementDefaults()
+  }
+}
+
+const designHasTagNOrC = (design: Record<string, unknown>) => {
+  const t = tagOverlayFromDesignField(design)
+  return t === 'N' || t === 'C'
+}
+
+const tagToolbarTooltip = computed(() => {
+  if (tagOverlayMode.value === 'none') return 'His-tag overlay: off (click for N-terminus)'
+  if (tagOverlayMode.value === 'N') return 'Showing N-terminus marker (click for C-terminus)'
+  return 'Showing C-terminus marker (click to turn off)'
+})
+
+const tagOverlayFromDesignField = (design: Record<string, unknown> | undefined): 'none' | 'N' | 'C' => {
+  if (!design) return 'none'
+  const raw = design.tag ?? design.Tag
+  if (raw == null) return 'none'
+  const s = String(raw).trim()
+  if (!s || s === '-' || s.toUpperCase() === 'NONE') return 'none'
+  const u = s.toUpperCase()
+  if (u === 'N') return 'N'
+  if (u === 'C') return 'C'
+  return 'none'
+}
+
+const cycleTagOverlay = () => {
+  const cs = designsStore.currentStructure
+  if (!cs || tagToolbarPending.value) return
+  const cur = tagOverlayMode.value
+  const nextTag: 'N' | 'C' | null =
+    cur === 'none' ? 'N' : cur === 'N' ? 'C' : null
+  tagToolbarPending.value = true
+  void (async () => {
+    try {
+      await designsStore.patchDesignTag(cs.design, nextTag)
+    } catch (e) {
+      console.error('Tag toolbar persist failed', e)
+      toast.add({
+        severity: 'error',
+        summary: 'Tag update failed',
+        detail: e instanceof Error ? e.message : String(e),
+        life: 5000,
+      })
+    } finally {
+      tagToolbarPending.value = false
+    }
+  })()
+}
+
+const toggleTagPlacementOptions = () => {
+  showTagPlacementOptions.value = !showTagPlacementOptions.value
+}
+
+const runTagPlacementAutoDetect = async () => {
+  const sel = designsStore.selectedDesigns
+  if (!sel.length) {
+    toast.add({ severity: 'warn', summary: 'No selection', detail: 'Select designs in the table first.', life: 2500 })
+    return
+  }
+  const skippedTagged =
+    tagPlacementOnlyEmptyTags.value
+      ? sel.filter((d) => designHasTagNOrC(d as Record<string, unknown>))
+      : []
+  const toProcess =
+    tagPlacementOnlyEmptyTags.value
+      ? sel.filter((d) => !designHasTagNOrC(d as Record<string, unknown>))
+      : sel
+  if (tagPlacementOnlyEmptyTags.value && toProcess.length === 0) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Tag placement',
+      detail:
+        skippedTagged.length > 0
+          ? `All ${skippedTagged.length} selected design(s) already have tag N or C.`
+          : 'No designs to process.',
+      life: 4000,
+    })
+    return
+  }
+  tagPlacementLoading.value = true
+  const allResults: TagPlacementResultRow[] = []
+  try {
+    const distant = tagPlacementDistantFrom.value.trim()
+    const targetChains = tagPlacementTargetChains.value.trim()
+    const basePayload = {
+      binder_chain: tagPlacementBinderChain.value.trim() || 'B',
+      target_chains: targetChains || null,
+      distant_from: distant || null,
+      sasa_probe_radius: tagPlacementSasaProbe.value,
+      sasa_n_points: tagPlacementSasaPoints.value,
+      sasa_threshold: tagPlacementSasaThreshold.value,
+      more_distant_threshold: tagPlacementMoreDist.value,
+      refresh_cache_after: false,
+    }
+    for (const d of toProcess) {
+      const fn = designsStore.getStructureFilename(d)
+      const res = await designsApi.postTagPlacement({
+        ...basePayload,
+        designs: [
+          {
+            run_id: String(d.run_id),
+            design_id: String(d.design_id),
+            pdb_file: fn || undefined,
+            source_path: d.source_path != null ? String(d.source_path) : undefined,
+          },
+        ],
+      })
+      const row = res.results[0]
+      if (row) {
+        allResults.push(row)
+        designsStore.applyTagPlacementResult(row)
+      }
+      await nextTick()
+    }
+    const failed = allResults.filter((r) => r.error)
+    const ok = allResults.filter((r) => !r.error)
+    const tagAssigned = (r: TagPlacementResultRow) => {
+      const t = r.tag
+      if (t == null) return false
+      const u = String(t).trim().toUpperCase()
+      return u === 'N' || u === 'C'
+    }
+    const ambiguousOk = ok.filter((r) => !tagAssigned(r))
+    const ambiguousMsg = 'Some ambiguous tags not assigned'
+    const skipSuffix =
+      skippedTagged.length > 0 ? ` Skipped ${skippedTagged.length} with existing N/C tag.` : ''
+    if (failed.length === 0 && ambiguousOk.length === 0) {
+      toast.add({
+        severity: 'success',
+        summary: 'Tag placement',
+        detail: `Updated ${ok.length} design(s).${skipSuffix}`,
+        life: 3500,
+      })
+    } else if (failed.length === 0 && ambiguousOk.length > 0) {
+      const assignedN = ok.length - ambiguousOk.length
+      const detail =
+        assignedN > 0
+          ? `${assignedN} design(s) tagged (N/C). ${ambiguousMsg} (${ambiguousOk.length} design(s)).${skipSuffix}`
+          : `${ambiguousMsg} (${ambiguousOk.length} design(s)).${skipSuffix}`
+      toast.add({
+        severity: 'warn',
+        summary: 'Tag placement',
+        detail,
+        life: 6000,
+      })
+    } else {
+      const parts = [
+        `${ok.length} ok, ${failed.length} failed. First error: ${failed[0]?.error ?? 'unknown'}`,
+      ]
+      if (ambiguousOk.length > 0) {
+        parts.push(`${ambiguousMsg}.`)
+      }
+      if (skipSuffix) {
+        parts.push(skipSuffix.trim())
+      }
+      toast.add({
+        severity: 'warn',
+        summary: 'Tag placement',
+        detail: parts.join(' '),
+        life: 6000,
+      })
+    }
+  } catch (e) {
+    console.error('Tag placement batch failed', e)
+    toast.add({
+      severity: 'error',
+      summary: 'Tag placement failed',
+      detail: e instanceof Error ? e.message : String(e),
+      life: 5000,
+    })
+  } finally {
+    if (toProcess.length > 0) {
+      try {
+        await designsApi.refreshDesignsCache()
+        await designsStore.fetchDesigns()
+      } catch (e2) {
+        console.warn('Designs cache refresh after tag placement failed', e2)
+      }
+    }
+    tagPlacementLoading.value = false
+  }
+}
 
 const VIEWER_CONTROLS_POS_KEY = 'binderdash-viewer-controls-pos'
 
@@ -1019,6 +1706,7 @@ function resetViewerControlsPosition() {
 
 const REF_STORE_PREFIX = 'binderdash-adv-ref:'
 const ADV_REF_GLOBAL_KEY = 'binderdash-adv-ref-ui-global'
+const TAG_PLACEMENT_STORE_PREFIX = 'binderdash-tag-placement:'
 
 const referenceStructureHelp =
   'Use Source: RCSB PDB for a 4-letter code from files.rcsb.org; PDBTM for the same code via pdbtm.unitmp.org/entry/{id} (RCSB coordinates + membrane overlay when available); URL for any http(s) link to a structure file or a PDBTM entry/JSON URL — http(s) inputs always use URL resolution regardless of Source. Plain PDB IDs ignore the URL option and load from RCSB unless you switch to PDBTM.'
@@ -2119,6 +2807,16 @@ watch(() => molstarViewerRef.value?.referenceStructureVisible, (v) => {
   }
 }, { immediate: true })
 
+watch(
+  () => designsStore.currentStructure?.design,
+  (design) => {
+    tagOverlayMode.value = tagOverlayFromDesignField(
+      design as Record<string, unknown> | undefined
+    )
+  },
+  { immediate: true, deep: true }
+)
+
 // Update length range when designs are loaded
 watch(() => designsStore.designs, () => {
   updateLengthRange()
@@ -2134,6 +2832,7 @@ watch(
         referenceMembraneData.value = null
         inputTargetsList.value = []
         selectedInputTargetId.value = null
+        applyTagPlacementDefaults()
         return
       }
       if (runId === prev) {
@@ -2143,6 +2842,7 @@ watch(
       referenceMetrics.value = null
       referenceMembraneData.value = null
       restoreAdvancedRef(runId)
+      restoreTagPlacementSettings(runId)
       const needInputTargets =
         showAdvancedOptions.value ||
         (referenceOverlayActive.value && showInputTargetStructure.value)
@@ -2203,6 +2903,27 @@ watch(
   }
 )
 
+watch(tagPlacementBinderChain, (nv, ov) => {
+  applyOppositeBinderDefaultTargetChains(ov, nv)
+})
+
+watch(
+  [
+    tagPlacementBinderChain,
+    tagPlacementTargetChains,
+    tagPlacementDistantFrom,
+    tagPlacementSasaProbe,
+    tagPlacementSasaPoints,
+    tagPlacementSasaThreshold,
+    tagPlacementMoreDist,
+    tagPlacementOnlyEmptyTags,
+  ],
+  () => {
+    const rid = designsStore.currentStructure?.design.run_id
+    if (rid) persistTagPlacementSettings(rid)
+  },
+)
+
 watch(
   () => designsStore.currentStructure,
   () => {
@@ -2224,6 +2945,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (tagMetricsDebounceTimer) clearTimeout(tagMetricsDebounceTimer)
   window.removeEventListener('resize', onViewerControlsResize)
   window.removeEventListener('pointermove', onViewerControlsPointerMove)
   window.removeEventListener('pointerup', onViewerControlsPointerUp)
@@ -2618,6 +3340,65 @@ defineExpose({
   align-items: center;
 }
 
+.tag-metrics-hint {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.875rem;
+  color: #6c757d;
+}
+
+.tag-metrics-datatable {
+  margin-bottom: 0.75rem;
+}
+
+.tag-metrics-cell {
+  display: inline-block;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+}
+
+.tag-metrics-cell--muted {
+  background: #f1f3f5;
+}
+
+.tag-metrics-cell--highlight {
+  background: #fff3bf;
+}
+
+.tag-metrics-pred {
+  font-weight: 700;
+}
+
+.tag-metrics-pred--n {
+  color: #1e5ac8;
+}
+
+.tag-metrics-pred--c {
+  color: #780000;
+}
+
+.tag-metrics-seq {
+  display: inline-block;
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.tag-metrics-error {
+  color: #c62828;
+  font-size: 0.8125rem;
+}
+
+.advanced-actions--tag-top {
+  margin-bottom: 0.75rem;
+}
+
+.tag-placement-input-number {
+  width: 100%;
+  max-width: 220px;
+}
+
 .reference-metrics {
   display: flex;
   flex-wrap: wrap;
@@ -3010,6 +3791,24 @@ defineExpose({
 
 .viewer-controls :deep(.viewer-thumb-btn.p-button:disabled) {
   opacity: 0.45;
+}
+
+.tag-toolbar-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.tag-toolbar-mode {
+  font-weight: 700;
+}
+
+.tag-toolbar-mode--n {
+  color: #1e5ac8;
+}
+
+.tag-toolbar-mode--c {
+  color: #780000;
 }
 
 .good-cell {

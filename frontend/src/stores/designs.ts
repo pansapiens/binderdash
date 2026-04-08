@@ -652,6 +652,8 @@ export const useDesignsStore = defineStore('designs', () => {
     const fetchDesigns = async () => {
         loading.value = true
         try {
+            const hadDesigns = designs.value.length > 0
+            const prevVisible = [...visibleColumns.value]
             const data = await designsApi.listDesigns()
             designs.value = data.designs
 
@@ -692,7 +694,12 @@ export const useDesignsStore = defineStore('designs', () => {
             // Note: target_sequence column is available but not shown by default
             // Users can toggle it on via the column selector if needed
 
-            visibleColumns.value = newDefaultColumns
+            if (!hadDesigns) {
+                visibleColumns.value = newDefaultColumns
+            } else {
+                const fieldSet = new Set(columns.value.map(c => c.field))
+                visibleColumns.value = prevVisible.filter(f => fieldSet.has(f))
+            }
         } catch (err) {
             console.error('Error loading designs:', err)
             throw err
@@ -833,6 +840,85 @@ export const useDesignsStore = defineStore('designs', () => {
         }
     }
 
+    const ensureTagColumnVisible = () => {
+        if (!columns.value.some(c => c.field === 'tag')) {
+            const goodIdx = columns.value.findIndex(c => c.field === 'good')
+            const methodIdx = columns.value.findIndex(c => c.field === 'method')
+            const tagCol: ColumnConfig = {
+                field: 'tag',
+                header: 'Tag',
+                sortable: true,
+                filter: true,
+                filterType: 'text',
+                showFilterMenu: false,
+                style: 'min-width: 72px'
+            }
+            if (goodIdx >= 0) {
+                columns.value.splice(goodIdx + 1, 0, tagCol)
+            } else if (methodIdx >= 0) {
+                columns.value.splice(methodIdx + 1, 0, tagCol)
+            } else {
+                columns.value.push(tagCol)
+            }
+        }
+        if (!visibleColumns.value.includes('tag')) {
+            const gi = visibleColumns.value.indexOf('good')
+            const mi = visibleColumns.value.indexOf('method')
+            if (gi >= 0) {
+                visibleColumns.value.splice(gi + 1, 0, 'tag')
+            } else if (mi >= 0) {
+                visibleColumns.value.splice(mi + 1, 0, 'tag')
+            } else {
+                visibleColumns.value.push('tag')
+            }
+        }
+    }
+
+    const patchDesignTag = async (design: Design, tag: 'N' | 'C' | null) => {
+        const sourcePath = (design as any).source_path as string | undefined
+        await designsApi.patchDesignTag({
+            run_id: design.run_id,
+            design_id: design.design_id,
+            tag,
+            ...(sourcePath ? { source_path: sourcePath } : {})
+        })
+        const sync = (d: Design): Design => {
+            if (d.run_id !== design.run_id || d.design_id !== design.design_id) return d
+            if (tag === null) {
+                const next = { ...d } as Record<string, unknown>
+                delete next.tag
+                return next as Design
+            }
+            return { ...d, tag }
+        }
+        designs.value = designs.value.map(sync)
+        selectedDesigns.value = selectedDesigns.value.map(sync)
+        ensureTagColumnVisible()
+    }
+
+    const applyTagPlacementResult = (row: {
+        run_id: string
+        design_id: string
+        tag?: string | null
+        error?: string | null
+    }) => {
+        if (row.error) return
+        const sync = (d: Design): Design => {
+            if (String(d.run_id) !== String(row.run_id) || String(d.design_id) !== String(row.design_id)) {
+                return d
+            }
+            if (row.tag == null || String(row.tag).trim() === '') {
+                const next = { ...d } as Record<string, unknown>
+                delete next.tag
+                return next as Design
+            }
+            return { ...d, tag: row.tag }
+        }
+        designs.value = designs.value.map(sync)
+        selectedDesigns.value = selectedDesigns.value.map(sync)
+        ensureTagColumnVisible()
+    }
+
     const getCurrentRowPosition = () => {
         if (selectedDesigns.value.length === 0) return '0 / 0'
 
@@ -866,6 +952,18 @@ export const useDesignsStore = defineStore('designs', () => {
                 filterType: 'boolean',
                 showFilterMenu: false,
                 style: 'min-width: 90px'
+            })
+        }
+
+        if (designs.some(d => Object.prototype.hasOwnProperty.call(d, 'tag'))) {
+            baseColumns.push({
+                field: 'tag',
+                header: 'Tag',
+                sortable: true,
+                filter: true,
+                filterType: 'text',
+                showFilterMenu: false,
+                style: 'min-width: 72px'
             })
         }
 
@@ -910,7 +1008,7 @@ export const useDesignsStore = defineStore('designs', () => {
 
         // Add other columns from the data (excluding already defined ones)
         const existingFields = new Set([
-            'design_id', 'project_id', 'run_name', 'method', 'good',
+            'design_id', 'project_id', 'run_name', 'method', 'good', 'tag',
             'pae_interaction', 'Average_i_pTM', 'design_to_target_iptm', 'quality_score',
             'pLDDT', 'i_pTM', 'ipTM',
             'pdb_file', 'run_path', 'run_id', 'target_sequence'
@@ -1011,6 +1109,8 @@ export const useDesignsStore = defineStore('designs', () => {
         getCurrentRowPosition,
         extractFilename,
         getStructureFilename,
-        patchDesignGood
+        patchDesignGood,
+        patchDesignTag,
+        applyTagPlacementResult
     }
 })
