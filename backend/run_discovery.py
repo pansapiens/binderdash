@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import shutil
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -16,6 +17,14 @@ from .util.profiling import Timer
 
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_original_results_table_backup(table_path: Path) -> None:
+    """Create a hidden one-time backup: .{name}.orig.{ext} alongside the table."""
+    backup_path = table_path.with_name(f".{table_path.stem}.orig{table_path.suffix}")
+    if backup_path.exists():
+        return
+    shutil.copy2(table_path, backup_path)
 
 
 def get_target_sequence(
@@ -598,6 +607,7 @@ def update_design_good_flag(
             if "good" not in df.columns:
                 df["good"] = False
             df.loc[mask, "good"] = bool(good)
+        _ensure_original_results_table_backup(table_path)
         df.to_csv(table_path, sep=sep, index=False, na_rep="")
         return
 
@@ -652,6 +662,7 @@ def update_design_tag(
         else:
             df.loc[mask, "tag"] = str(tag)
 
+        _ensure_original_results_table_backup(table_path)
         df.to_csv(table_path, sep=sep, index=False, na_rep="")
         return
 

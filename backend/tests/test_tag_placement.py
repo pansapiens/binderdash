@@ -59,6 +59,10 @@ def test_update_design_tag_writes_column(tmp_path):
     assert "tag" in df.columns
     assert str(df.loc[df["Design"] == "a", "tag"].iloc[0]) == "N"
     assert pd.isna(df.loc[df["Design"] == "b", "tag"].iloc[0])
+    backup = run_dir / ".stats.orig.tsv"
+    assert backup.is_file()
+    backup_df = pd.read_csv(backup, sep="\t")
+    assert "tag" not in backup_df.columns
 
 
 def test_compute_tag_metrics_returns_buried_and_predicted(tmp_path):
@@ -106,3 +110,25 @@ def test_update_design_tag_clear(tmp_path):
     df = pd.read_csv(table, sep="\t")
     assert pd.isna(df.loc[df["Design"] == "a", "tag"].iloc[0])
     assert str(df.loc[df["Design"] == "b", "tag"].iloc[0]) == "C"
+
+
+def test_update_design_tag_backup_is_created_once(tmp_path):
+    run_dir = tmp_path / "run3"
+    run_dir.mkdir()
+    table = run_dir / "stats.csv"
+    pd.DataFrame({"Design": ["a", "b"], "score": [1.0, 2.0]}).to_csv(
+        table, index=False
+    )
+    run_metadata = {
+        "path": str(run_dir),
+        "results_table": "stats.csv",
+        "signature": {"design_id_columns": ["Design"]},
+    }
+
+    update_design_tag(run_metadata, "a", "N")
+    backup = run_dir / ".stats.orig.csv"
+    assert backup.is_file()
+    first_backup_text = backup.read_text()
+
+    update_design_tag(run_metadata, "b", "C")
+    assert backup.read_text() == first_backup_text
