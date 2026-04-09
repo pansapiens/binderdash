@@ -16,7 +16,7 @@ export function paintTagMarkerScreenOverlay(
   worldX: number,
   worldY: number,
   worldZ: number,
-  radiusPx = 9,
+  radiusPx = 18,
 ): void {
   ctx.clearRect(0, 0, bufferWidth, bufferHeight)
   const tmpV = Vec3()
@@ -33,6 +33,6 @@ export function paintTagMarkerScreenOverlay(
   ctx.fillStyle = fill
   ctx.fill()
   ctx.strokeStyle = stroke
-  ctx.lineWidth = 2
+  ctx.lineWidth = 4
   ctx.stroke()
 }

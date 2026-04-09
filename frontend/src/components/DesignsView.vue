@@ -878,8 +878,9 @@
           >
             <div class="advanced-options-body">
               <p class="tag-metrics-hint">
-                Metrics for the current Tag placement parameters (SASA, distant from, binder chain).
-                {{ !designsStore.selectedDesigns.length ? 'Select design(s) in the table above.' : '' }}
+                Metrics use the current parameters below. Values appear from cache when available, or after
+                <strong> Auto detect</strong> runs. Otherwise cells show —.
+                {{ !designsStore.selectedDesigns.length ? ' Select design(s) in the table above.' : '' }}
               </p>
               <DataTable
                 v-if="designsStore.selectedDesigns.length"
@@ -976,6 +977,15 @@
                   </template>
                 </Column>
               </DataTable>
+              <div
+                v-if="tagPlacementLoading && tagPlacementProgressTotal > 0"
+                class="tag-placement-progress"
+              >
+                <ProgressBar :value="tagPlacementProgressPercent" />
+                <span class="tag-placement-progress-label">
+                  {{ tagPlacementProgressCurrent }} / {{ tagPlacementProgressTotal }}
+                </span>
+              </div>
               <div class="advanced-actions advanced-actions--tag-top">
                 <Button
                   label="Auto detect"
@@ -984,6 +994,16 @@
                   :loading="tagPlacementLoading"
                   :disabled="designsStore.selectedDesigns.length === 0"
                 />
+              </div>
+              <div class="advanced-row">
+                <Checkbox
+                  v-model="tagPlacementIgnoreCache"
+                  input-id="tag-ignore-cache"
+                  :binary="true"
+                />
+                <label for="tag-ignore-cache" class="advanced-checkbox-label">
+                  Ignore cache, force recalculate (next Auto detect only)
+                </label>
               </div>
               <div class="advanced-row">
                 <Checkbox
@@ -1113,6 +1133,7 @@ import InputSwitch from 'primevue/inputswitch'
 import Dropdown from 'primevue/dropdown'
 import Slider from 'primevue/slider'
 import SplitButton from 'primevue/splitbutton'
+import ProgressBar from 'primevue/progressbar'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import Dialog from 'primevue/dialog'
@@ -1121,7 +1142,9 @@ import type { MembraneData } from '../membraneOverlay'
 import { designsApi, runsApi } from '../webapi'
 import type { TagMetricsRow, TagPlacementResultRow } from '../webapi'
 import { useDesignsStore, useAppStore, useAuthStore } from '../stores'
-import type { CustomFilter } from '../types/store'
+import type { CustomFilter, Design } from '../types/store'
+import { PERSISTENCE_KEYS, tagPlacementKey, advRefKey } from '../persistence/keys'
+import { kvGet, kvSet, kvRemove } from '../persistence/store'
 
 const toast = useToast()
 
@@ -1150,15 +1173,24 @@ const TAG_PLACEMENT_DEFAULTS = {
   onlyEmptyTags: false,
 } as const
 
-const tagPlacementBinderChain = ref(TAG_PLACEMENT_DEFAULTS.binderChain)
-const tagPlacementTargetChains = ref(TAG_PLACEMENT_DEFAULTS.targetChains)
-const tagPlacementDistantFrom = ref(TAG_PLACEMENT_DEFAULTS.distantFrom)
-const tagPlacementSasaProbe = ref(TAG_PLACEMENT_DEFAULTS.sasaProbe)
-const tagPlacementSasaPoints = ref(TAG_PLACEMENT_DEFAULTS.sasaPoints)
-const tagPlacementSasaThreshold = ref(TAG_PLACEMENT_DEFAULTS.sasaThreshold)
-const tagPlacementMoreDist = ref(TAG_PLACEMENT_DEFAULTS.moreDist)
-const tagPlacementOnlyEmptyTags = ref(TAG_PLACEMENT_DEFAULTS.onlyEmptyTags)
+const tagPlacementBinderChain = ref<string>(TAG_PLACEMENT_DEFAULTS.binderChain)
+const tagPlacementTargetChains = ref<string>(TAG_PLACEMENT_DEFAULTS.targetChains)
+const tagPlacementDistantFrom = ref<string>(TAG_PLACEMENT_DEFAULTS.distantFrom)
+const tagPlacementSasaProbe = ref<number>(TAG_PLACEMENT_DEFAULTS.sasaProbe)
+const tagPlacementSasaPoints = ref<number>(TAG_PLACEMENT_DEFAULTS.sasaPoints)
+const tagPlacementSasaThreshold = ref<number>(TAG_PLACEMENT_DEFAULTS.sasaThreshold)
+const tagPlacementMoreDist = ref<number>(TAG_PLACEMENT_DEFAULTS.moreDist)
+const tagPlacementOnlyEmptyTags = ref<boolean>(TAG_PLACEMENT_DEFAULTS.onlyEmptyTags)
+const tagPlacementIgnoreCache = ref(false)
 const tagPlacementLoading = ref(false)
+const tagPlacementProgressCurrent = ref(0)
+const tagPlacementProgressTotal = ref(0)
+
+const tagPlacementProgressPercent = computed(() => {
+  const t = tagPlacementProgressTotal.value
+  if (!t) return 0
+  return Math.min(100, Math.round((tagPlacementProgressCurrent.value / t) * 100))
+})
 
 type TagMetricsTableRow = TagMetricsRow & { _tmKey: string }
 
@@ -1205,8 +1237,8 @@ const tagMetricsTgtDistClass = (row: TagMetricsRow, which: 'n' | 'c'): string =>
 }
 
 const tagMetricsHitClass = (v: boolean | null | undefined): string => {
-  if (v === true) return 'tag-metrics-cell tag-metrics-cell--highlight'
-  if (v === false) return 'tag-metrics-cell'
+  if (v === false) return 'tag-metrics-cell tag-metrics-cell--highlight'
+  if (v === true) return 'tag-metrics-cell'
   return ''
 }
 
@@ -1234,26 +1266,42 @@ const applyOppositeBinderDefaultTargetChains = (
   }
 }
 
+const makePlaceholderTagMetricsRow = (d: Design, index: number): TagMetricsTableRow => {
+  const fn = designsStore.getStructureFilename(d)
+  const sp = d.source_path != null ? String(d.source_path) : ''
+  return {
+    run_id: String(d.run_id),
+    design_id: String(d.design_id),
+    pdb_file: fn || undefined,
+    _tmKey: `${d.run_id}:${d.design_id}:${index}:${sp}`,
+  }
+}
+
+const tagMetricsDesignItems = () =>
+  designsStore.selectedDesigns.map((d) => {
+    const fn = designsStore.getStructureFilename(d)
+    return {
+      run_id: String(d.run_id),
+      design_id: String(d.design_id),
+      pdb_file: fn || undefined,
+      source_path: d.source_path != null ? String(d.source_path) : undefined,
+    }
+  })
+
 const loadTagMetrics = async () => {
   tagMetricsFirst.value = 0
   if (!showTagPlacementOptions.value || !designsStore.selectedDesigns.length) {
     tagMetricsRows.value = []
     return
   }
+  const designs = designsStore.selectedDesigns
+  tagMetricsRows.value = designs.map((d, i) => makePlaceholderTagMetricsRow(d, i))
   tagMetricsLoading.value = true
   try {
     const distant = tagPlacementDistantFrom.value.trim()
     const targetChains = tagPlacementTargetChains.value.trim()
     const res = await designsApi.postTagMetrics({
-      designs: designsStore.selectedDesigns.map((d) => {
-        const fn = designsStore.getStructureFilename(d)
-        return {
-          run_id: String(d.run_id),
-          design_id: String(d.design_id),
-          pdb_file: fn || undefined,
-          source_path: d.source_path != null ? String(d.source_path) : undefined,
-        }
-      }),
+      designs: tagMetricsDesignItems(),
       binder_chain: tagPlacementBinderChain.value.trim() || 'B',
       target_chains: targetChains || null,
       distant_from: distant || null,
@@ -1261,16 +1309,54 @@ const loadTagMetrics = async () => {
       sasa_n_points: tagPlacementSasaPoints.value,
       sasa_threshold: tagPlacementSasaThreshold.value,
       more_distant_threshold: tagPlacementMoreDist.value,
+      cache_only: true,
+      ignore_cache: false,
     })
-    tagMetricsRows.value = res.results.map((r, i) => ({
-      ...r,
-      _tmKey: `${r.run_id}:${r.design_id}:${i}`,
-    }))
+    for (let i = 0; i < tagMetricsRows.value.length; i++) {
+      const prev = tagMetricsRows.value[i]
+      const r = res.results[i]
+      if (!prev || !r) continue
+      if (r.run_id !== prev.run_id || r.design_id !== prev.design_id) continue
+      tagMetricsRows.value[i] = { ...r, _tmKey: prev._tmKey }
+    }
   } catch (e) {
     console.warn('Tag metrics load failed', e)
-    tagMetricsRows.value = []
+    tagMetricsRows.value = designs.map((d, i) => makePlaceholderTagMetricsRow(d, i))
   } finally {
     tagMetricsLoading.value = false
+  }
+}
+
+const refreshTagMetricsRowAfterPlacement = async (d: Design) => {
+  const distant = tagPlacementDistantFrom.value.trim()
+  const targetChains = tagPlacementTargetChains.value.trim()
+  const fn = designsStore.getStructureFilename(d)
+  const res = await designsApi.postTagMetrics({
+    designs: [
+      {
+        run_id: String(d.run_id),
+        design_id: String(d.design_id),
+        pdb_file: fn || undefined,
+        source_path: d.source_path != null ? String(d.source_path) : undefined,
+      },
+    ],
+    binder_chain: tagPlacementBinderChain.value.trim() || 'B',
+    target_chains: targetChains || null,
+    distant_from: distant || null,
+    sasa_probe_radius: tagPlacementSasaProbe.value,
+    sasa_n_points: tagPlacementSasaPoints.value,
+    sasa_threshold: tagPlacementSasaThreshold.value,
+    more_distant_threshold: tagPlacementMoreDist.value,
+    cache_only: false,
+    ignore_cache: false,
+  })
+  const r = res.results[0]
+  if (!r) return
+  const idx = tagMetricsRows.value.findIndex(
+    (row) => row.run_id === r.run_id && row.design_id === r.design_id,
+  )
+  if (idx >= 0) {
+    tagMetricsRows.value[idx] = { ...r, _tmKey: tagMetricsRows.value[idx]._tmKey }
   }
 }
 
@@ -1311,41 +1397,33 @@ const applyTagPlacementDefaults = () => {
 }
 
 const persistTagPlacementSettings = (runId: string) => {
-  try {
-    const probe = tagPlacementSasaProbe.value
-    const points = tagPlacementSasaPoints.value
-    const threshold = tagPlacementSasaThreshold.value
-    const moreDist = tagPlacementMoreDist.value
-    localStorage.setItem(
-      TAG_PLACEMENT_STORE_PREFIX + runId,
-      JSON.stringify({
-        binderChain: tagPlacementBinderChain.value.trim() || TAG_PLACEMENT_DEFAULTS.binderChain,
-        targetChains: tagPlacementTargetChains.value,
-        distantFrom: tagPlacementDistantFrom.value,
-        sasaProbe: typeof probe === 'number' && !Number.isNaN(probe) ? probe : TAG_PLACEMENT_DEFAULTS.sasaProbe,
-        sasaPoints: typeof points === 'number' && !Number.isNaN(points) ? points : TAG_PLACEMENT_DEFAULTS.sasaPoints,
-        sasaThreshold:
-          typeof threshold === 'number' && !Number.isNaN(threshold)
-            ? threshold
-            : TAG_PLACEMENT_DEFAULTS.sasaThreshold,
-        moreDist:
-          typeof moreDist === 'number' && !Number.isNaN(moreDist) ? moreDist : TAG_PLACEMENT_DEFAULTS.moreDist,
-        onlyAssignEmptyTags: tagPlacementOnlyEmptyTags.value === true,
-      }),
-    )
-  } catch {
-    /* ignore quota */
-  }
+  const probe = tagPlacementSasaProbe.value
+  const points = tagPlacementSasaPoints.value
+  const threshold = tagPlacementSasaThreshold.value
+  const moreDist = tagPlacementMoreDist.value
+  void kvSet(tagPlacementKey(runId), {
+    binderChain: tagPlacementBinderChain.value.trim() || TAG_PLACEMENT_DEFAULTS.binderChain,
+    targetChains: tagPlacementTargetChains.value,
+    distantFrom: tagPlacementDistantFrom.value,
+    sasaProbe: typeof probe === 'number' && !Number.isNaN(probe) ? probe : TAG_PLACEMENT_DEFAULTS.sasaProbe,
+    sasaPoints: typeof points === 'number' && !Number.isNaN(points) ? points : TAG_PLACEMENT_DEFAULTS.sasaPoints,
+    sasaThreshold:
+      typeof threshold === 'number' && !Number.isNaN(threshold)
+        ? threshold
+        : TAG_PLACEMENT_DEFAULTS.sasaThreshold,
+    moreDist:
+      typeof moreDist === 'number' && !Number.isNaN(moreDist) ? moreDist : TAG_PLACEMENT_DEFAULTS.moreDist,
+    onlyAssignEmptyTags: tagPlacementOnlyEmptyTags.value === true,
+  })
 }
 
-const restoreTagPlacementSettings = (runId: string) => {
+const restoreTagPlacementSettings = async (runId: string) => {
   try {
-    const raw = localStorage.getItem(TAG_PLACEMENT_STORE_PREFIX + runId)
-    if (!raw) {
+    const o = await kvGet<Record<string, unknown>>(tagPlacementKey(runId))
+    if (!o || typeof o !== 'object') {
       applyTagPlacementDefaults()
       return
     }
-    const o = JSON.parse(raw) as Record<string, unknown>
     if (typeof o.binderChain === 'string' && o.binderChain.length <= 4) {
       tagPlacementBinderChain.value = o.binderChain
     } else {
@@ -1474,6 +1552,8 @@ const runTagPlacementAutoDetect = async () => {
     return
   }
   tagPlacementLoading.value = true
+  tagPlacementProgressTotal.value = toProcess.length
+  tagPlacementProgressCurrent.value = 0
   const allResults: TagPlacementResultRow[] = []
   try {
     const distant = tagPlacementDistantFrom.value.trim()
@@ -1487,6 +1567,7 @@ const runTagPlacementAutoDetect = async () => {
       sasa_threshold: tagPlacementSasaThreshold.value,
       more_distant_threshold: tagPlacementMoreDist.value,
       refresh_cache_after: false,
+      ignore_cache: tagPlacementIgnoreCache.value === true,
     }
     for (const d of toProcess) {
       const fn = designsStore.getStructureFilename(d)
@@ -1505,7 +1586,15 @@ const runTagPlacementAutoDetect = async () => {
       if (row) {
         allResults.push(row)
         designsStore.applyTagPlacementResult(row)
+        if (!row.error) {
+          try {
+            await refreshTagMetricsRowAfterPlacement(d)
+          } catch (e) {
+            console.warn('Tag metrics refresh after placement failed', e)
+          }
+        }
       }
+      tagPlacementProgressCurrent.value += 1
       await nextTick()
     }
     const failed = allResults.filter((r) => r.error)
@@ -1574,10 +1663,10 @@ const runTagPlacementAutoDetect = async () => {
       }
     }
     tagPlacementLoading.value = false
+    tagPlacementProgressTotal.value = 0
+    tagPlacementProgressCurrent.value = 0
   }
 }
-
-const VIEWER_CONTROLS_POS_KEY = 'binderdash-viewer-controls-pos'
 
 const viewerContainerRef = ref<HTMLElement | null>(null)
 const viewerControlsRef = ref<HTMLElement | null>(null)
@@ -1601,22 +1690,17 @@ const viewerControlsStyle = computed(() => {
 })
 
 function persistViewerControlsPos() {
-  try {
-    if (viewerControlsPos.value) {
-      localStorage.setItem(VIEWER_CONTROLS_POS_KEY, JSON.stringify(viewerControlsPos.value))
-    } else {
-      localStorage.removeItem(VIEWER_CONTROLS_POS_KEY)
-    }
-  } catch {
-    /* ignore */
+  if (viewerControlsPos.value) {
+    void kvSet(PERSISTENCE_KEYS.viewerControlsPos, viewerControlsPos.value)
+  } else {
+    void kvRemove(PERSISTENCE_KEYS.viewerControlsPos)
   }
 }
 
-function loadViewerControlsPos() {
+async function loadViewerControlsPos() {
   try {
-    const raw = localStorage.getItem(VIEWER_CONTROLS_POS_KEY)
-    if (!raw) return
-    const o = JSON.parse(raw) as { left?: unknown; top?: unknown }
+    const o = await kvGet<{ left?: unknown; top?: unknown }>(PERSISTENCE_KEYS.viewerControlsPos)
+    if (!o || typeof o !== 'object') return
     if (typeof o.left === 'number' && typeof o.top === 'number' && Number.isFinite(o.left) && Number.isFinite(o.top)) {
       viewerControlsPos.value = { left: o.left, top: o.top }
     }
@@ -1702,10 +1786,6 @@ function resetViewerControlsPosition() {
   viewerControlsPos.value = null
   persistViewerControlsPos()
 }
-
-const REF_STORE_PREFIX = 'binderdash-adv-ref:'
-const ADV_REF_GLOBAL_KEY = 'binderdash-adv-ref-ui-global'
-const TAG_PLACEMENT_STORE_PREFIX = 'binderdash-tag-placement:'
 
 const referenceStructureHelp =
   'Use Source: RCSB PDB for a 4-letter code from files.rcsb.org; PDBTM for the same code via pdbtm.unitmp.org/entry/{id} (RCSB coordinates + membrane overlay when available); URL for any http(s) link to a structure file or a PDBTM entry/JSON URL — http(s) inputs always use URL resolution regardless of Source. Plain PDB IDs ignore the URL option and load from RCSB unless you switch to PDBTM.'
@@ -2279,28 +2359,20 @@ const toggleAdvancedOptions = () => {
 }
 
 const persistAdvancedRef = (runId: string) => {
-  try {
-    localStorage.setItem(
-      REF_STORE_PREFIX + runId,
-      JSON.stringify({
-        manual: referenceManualSource.value,
-        sourceKind: referenceManualSourceKind.value,
-        chains: referenceChainIdsInput.value,
-        useInput: showInputTargetStructure.value,
-        inputId: selectedInputTargetId.value,
-        overlay: referenceOverlayActive.value,
-      })
-    )
-  } catch {
-    /* ignore quota */
-  }
+  void kvSet(advRefKey(runId), {
+    manual: referenceManualSource.value,
+    sourceKind: referenceManualSourceKind.value,
+    chains: referenceChainIdsInput.value,
+    useInput: showInputTargetStructure.value,
+    inputId: selectedInputTargetId.value,
+    overlay: referenceOverlayActive.value,
+  })
 }
 
-const restoreAdvancedRef = (runId: string) => {
+const restoreAdvancedRef = async (runId: string) => {
   try {
-    const raw = localStorage.getItem(REF_STORE_PREFIX + runId)
-    if (!raw) return
-    const o = JSON.parse(raw) as Record<string, unknown>
+    const o = await kvGet<Record<string, unknown>>(advRefKey(runId))
+    if (!o || typeof o !== 'object') return
     if (typeof o.manual === 'string') referenceManualSource.value = o.manual
     if (
       typeof o.sourceKind === 'string' &&
@@ -2318,26 +2390,18 @@ const restoreAdvancedRef = (runId: string) => {
 }
 
 const persistGlobalAdvRef = () => {
-  try {
-    localStorage.setItem(
-      ADV_REF_GLOBAL_KEY,
-      JSON.stringify({
-        manual: referenceManualSource.value,
-        sourceKind: referenceManualSourceKind.value,
-        chains: referenceChainIdsInput.value,
-        useInput: showInputTargetStructure.value,
-      })
-    )
-  } catch {
-    /* ignore */
-  }
+  void kvSet(PERSISTENCE_KEYS.advRefGlobal, {
+    manual: referenceManualSource.value,
+    sourceKind: referenceManualSourceKind.value,
+    chains: referenceChainIdsInput.value,
+    useInput: showInputTargetStructure.value,
+  })
 }
 
-const loadGlobalAdvRef = () => {
+const loadGlobalAdvRef = async () => {
   try {
-    const raw = localStorage.getItem(ADV_REF_GLOBAL_KEY)
-    if (!raw) return
-    const o = JSON.parse(raw) as Record<string, unknown>
+    const o = await kvGet<Record<string, unknown>>(PERSISTENCE_KEYS.advRefGlobal)
+    if (!o || typeof o !== 'object') return
     if (typeof o.manual === 'string') referenceManualSource.value = o.manual
     if (
       typeof o.sourceKind === 'string' &&
@@ -2351,8 +2415,6 @@ const loadGlobalAdvRef = () => {
     /* ignore */
   }
 }
-
-loadGlobalAdvRef()
 
 const revokeReferenceBlob = () => {
   if (referenceBlobUrlToRevoke.value) {
@@ -2828,8 +2890,8 @@ watch(
       revokeReferenceBlob()
       referenceMetrics.value = null
       referenceMembraneData.value = null
-      restoreAdvancedRef(runId)
-      restoreTagPlacementSettings(runId)
+      await restoreAdvancedRef(runId)
+      await restoreTagPlacementSettings(runId)
       const needInputTargets =
         showAdvancedOptions.value ||
         (referenceOverlayActive.value && showInputTargetStructure.value)
@@ -2924,7 +2986,8 @@ function onViewerControlsResize() {
 
 // Lifecycle
 onMounted(() => {
-  loadViewerControlsPos()
+  void loadGlobalAdvRef()
+  void loadViewerControlsPos()
   window.addEventListener('resize', onViewerControlsResize)
   if (authStore.canLoadData) {
     loadDesigns()
@@ -3325,6 +3388,17 @@ defineExpose({
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
+}
+
+.tag-placement-progress {
+  margin-bottom: 0.75rem;
+}
+
+.tag-placement-progress-label {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-color-secondary, #6c757d);
 }
 
 .tag-metrics-hint {

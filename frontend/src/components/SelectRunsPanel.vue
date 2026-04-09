@@ -209,23 +209,39 @@ function getMethodIcon(method: string | undefined): string {
 
 const tableSelection = ref<Run[]>([])
 
+const sameIdSet = (a: string[], b: string[]): boolean => {
+  if (a.length !== b.length) return false
+  const bs = new Set(b)
+  return a.every((id) => bs.has(id))
+}
+
 watch(
   tableSelection,
   (sel) => {
     const ids = sel.map((r) => r.run_id)
-    designsStore.setSelectedRunIds(ids)
-    plotsStore.setSelectedRuns(ids)
+    if (!sameIdSet(ids, designsStore.selectedRunIds)) {
+      designsStore.setSelectedRunIds(ids)
+    }
+    if (!sameIdSet(ids, plotsStore.selectedRunIds)) {
+      plotsStore.setSelectedRuns(ids)
+    }
   },
   { deep: true }
 )
 
 watch(
-  () => runsStore.runs,
-  (runs) => {
-    const allowed = new Set(runs.map((r) => r.run_id))
-    tableSelection.value = tableSelection.value.filter((r) => allowed.has(r.run_id))
+  [() => runsStore.runs, () => designsStore.selectedRunIds],
+  ([runs, selectedIds]) => {
+    const ids = new Set(selectedIds)
+    const nextSelection = ids.size === 0 ? [] : runs.filter((r) => ids.has(r.run_id))
+    const currentIds = tableSelection.value.map((r) => r.run_id)
+    const nextIds = nextSelection.map((r) => r.run_id)
+    if (sameIdSet(currentIds, nextIds)) {
+      return
+    }
+    tableSelection.value = nextSelection
   },
-  { deep: true }
+  { deep: true, immediate: true }
 )
 
 onMounted(() => {

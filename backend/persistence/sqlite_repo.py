@@ -87,6 +87,34 @@ class SqliteDesignsRepository:
                 );
                 CREATE INDEX IF NOT EXISTS idx_designs_run_id
                     ON binderdash_designs(run_id);
+                CREATE TABLE IF NOT EXISTS binderdash_tag_metrics_cache (
+                    run_id TEXT NOT NULL,
+                    design_id TEXT NOT NULL,
+                    source_path TEXT NOT NULL DEFAULT '',
+                    structure_filename TEXT NOT NULL,
+                    binder_chain TEXT NOT NULL,
+                    target_chains TEXT NOT NULL DEFAULT '',
+                    distant_from TEXT NOT NULL DEFAULT '',
+                    sasa_probe_radius REAL NOT NULL,
+                    sasa_n_points INTEGER NOT NULL,
+                    sasa_threshold REAL NOT NULL,
+                    more_distant_threshold REAL NOT NULL,
+                    metrics_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (
+                        run_id,
+                        design_id,
+                        source_path,
+                        structure_filename,
+                        binder_chain,
+                        target_chains,
+                        distant_from,
+                        sasa_probe_radius,
+                        sasa_n_points,
+                        sasa_threshold,
+                        more_distant_threshold
+                    )
+                );
                 """
             )
             c.commit()
@@ -243,8 +271,105 @@ class SqliteDesignsRepository:
 
     def delete_run(self, run_id: str) -> bool:
         with self._lock:
+            conn = self._get_conn()
+            conn.execute(
+                "DELETE FROM binderdash_tag_metrics_cache WHERE run_id = ?", (run_id,)
+            )
+            cur = conn.execute("DELETE FROM binderdash_runs WHERE run_id = ?", (run_id,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def get_tag_metrics_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chain: str,
+        target_chains: str,
+        distant_from: str,
+        sasa_probe_radius: float,
+        sasa_n_points: int,
+        sasa_threshold: float,
+        more_distant_threshold: float,
+    ) -> Optional[Dict[str, Any]]:
+        with self._lock:
             cur = self._get_conn().execute(
-                "DELETE FROM binderdash_runs WHERE run_id = ?", (run_id,)
+                """
+                SELECT metrics_json FROM binderdash_tag_metrics_cache
+                WHERE run_id = ? AND design_id = ? AND source_path = ?
+                  AND structure_filename = ? AND binder_chain = ?
+                  AND target_chains = ? AND distant_from = ?
+                  AND sasa_probe_radius = ? AND sasa_n_points = ?
+                  AND sasa_threshold = ? AND more_distant_threshold = ?
+                """,
+                (
+                    run_id,
+                    design_id,
+                    source_path,
+                    structure_filename,
+                    binder_chain,
+                    target_chains,
+                    distant_from,
+                    float(sasa_probe_radius),
+                    int(sasa_n_points),
+                    float(sasa_threshold),
+                    float(more_distant_threshold),
+                ),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return json.loads(row["metrics_json"])
+
+    def upsert_tag_metrics_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chain: str,
+        target_chains: str,
+        distant_from: str,
+        sasa_probe_radius: float,
+        sasa_n_points: int,
+        sasa_threshold: float,
+        more_distant_threshold: float,
+        metrics: Dict[str, Any],
+    ) -> None:
+        payload = json.dumps(metrics, default=str)
+        with self._lock:
+            self._get_conn().execute(
+                """
+                INSERT INTO binderdash_tag_metrics_cache (
+                    run_id, design_id, source_path, structure_filename,
+                    binder_chain, target_chains, distant_from,
+                    sasa_probe_radius, sasa_n_points, sasa_threshold, more_distant_threshold,
+                    metrics_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(
+                    run_id, design_id, source_path, structure_filename,
+                    binder_chain, target_chains, distant_from,
+                    sasa_probe_radius, sasa_n_points, sasa_threshold, more_distant_threshold
+                ) DO UPDATE SET
+                    metrics_json = excluded.metrics_json,
+                    updated_at = datetime('now')
+                """,
+                (
+                    run_id,
+                    design_id,
+                    source_path,
+                    structure_filename,
+                    binder_chain,
+                    target_chains,
+                    distant_from,
+                    float(sasa_probe_radius),
+                    int(sasa_n_points),
+                    float(sasa_threshold),
+                    float(more_distant_threshold),
+                    payload,
+                ),
             )
             self._get_conn().commit()
-            return cur.rowcount > 0

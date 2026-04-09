@@ -93,6 +93,14 @@ class TagPlacementRequest(BaseModel):
         default=True,
         description="When false, skip rebuilding the in-memory designs cache until a later refresh.",
     )
+    cache_only: bool = Field(
+        default=False,
+        description="When true, return cached tag metrics only (no compute); misses are empty rows.",
+    )
+    ignore_cache: bool = Field(
+        default=False,
+        description="When true, skip cache reads; recompute and refresh stored cache entries.",
+    )
 
 
 class TagPlacementResultRow(BaseModel):

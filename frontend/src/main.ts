@@ -1,9 +1,9 @@
 import './assets/main.css'
 
 import { createApp } from 'vue'
-import { createPinia } from 'pinia'
-import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
+import { createPinia, setActivePinia } from 'pinia'
 import App from './App.vue'
+import { hydratePersistedState } from './persistence/hydrate'
 
 // PrimeVue imports
 import PrimeVue from 'primevue/config'
@@ -18,7 +18,7 @@ const app = createApp(App)
 
 // Use Pinia
 const pinia = createPinia()
-pinia.use(piniaPluginPersistedstate)
+setActivePinia(pinia)
 app.use(pinia)
 
 // Use PrimeVue
@@ -43,4 +43,6 @@ app.directive('tooltip', Tooltip)
 app.component('Toast', Toast)
 app.component('Password', Password)
 
-app.mount('#app')
+void hydratePersistedState().finally(() => {
+    app.mount('#app')
+})

@@ -58,6 +58,42 @@ class DesignsRepository(Protocol):
     def delete_run(self, run_id: str) -> bool:
         ...
 
+    def get_tag_metrics_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chain: str,
+        target_chains: str,
+        distant_from: str,
+        sasa_probe_radius: float,
+        sasa_n_points: int,
+        sasa_threshold: float,
+        more_distant_threshold: float,
+    ) -> Optional[Dict[str, Any]]:
+        """Return cached metrics fields for TagMetricsRow (no run_id/design_id/pdb_file/error), or None."""
+        ...
+
+    def upsert_tag_metrics_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chain: str,
+        target_chains: str,
+        distant_from: str,
+        sasa_probe_radius: float,
+        sasa_n_points: int,
+        sasa_threshold: float,
+        more_distant_threshold: float,
+        metrics: Dict[str, Any],
+    ) -> None:
+        ...
+
 
 def design_dedupe_key(design_id: str, source_path: Optional[str]) -> str:
     return f"{design_id}\x1f{source_path or ''}"

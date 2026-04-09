@@ -46,3 +46,38 @@ class NoopDesignsRepository:
 
     def delete_run(self, run_id: str) -> bool:
         return False
+
+    def get_tag_metrics_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chain: str,
+        target_chains: str,
+        distant_from: str,
+        sasa_probe_radius: float,
+        sasa_n_points: int,
+        sasa_threshold: float,
+        more_distant_threshold: float,
+    ) -> Optional[Dict[str, Any]]:
+        return None
+
+    def upsert_tag_metrics_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chain: str,
+        target_chains: str,
+        distant_from: str,
+        sasa_probe_radius: float,
+        sasa_n_points: int,
+        sasa_threshold: float,
+        more_distant_threshold: float,
+        metrics: Dict[str, Any],
+    ) -> None:
+        pass

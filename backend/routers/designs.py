@@ -23,6 +23,7 @@ from ..schemas import (
     TagPlacementResponse,
     TagPlacementResultRow,
 )
+from ..persistence.factory import get_designs_repository
 from ..settings import LocalUser
 from ..tag_placement import compute_tag_for_structure_file, compute_tag_metrics_for_structure_file
 
@@ -128,6 +129,10 @@ async def patch_design_tag(
 
 def _tag_placement_sync(body: TagPlacementRequest) -> TagPlacementResponse:
     results: list[TagPlacementResultRow] = []
+    repo = get_designs_repository()
+    tc = (body.target_chains or "").strip()
+    df = (body.distant_from or "").strip()
+    binder = body.binder_chain.strip() or "B"
     for item in body.designs:
         run = get_run_metadata(item.run_id)
         if not run:
@@ -203,6 +208,33 @@ def _tag_placement_sync(body: TagPlacementRequest) -> TagPlacementResponse:
             item.source_path,
             {"tag": tag},
         )
+        if repo.is_enabled():
+            sp = (item.source_path or "").strip()
+            metrics, _merr = compute_tag_metrics_for_structure_file(
+                Path(pdb_path),
+                binder_chain=binder,
+                distant_from=body.distant_from,
+                target_chains=body.target_chains,
+                sasa_probe_radius=body.sasa_probe_radius,
+                sasa_n_points=body.sasa_n_points,
+                sasa_threshold=body.sasa_threshold,
+                more_distant_threshold=body.more_distant_threshold,
+            )
+            if metrics:
+                repo.upsert_tag_metrics_cache(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    source_path=sp,
+                    structure_filename=fn,
+                    binder_chain=binder,
+                    target_chains=tc,
+                    distant_from=df,
+                    sasa_probe_radius=body.sasa_probe_radius,
+                    sasa_n_points=body.sasa_n_points,
+                    sasa_threshold=body.sasa_threshold,
+                    more_distant_threshold=body.more_distant_threshold,
+                    metrics=metrics,
+                )
         results.append(
             TagPlacementResultRow(
                 run_id=item.run_id,
@@ -214,7 +246,14 @@ def _tag_placement_sync(body: TagPlacementRequest) -> TagPlacementResponse:
 
 
 def _tag_metrics_sync(body: TagPlacementRequest) -> TagMetricsResponse:
+    repo = get_designs_repository()
     results: list[TagMetricsRow] = []
+    binder = body.binder_chain.strip() or "B"
+    tc = (body.target_chains or "").strip()
+    df = (body.distant_from or "").strip()
+    allow_compute = bool(body.ignore_cache or not body.cache_only)
+    use_cache_read = bool(not body.ignore_cache and repo.is_enabled())
+
     for item in body.designs:
         run = get_run_metadata(item.run_id)
         if not run:
@@ -237,6 +276,7 @@ def _tag_metrics_sync(body: TagPlacementRequest) -> TagMetricsResponse:
             )
             continue
         fn = Path(fn_raw).name
+        sp = (item.source_path or "").strip()
         pdb_path = _resolve_structure_path(
             run.get("pdb_files", []), fn, run.get("method")
         )
@@ -250,9 +290,44 @@ def _tag_metrics_sync(body: TagPlacementRequest) -> TagMetricsResponse:
                 )
             )
             continue
+        if use_cache_read:
+            cached = repo.get_tag_metrics_cache(
+                run_id=item.run_id,
+                design_id=item.design_id,
+                source_path=sp,
+                structure_filename=fn,
+                binder_chain=binder,
+                target_chains=tc,
+                distant_from=df,
+                sasa_probe_radius=body.sasa_probe_radius,
+                sasa_n_points=body.sasa_n_points,
+                sasa_threshold=body.sasa_threshold,
+                more_distant_threshold=body.more_distant_threshold,
+            )
+            if cached is not None:
+                results.append(
+                    TagMetricsRow(
+                        run_id=item.run_id,
+                        design_id=item.design_id,
+                        pdb_file=fn,
+                        **cached,
+                    )
+                )
+                continue
+
+        if not allow_compute:
+            results.append(
+                TagMetricsRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    pdb_file=fn,
+                )
+            )
+            continue
+
         metrics, err = compute_tag_metrics_for_structure_file(
             Path(pdb_path),
-            binder_chain=body.binder_chain.strip() or "B",
+            binder_chain=binder,
             distant_from=body.distant_from,
             target_chains=body.target_chains,
             sasa_probe_radius=body.sasa_probe_radius,
@@ -278,6 +353,21 @@ def _tag_metrics_sync(body: TagPlacementRequest) -> TagMetricsResponse:
                 **metrics,
             )
         )
+        if repo.is_enabled():
+            repo.upsert_tag_metrics_cache(
+                run_id=item.run_id,
+                design_id=item.design_id,
+                source_path=sp,
+                structure_filename=fn,
+                binder_chain=binder,
+                target_chains=tc,
+                distant_from=df,
+                sasa_probe_radius=body.sasa_probe_radius,
+                sasa_n_points=body.sasa_n_points,
+                sasa_threshold=body.sasa_threshold,
+                more_distant_threshold=body.more_distant_threshold,
+                metrics=metrics,
+            )
     return TagMetricsResponse(results=results)
 
 

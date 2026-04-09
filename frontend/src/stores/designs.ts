@@ -7,6 +7,8 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { localeComparator, resolveFieldData, sort } from '@primeuix/utils/object'
 import { designsApi } from '../webapi'
+import { PERSISTENCE_KEYS } from '../persistence/keys'
+import { kvGet, kvSet } from '../persistence/store'
 import type { Design, FilterState, ColumnConfig, StructureInfo, CustomFilter } from '../types/store'
 
 export const useDesignsStore = defineStore('designs', () => {
@@ -14,6 +16,9 @@ export const useDesignsStore = defineStore('designs', () => {
     const designs = ref<Design[]>([])
     const selectedDesigns = ref<Design[]>([])
     const selectedRunIds = ref<string[]>([]) // Track selected run IDs for filtering
+    const pendingSelectedDesignKeys = ref<Array<{ run_id: string; design_id: string }>>([])
+    const pendingCurrentNavDesignId = ref<string | null>(null)
+    const designsPersistenceHydrated = ref(false)
     const filters = ref<FilterState>({
         global: { value: null, matchMode: 'contains' },
         design_id: { value: null, matchMode: 'contains' },
@@ -28,43 +33,11 @@ export const useDesignsStore = defineStore('designs', () => {
     })
     const bestMpnnOnly = ref(false)
     const customFilters = ref<CustomFilter[]>([])
-    const CUSTOM_FILTERS_STORAGE_KEY = 'binderdash:custom-filters-v1'
-
-    const loadCustomFiltersFromStorage = () => {
-        if (typeof localStorage === 'undefined') return
-        try {
-            const raw = localStorage.getItem(CUSTOM_FILTERS_STORAGE_KEY)
-            if (!raw) return
-            const parsed = JSON.parse(raw) as { filters?: unknown[] }
-            if (Array.isArray(parsed.filters)) {
-                customFilters.value = parsed.filters.map((f: any) => ({
-                    id: typeof f?.id === 'string' ? f.id : crypto.randomUUID(),
-                    column: typeof f?.column === 'string' ? f.column : '',
-                    operator: typeof f?.operator === 'string' ? f.operator : 'eq',
-                    value: f?.value,
-                    enabled: f?.enabled !== false
-                }))
-            }
-        } catch (e) {
-            console.warn('Failed to load custom filters from localStorage', e)
-        }
-    }
 
     const persistCustomFiltersToStorage = () => {
-        if (typeof localStorage === 'undefined') return
-        try {
-            localStorage.setItem(
-                CUSTOM_FILTERS_STORAGE_KEY,
-                JSON.stringify({
-                    filters: customFilters.value
-                })
-            )
-        } catch {
-            /* quota / private mode */
-        }
+        if (!designsPersistenceHydrated.value) return
+        void kvSet(PERSISTENCE_KEYS.designsCustomFilters, { filters: customFilters.value })
     }
-
-    loadCustomFiltersFromStorage()
 
     watch(customFilters, () => persistCustomFiltersToStorage(), { deep: true })
 
@@ -97,6 +70,70 @@ export const useDesignsStore = defineStore('designs', () => {
     const currentNavDesignId = ref<string | null>(null)
     const tableSortField = ref<string | undefined>(undefined)
     const tableSortOrder = ref<number | undefined>(undefined)
+
+    const persistViewStateToStorage = () => {
+        if (!designsPersistenceHydrated.value) return
+        void kvSet(PERSISTENCE_KEYS.designsViewState, {
+            selectedRunIds: selectedRunIds.value,
+            selectedDesigns: selectedDesigns.value.map((d) => ({
+                run_id: d.run_id,
+                design_id: d.design_id
+            })),
+            currentNavDesignId: currentNavDesignId.value
+        })
+    }
+
+    const hydrateFromPersistence = async () => {
+        try {
+            const filtersPayload = await kvGet<{ filters?: unknown[] }>(PERSISTENCE_KEYS.designsCustomFilters)
+            if (filtersPayload && Array.isArray(filtersPayload.filters)) {
+                customFilters.value = filtersPayload.filters.map((f: any) => ({
+                    id: typeof f?.id === 'string' ? f.id : crypto.randomUUID(),
+                    column: typeof f?.column === 'string' ? f.column : '',
+                    operator: typeof f?.operator === 'string' ? f.operator : 'eq',
+                    value: f?.value,
+                    enabled: f?.enabled !== false
+                }))
+            }
+
+            const viewPayload = await kvGet<{
+                selectedRunIds?: unknown
+                selectedDesigns?: unknown
+                currentNavDesignId?: unknown
+            }>(PERSISTENCE_KEYS.designsViewState)
+            if (viewPayload) {
+                if (Array.isArray(viewPayload.selectedRunIds)) {
+                    selectedRunIds.value = viewPayload.selectedRunIds
+                        .map((v) => String(v))
+                        .filter((v) => v.length > 0)
+                }
+                if (Array.isArray(viewPayload.selectedDesigns)) {
+                    pendingSelectedDesignKeys.value = viewPayload.selectedDesigns
+                        .map((row) => {
+                            const runId = (row as any)?.run_id
+                            const designId = (row as any)?.design_id
+                            if (runId == null || designId == null) return null
+                            return { run_id: String(runId), design_id: String(designId) }
+                        })
+                        .filter((row): row is { run_id: string; design_id: string } => row !== null)
+                }
+                if (viewPayload.currentNavDesignId != null && viewPayload.currentNavDesignId !== '') {
+                    pendingCurrentNavDesignId.value = String(viewPayload.currentNavDesignId)
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to hydrate designs persistence from IndexedDB', e)
+        } finally {
+            designsPersistenceHydrated.value = true
+        }
+    }
+
+    const selectedDesignKeysSignature = computed(() =>
+        selectedDesigns.value
+            .map((d) => `${d.run_id}::${d.design_id}`)
+            .sort()
+            .join('|')
+    )
 
     const operatorOptionsNumeric = [
         { label: '<=', value: 'lte' },
@@ -700,6 +737,26 @@ export const useDesignsStore = defineStore('designs', () => {
                 const fieldSet = new Set(columns.value.map(c => c.field))
                 visibleColumns.value = prevVisible.filter(f => fieldSet.has(f))
             }
+
+            // Restore persisted row/view state once we have live design objects.
+            if (pendingSelectedDesignKeys.value.length > 0) {
+                const keySet = new Set(pendingSelectedDesignKeys.value.map((k) => `${k.run_id}::${k.design_id}`))
+                selectedDesigns.value = designs.value.filter((d) => keySet.has(`${d.run_id}::${d.design_id}`))
+                pendingSelectedDesignKeys.value = []
+            } else {
+                // Keep selection object identity in sync after refresh.
+                const keySet = new Set(selectedDesigns.value.map((d) => `${d.run_id}::${d.design_id}`))
+                selectedDesigns.value = designs.value.filter((d) => keySet.has(`${d.run_id}::${d.design_id}`))
+            }
+
+            if (pendingCurrentNavDesignId.value != null) {
+                currentNavDesignId.value = pendingCurrentNavDesignId.value
+                pendingCurrentNavDesignId.value = null
+            }
+            const withPdb = designsWithPdbOrdered()
+            if (!withPdb.some((d) => d.design_id === currentNavDesignId.value)) {
+                currentNavDesignId.value = withPdb[0]?.design_id ?? null
+            }
         } catch (err) {
             console.error('Error loading designs:', err)
             throw err
@@ -1064,6 +1121,8 @@ export const useDesignsStore = defineStore('designs', () => {
         return [...baseColumns, ...scoreColumns, ...metadataColumns, ...otherColumns]
     }
 
+    watch([selectedRunIds, selectedDesignKeysSignature, currentNavDesignId], () => persistViewStateToStorage())
+
     return {
         // State
         designs,
@@ -1111,6 +1170,7 @@ export const useDesignsStore = defineStore('designs', () => {
         getStructureFilename,
         patchDesignGood,
         patchDesignTag,
-        applyTagPlacementResult
+        applyTagPlacementResult,
+        hydrateFromPersistence
     }
 })

@@ -82,6 +82,10 @@ export interface TagPlacementRequest {
     more_distant_threshold?: number
     /** When false, server skips rebuilding designs cache (use refreshDesignsCache once after a batch). */
     refresh_cache_after?: boolean
+    /** When true, only return rows found in SQLite tag-metrics cache (no heavy compute). */
+    cache_only?: boolean
+    /** When true, skip cache reads and recompute metrics (still writes cache when persistence enabled). */
+    ignore_cache?: boolean
 }
 
 export interface TagPlacementResultRow {

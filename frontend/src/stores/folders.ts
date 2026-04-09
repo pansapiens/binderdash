@@ -4,8 +4,10 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { treeApi, runsApi } from '../webapi'
+import { PERSISTENCE_KEYS } from '../persistence/keys'
+import { kvGet, kvSet } from '../persistence/store'
 import type { FolderNode, Run, FolderState } from '../types/store'
 
 export const useFolderStore = defineStore('folders', () => {
@@ -17,6 +19,35 @@ export const useFolderStore = defineStore('folders', () => {
     const selectedRuns = ref<Run[]>([])
     const loading = ref(false)
     const scanning = ref(false)
+    const foldersPersistenceHydrated = ref(false)
+
+    const persistFoldersUi = () => {
+        if (!foldersPersistenceHydrated.value) return
+        void kvSet(PERSISTENCE_KEYS.foldersUi, {
+            selectedKeys: { ...selectedKeys.value },
+            expandedKeys: { ...expandedKeys.value }
+        })
+    }
+
+    watch([selectedKeys, expandedKeys], () => persistFoldersUi(), { deep: true })
+
+    const hydrateFromPersistence = async () => {
+        try {
+            const data = await kvGet<{ selectedKeys?: Record<string, unknown>; expandedKeys?: Record<string, boolean> }>(
+                PERSISTENCE_KEYS.foldersUi
+            )
+            if (data?.selectedKeys && typeof data.selectedKeys === 'object') {
+                selectedKeys.value = data.selectedKeys as Record<string, unknown>
+            }
+            if (data?.expandedKeys && typeof data.expandedKeys === 'object') {
+                expandedKeys.value = data.expandedKeys
+            }
+        } catch (e) {
+            console.warn('Failed to hydrate folder persistence from IndexedDB', e)
+        } finally {
+            foldersPersistenceHydrated.value = true
+        }
+    }
 
     // Getters
     const selectedFolderNodes = computed(() => {
@@ -191,11 +222,7 @@ export const useFolderStore = defineStore('folders', () => {
         collapseNode,
         isNodeExpanded,
         isNodeSelected,
-        getFolderIcon
-    }
-}, {
-    persist: {
-        // Persist only the selected keys and expanded state, not the entire folder tree or scan results
-        paths: ['selectedKeys', 'expandedKeys']
+        getFolderIcon,
+        hydrateFromPersistence
     }
 })
