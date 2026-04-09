@@ -1288,6 +1288,17 @@ const tagMetricsDesignItems = () =>
     }
   })
 
+const TAG_PLACEMENT_BATCH_SIZE = 10
+
+const chunkArray = <T,>(items: T[], size: number): T[][] => {
+  const safe = Math.max(1, Math.floor(size))
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += safe) {
+    out.push(items.slice(i, i + safe))
+  }
+  return out
+}
+
 const loadTagMetrics = async () => {
   tagMetricsFirst.value = 0
   if (!showTagPlacementOptions.value || !designsStore.selectedDesigns.length) {
@@ -1327,19 +1338,20 @@ const loadTagMetrics = async () => {
   }
 }
 
-const refreshTagMetricsRowAfterPlacement = async (d: Design) => {
+const refreshTagMetricsRowsAfterPlacement = async (designs: Design[]) => {
+  if (designs.length === 0) return
   const distant = tagPlacementDistantFrom.value.trim()
   const targetChains = tagPlacementTargetChains.value.trim()
-  const fn = designsStore.getStructureFilename(d)
   const res = await designsApi.postTagMetrics({
-    designs: [
-      {
+    designs: designs.map((d) => {
+      const fn = designsStore.getStructureFilename(d)
+      return {
         run_id: String(d.run_id),
         design_id: String(d.design_id),
         pdb_file: fn || undefined,
         source_path: d.source_path != null ? String(d.source_path) : undefined,
-      },
-    ],
+      }
+    }),
     binder_chain: tagPlacementBinderChain.value.trim() || 'B',
     target_chains: targetChains || null,
     distant_from: distant || null,
@@ -1350,13 +1362,13 @@ const refreshTagMetricsRowAfterPlacement = async (d: Design) => {
     cache_only: false,
     ignore_cache: false,
   })
-  const r = res.results[0]
-  if (!r) return
-  const idx = tagMetricsRows.value.findIndex(
-    (row) => row.run_id === r.run_id && row.design_id === r.design_id,
-  )
-  if (idx >= 0) {
-    tagMetricsRows.value[idx] = { ...r, _tmKey: tagMetricsRows.value[idx]._tmKey }
+  for (const r of res.results) {
+    const idx = tagMetricsRows.value.findIndex(
+      (row) => row.run_id === r.run_id && row.design_id === r.design_id,
+    )
+    if (idx >= 0) {
+      tagMetricsRows.value[idx] = { ...r, _tmKey: tagMetricsRows.value[idx]._tmKey }
+    }
   }
 }
 
@@ -1569,33 +1581,49 @@ const runTagPlacementAutoDetect = async () => {
       refresh_cache_after: false,
       ignore_cache: tagPlacementIgnoreCache.value === true,
     }
-    for (const d of toProcess) {
-      const fn = designsStore.getStructureFilename(d)
+    const designByKey = new Map<string, Design>(
+      toProcess.map((d) => [`${d.run_id}::${d.design_id}`, d]),
+    )
+    for (const batch of chunkArray(toProcess, TAG_PLACEMENT_BATCH_SIZE)) {
       const res = await designsApi.postTagPlacement({
         ...basePayload,
-        designs: [
-          {
+        designs: batch.map((d) => {
+          const fn = designsStore.getStructureFilename(d)
+          return {
             run_id: String(d.run_id),
             design_id: String(d.design_id),
             pdb_file: fn || undefined,
             source_path: d.source_path != null ? String(d.source_path) : undefined,
-          },
-        ],
+          }
+        }),
       })
-      const row = res.results[0]
-      if (row) {
+      const successfulBatchDesigns: Design[] = []
+      for (const row of res.results) {
         allResults.push(row)
         designsStore.applyTagPlacementResult(row)
         if (!row.error) {
-          try {
-            await refreshTagMetricsRowAfterPlacement(d)
-          } catch (e) {
-            console.warn('Tag metrics refresh after placement failed', e)
-          }
+          const d = designByKey.get(`${row.run_id}::${row.design_id}`)
+          if (d) successfulBatchDesigns.push(d)
         }
       }
-      tagPlacementProgressCurrent.value += 1
+      if (successfulBatchDesigns.length > 0) {
+        try {
+          await refreshTagMetricsRowsAfterPlacement(successfulBatchDesigns)
+        } catch (e) {
+          console.warn('Tag metrics refresh after placement failed', e)
+        }
+      }
+      tagPlacementProgressCurrent.value += batch.length
       await nextTick()
+    }
+    if (allResults.length === 0) {
+      toast.add({
+        severity: 'warn',
+        summary: 'Tag placement',
+        detail: 'No tag-placement results were returned by the server.',
+        life: 4500,
+      })
+      return
     }
     const failed = allResults.filter((r) => r.error)
     const ok = allResults.filter((r) => !r.error)

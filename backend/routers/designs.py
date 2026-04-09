@@ -25,7 +25,7 @@ from ..schemas import (
 )
 from ..persistence.factory import get_designs_repository
 from ..settings import LocalUser
-from ..tag_placement import compute_tag_for_structure_file, compute_tag_metrics_for_structure_file
+from ..tag_placement import compute_tag_metrics_for_structure_file
 
 
 logger = logging.getLogger(__name__)
@@ -167,9 +167,9 @@ def _tag_placement_sync(body: TagPlacementRequest) -> TagPlacementResponse:
                 )
             )
             continue
-        tag, err = compute_tag_for_structure_file(
+        metrics, err = compute_tag_metrics_for_structure_file(
             Path(pdb_path),
-            binder_chain=body.binder_chain.strip() or "B",
+            binder_chain=binder,
             distant_from=body.distant_from,
             target_chains=body.target_chains,
             sasa_probe_radius=body.sasa_probe_radius,
@@ -186,6 +186,7 @@ def _tag_placement_sync(body: TagPlacementRequest) -> TagPlacementResponse:
                 )
             )
             continue
+        tag = metrics.get("predicted_tag") if metrics else None
         try:
             update_design_tag(
                 run,
@@ -210,16 +211,6 @@ def _tag_placement_sync(body: TagPlacementRequest) -> TagPlacementResponse:
         )
         if repo.is_enabled():
             sp = (item.source_path or "").strip()
-            metrics, _merr = compute_tag_metrics_for_structure_file(
-                Path(pdb_path),
-                binder_chain=binder,
-                distant_from=body.distant_from,
-                target_chains=body.target_chains,
-                sasa_probe_radius=body.sasa_probe_radius,
-                sasa_n_points=body.sasa_n_points,
-                sasa_threshold=body.sasa_threshold,
-                more_distant_threshold=body.more_distant_threshold,
-            )
             if metrics:
                 repo.upsert_tag_metrics_cache(
                     run_id=item.run_id,
