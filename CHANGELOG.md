@@ -47,6 +47,7 @@ for ing
   - Correctly handles PDB file paths for nf-binder-design runs vs regular runs
 - Normalised run table columns on the backend to coalesce equivalent fields (e.g., `Sequence`/`sequence`, `Length`/`length`) during ingestion. This prevents duplicate columns appearing in `DesignsView` when mixing RFD and BindCraft runs.
 - **Folder browser**: Removed redundant **Select All** / **Deselect All** buttons above Scan Results; selection uses the DataTable header checkbox. Removed the **Detected Runs** / “x of y selected” table header bar (the **Scan Results** heading above the table remains).
+- **Ingest Runs**: **Scan Results** appears above the folder tree; after a scan, all discovered runs are selected by default (still adjustable per row or via the header checkbox).
 
 ### Fixed
 - **Mol\* viewer / design switching**: Rapid table or floating prev/next selection could overlap async Mol\* loads and trigger **`Invalid data cell`** in **`parseTrajectory`** (stale data-tree refs). **`loadStructure`** is now **serialised** via a promise chain, **`toggleAlphaFoldView`** uses **`loadStructure()`** instead of a concurrent **`fullReload`**, and **`viewerAlive` / `onBeforeUnmount`** plus checks after awaits avoid work on a torn-down viewer.

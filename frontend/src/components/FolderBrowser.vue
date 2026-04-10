@@ -38,43 +38,6 @@
       </div>
     </div>
 
-    <div class="browser-content">
-      <TreeTable 
-        :value="folderStore.folders" 
-        :loading="folderStore.loading"
-        @node-expand="onNodeExpand"
-        @node-collapse="onNodeCollapse"
-        v-model:expandedKeys="folderStore.expandedKeys"
-        dataKey="key"
-        lazy
-        :loadingIcon="'pi pi-spinner'"
-        :loadingMode="'card'"
-      >
-        <Column field="name" header="Name" expander>
-          <template #body="{ node }">
-            <div class="folder-node">
-              <input 
-                type="checkbox"
-                :checked="isNodeSelected(node)"
-                @change="toggleNodeSelection(node)"
-                @click="console.log('Checkbox clicked for node:', node.key)"
-                class="folder-checkbox"
-                style="pointer-events: auto; z-index: 10; position: relative; margin-right: 0.5rem;"
-              />
-              <i :class="getFolderIcon(node)" class="folder-icon"></i>
-              <span>{{ node.name }}</span>
-            </div>
-          </template>
-        </Column>
-        <Column field="path" header="Path">
-          <template #body="{ node }">
-            <span class="folder-path">{{ node.path }}</span>
-          </template>
-        </Column>
-      </TreeTable>
-    </div>
-
-
     <div v-if="folderStore.scanResults.length > 0" class="scan-results">
       <h3>Scan Results ({{ folderStore.scanResults.length }} runs found)</h3>
       <p class="scan-results-hint">
@@ -153,6 +116,42 @@
           </template>
         </Column>
       </DataTable>
+    </div>
+
+    <div class="browser-content">
+      <TreeTable 
+        :value="folderStore.folders" 
+        :loading="folderStore.loading"
+        @node-expand="onNodeExpand"
+        @node-collapse="onNodeCollapse"
+        v-model:expandedKeys="folderStore.expandedKeys"
+        dataKey="key"
+        lazy
+        :loadingIcon="'pi pi-spinner'"
+        :loadingMode="'card'"
+      >
+        <Column field="name" header="Name" expander>
+          <template #body="{ node }">
+            <div class="folder-node">
+              <input 
+                type="checkbox"
+                :checked="isNodeSelected(node)"
+                @change="toggleNodeSelection(node)"
+                @click="console.log('Checkbox clicked for node:', node.key)"
+                class="folder-checkbox"
+                style="pointer-events: auto; z-index: 10; position: relative; margin-right: 0.5rem;"
+              />
+              <i :class="getFolderIcon(node)" class="folder-icon"></i>
+              <span>{{ node.name }}</span>
+            </div>
+          </template>
+        </Column>
+        <Column field="path" header="Path">
+          <template #body="{ node }">
+            <span class="folder-path">{{ node.path }}</span>
+          </template>
+        </Column>
+      </TreeTable>
     </div>
     
     <Dialog
@@ -680,6 +679,7 @@ const findNodeByKey = (nodes: any[], targetKey: string): any => {
   padding: 1rem;
   border-radius: 8px;
   border: 1px solid #e9ecef;
+  margin-bottom: 1rem;
 }
 
 .scan-results h3 {
