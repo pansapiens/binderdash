@@ -23,7 +23,7 @@
             />
           </div>
           <div class="column-toggles">
-            <div v-for="col in designsStore.columns" :key="col.field" class="column-toggle">
+            <div v-for="col in designsStore.columnsForSelectedRuns" :key="col.field" class="column-toggle">
               <Checkbox 
                 :modelValue="isColumnVisible(col.field)"
                 @update:modelValue="toggleColumn(col.field)"
@@ -2119,7 +2119,7 @@ const toggleColumn = (field: string): void => {
 }
 
 const customFilterColumnOptions = computed(() =>
-  designsStore.columns.map(c => ({ label: c.header, value: c.field }))
+  designsStore.columnsForSelectedRuns.map(c => ({ label: c.header, value: c.field }))
 )
 
 const booleanFilterValueOptions = [
@@ -2129,7 +2129,7 @@ const booleanFilterValueOptions = [
 ]
 
 function customFilterColumnType(field: string): string {
-  return designsStore.columns.find(c => c.field === field)?.filterType ?? 'text'
+  return designsStore.columnsForSelectedRuns.find(c => c.field === field)?.filterType ?? 'text'
 }
 
 function showCustomFilterValueInput(cf: CustomFilter): boolean {
@@ -2141,7 +2141,7 @@ function onCustomFilterColumnChange(id: string, column: string | null) {
   const field = column ?? ''
   const ops = designsStore.getOperatorsForColumn(field)
   const firstOp = ops[0]?.value ?? 'eq'
-  const colType = designsStore.columns.find(c => c.field === field)?.filterType ?? 'text'
+  const colType = designsStore.columnsForSelectedRuns.find(c => c.field === field)?.filterType ?? 'text'
   let value: string | number | boolean | null = null
   if (colType === 'boolean') value = true
   designsStore.updateCustomFilter(id, { column: field, operator: firstOp, value, enabled: true })
@@ -2773,7 +2773,7 @@ const getDetailFieldValue = (design: Record<string, unknown> | undefined, field:
 }
 
 const columnHeaderForDetail = (field: string): string => {
-  const col = designsStore.columns.find(c => c.field === field)
+  const col = designsStore.columnsForSelectedRuns.find(c => c.field === field)
   if (col?.header) return col.header
   return formatScoreHeader(field)
 }
@@ -2845,13 +2845,11 @@ const extraVisibleDesignDataFields = computed((): string[] => {
 })
 
 const getVisibleColumns = () => {
-  // If columns haven't been loaded yet, return empty array
-  if (designsStore.columns.length === 0) {
+  if (designsStore.columnsForSelectedRuns.length === 0) {
     return []
   }
-  
-  // Filter the full column configuration to only show visible columns
-  return designsStore.columns.filter((col: any) => 
+
+  return designsStore.columnsForSelectedRuns.filter((col: any) =>
     designsStore.visibleColumns.includes(col.field)
   )
 }

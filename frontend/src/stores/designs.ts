@@ -71,6 +71,153 @@ export const useDesignsStore = defineStore('designs', () => {
     const tableSortField = ref<string | undefined>(undefined)
     const tableSortOrder = ref<number | undefined>(undefined)
 
+    function buildColumnsFromData(designs: Design[]): ColumnConfig[] {
+        if (!designs || designs.length === 0) return []
+
+        const baseColumns: ColumnConfig[] = [
+            { field: 'design_id', header: 'Design ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 150px' },
+            { field: 'project_id', header: 'Project ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
+            { field: 'run_name', header: 'Run Name', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
+            { field: 'method', header: 'Method', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 100px' }
+        ]
+
+        if (designs.some(d => Object.prototype.hasOwnProperty.call(d, 'good'))) {
+            baseColumns.push({
+                field: 'good',
+                header: 'Good',
+                sortable: true,
+                filter: true,
+                filterType: 'boolean',
+                showFilterMenu: false,
+                style: 'min-width: 90px'
+            })
+        }
+
+        if (designs.some(d => Object.prototype.hasOwnProperty.call(d, 'tag'))) {
+            baseColumns.push({
+                field: 'tag',
+                header: 'Tag',
+                sortable: true,
+                filter: true,
+                filterType: 'text',
+                showFilterMenu: false,
+                style: 'min-width: 72px'
+            })
+        }
+
+        const scoreColumns: ColumnConfig[] = []
+        const knownScoreFields = [
+            { field: 'pae_interaction', header: 'PAE Interaction' },
+            { field: 'Average_i_pTM', header: 'Average i_pTM' },
+            { field: 'design_to_target_iptm', header: 'Design→Target ipTM' },
+            { field: 'quality_score', header: 'Quality Score' },
+            { field: 'pLDDT', header: 'pLDDT' },
+            { field: 'i_pTM', header: 'i_pTM' },
+            { field: 'ipTM', header: 'ipTM' },
+            { field: 'iptm', header: 'ipTM' },
+            { field: 'pair_pae', header: 'Pair PAE' },
+            { field: 'rf3_ipsae_min', header: 'RF3 ipSAE Min' },
+            {
+                field: 'rf3_rmsd_target_aligned_binder_rmsd_all',
+                header: 'RF3 RMSD (Target-aligned Binder)'
+            }
+        ]
+
+        knownScoreFields.forEach(scoreField => {
+            if (designs.some(d => scoreField.field in d && d[scoreField.field] != null)) {
+                scoreColumns.push({
+                    field: scoreField.field,
+                    header: scoreField.header,
+                    sortable: true,
+                    filter: true,
+                    filterType: 'numeric',
+                    showFilterMenu: false,
+                    style: 'min-width: 120px'
+                })
+            }
+        })
+
+        const metadataColumns: ColumnConfig[] = [
+            { field: 'target_sequence', header: 'Target Sequence', sortable: false, filter: false, style: 'min-width: 200px' },
+            { field: 'pdb_file', header: 'PDB File', sortable: false, filter: false, style: 'min-width: 200px' },
+            { field: 'run_path', header: 'Run Path', sortable: false, filter: false, style: 'min-width: 200px' }
+        ]
+
+        const existingFields = new Set([
+            'design_id', 'project_id', 'run_name', 'method', 'good', 'tag',
+            'pae_interaction', 'Average_i_pTM', 'design_to_target_iptm', 'quality_score',
+            'pLDDT', 'i_pTM', 'ipTM',
+            'pdb_file', 'run_path', 'run_id', 'target_sequence'
+        ])
+
+        const dynamicKeys = new Set<string>()
+        for (const design of designs) {
+            for (const key of Object.keys(design)) {
+                if (!existingFields.has(key)) dynamicKeys.add(key)
+            }
+        }
+
+        const otherColumns: ColumnConfig[] = []
+        for (const key of dynamicKeys) {
+            let sample: unknown
+            for (const design of designs) {
+                const v = design[key]
+                if (v != null && v !== '') {
+                    sample = v
+                    break
+                }
+            }
+
+            let filterType = 'text'
+            let sortable = false
+            if (sample === undefined) {
+                filterType = 'text'
+            } else if (typeof sample === 'boolean') {
+                filterType = 'boolean'
+                sortable = true
+            } else if (typeof sample === 'number' && !Number.isNaN(sample)) {
+                filterType = 'numeric'
+                sortable = true
+            } else if (sample instanceof Date) {
+                filterType = 'date'
+                sortable = true
+            } else if (typeof sample === 'string' && sample.trim() !== '' && !Number.isNaN(Number(sample))) {
+                filterType = 'numeric'
+                sortable = true
+            }
+
+            otherColumns.push({
+                field: key,
+                header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                sortable,
+                filter: true,
+                filterType,
+                showFilterMenu: false,
+                style: 'min-width: 120px'
+            })
+        }
+
+        return [...baseColumns, ...scoreColumns, ...metadataColumns, ...otherColumns]
+    }
+
+    const columnsForSelectedRuns = computed((): ColumnConfig[] => {
+        if (selectedRunIds.value.length === 0) return []
+        const idSet = new Set(selectedRunIds.value)
+        const slice = designs.value.filter(d => idSet.has(d.run_id))
+        if (slice.length === 0) return []
+        return buildColumnsFromData(slice)
+    })
+
+    watch(
+        columnsForSelectedRuns,
+        (cols) => {
+            const allowed = new Set(cols.map(c => c.field))
+            if (allowed.size === 0) return
+            visibleColumns.value = visibleColumns.value.filter(f => allowed.has(f))
+        },
+        { deep: true }
+    )
+
     const persistViewStateToStorage = () => {
         if (!designsPersistenceHydrated.value) return
         void kvSet(PERSISTENCE_KEYS.designsViewState, {
@@ -164,6 +311,8 @@ export const useDesignsStore = defineStore('designs', () => {
     ]
 
     function getColumnFilterType(field: string): string {
+        const fromSelected = columnsForSelectedRuns.value.find(c => c.field === field)
+        if (fromSelected) return fromSelected.filterType ?? 'text'
         return columns.value.find(c => c.field === field)?.filterType ?? 'text'
     }
 
@@ -989,138 +1138,6 @@ export const useDesignsStore = defineStore('designs', () => {
         return `${idx + 1} / ${withPdb.length}`
     }
 
-    // Helper function to build columns from data
-    const buildColumnsFromData = (designs: Design[]): ColumnConfig[] => {
-        if (!designs || designs.length === 0) return columns.value
-
-        const baseColumns: ColumnConfig[] = [
-            { field: 'design_id', header: 'Design ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 150px' },
-            { field: 'project_id', header: 'Project ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
-            { field: 'run_name', header: 'Run Name', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
-            { field: 'method', header: 'Method', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 100px' }
-        ]
-
-        if (designs.some(d => Object.prototype.hasOwnProperty.call(d, 'good'))) {
-            baseColumns.push({
-                field: 'good',
-                header: 'Good',
-                sortable: true,
-                filter: true,
-                filterType: 'boolean',
-                showFilterMenu: false,
-                style: 'min-width: 90px'
-            })
-        }
-
-        if (designs.some(d => Object.prototype.hasOwnProperty.call(d, 'tag'))) {
-            baseColumns.push({
-                field: 'tag',
-                header: 'Tag',
-                sortable: true,
-                filter: true,
-                filterType: 'text',
-                showFilterMenu: false,
-                style: 'min-width: 72px'
-            })
-        }
-
-        // Add score columns if they exist in the data
-        const scoreColumns: ColumnConfig[] = []
-        const knownScoreFields = [
-            { field: 'pae_interaction', header: 'PAE Interaction' },
-            { field: 'Average_i_pTM', header: 'Average i_pTM' },
-            { field: 'design_to_target_iptm', header: 'Design→Target ipTM' },
-            { field: 'quality_score', header: 'Quality Score' },
-            { field: 'pLDDT', header: 'pLDDT' },
-            { field: 'i_pTM', header: 'i_pTM' },
-            { field: 'ipTM', header: 'ipTM' },
-            { field: 'iptm', header: 'ipTM' },
-            { field: 'pair_pae', header: 'Pair PAE' },
-            { field: 'rf3_ipsae_min', header: 'RF3 ipSAE Min' },
-            {
-                field: 'rf3_rmsd_target_aligned_binder_rmsd_all',
-                header: 'RF3 RMSD (Target-aligned Binder)'
-            }
-        ]
-
-        knownScoreFields.forEach(scoreField => {
-            if (designs.some(d => scoreField.field in d && d[scoreField.field] != null)) {
-                scoreColumns.push({
-                    field: scoreField.field,
-                    header: scoreField.header,
-                    sortable: true,
-                    filter: true,
-                    filterType: 'numeric',
-                    showFilterMenu: false,
-                    style: 'min-width: 120px'
-                })
-            }
-        })
-
-        const metadataColumns: ColumnConfig[] = [
-            { field: 'target_sequence', header: 'Target Sequence', sortable: false, filter: false, style: 'min-width: 200px' },
-            { field: 'pdb_file', header: 'PDB File', sortable: false, filter: false, style: 'min-width: 200px' },
-            { field: 'run_path', header: 'Run Path', sortable: false, filter: false, style: 'min-width: 200px' }
-        ]
-
-        // Add other columns from the data (excluding already defined ones)
-        const existingFields = new Set([
-            'design_id', 'project_id', 'run_name', 'method', 'good', 'tag',
-            'pae_interaction', 'Average_i_pTM', 'design_to_target_iptm', 'quality_score',
-            'pLDDT', 'i_pTM', 'ipTM',
-            'pdb_file', 'run_path', 'run_id', 'target_sequence'
-        ])
-
-        const dynamicKeys = new Set<string>()
-        for (const design of designs) {
-            for (const key of Object.keys(design)) {
-                if (!existingFields.has(key)) dynamicKeys.add(key)
-            }
-        }
-
-        const otherColumns: ColumnConfig[] = []
-        for (const key of dynamicKeys) {
-            let sample: unknown
-            for (const design of designs) {
-                const v = design[key]
-                if (v != null && v !== '') {
-                    sample = v
-                    break
-                }
-            }
-
-            let filterType = 'text'
-            let sortable = false
-            if (sample === undefined) {
-                filterType = 'text'
-            } else if (typeof sample === 'boolean') {
-                filterType = 'boolean'
-                sortable = true
-            } else if (typeof sample === 'number' && !Number.isNaN(sample)) {
-                filterType = 'numeric'
-                sortable = true
-            } else if (sample instanceof Date) {
-                filterType = 'date'
-                sortable = true
-            } else if (typeof sample === 'string' && sample.trim() !== '' && !Number.isNaN(Number(sample))) {
-                filterType = 'numeric'
-                sortable = true
-            }
-
-            otherColumns.push({
-                field: key,
-                header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-                sortable,
-                filter: true,
-                filterType,
-                showFilterMenu: false,
-                style: 'min-width: 120px'
-            })
-        }
-
-        return [...baseColumns, ...scoreColumns, ...metadataColumns, ...otherColumns]
-    }
-
     watch([selectedRunIds, selectedDesignKeysSignature, currentNavDesignId], () => persistViewStateToStorage())
 
     return {
@@ -1135,6 +1152,7 @@ export const useDesignsStore = defineStore('designs', () => {
         allFiltersForFieldEnabled,
         setAllCustomFiltersEnabledForField,
         columns,
+        columnsForSelectedRuns,
         visibleColumns,
         loading,
         currentNavDesignId,
