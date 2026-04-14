@@ -11,6 +11,29 @@ import { PERSISTENCE_KEYS } from '../persistence/keys'
 import { kvGet, kvSet } from '../persistence/store'
 import type { Design, FilterState, ColumnConfig, StructureInfo, CustomFilter } from '../types/store'
 
+/** Fields used by score min/max filters in `filteredDesigns`. */
+const SCORE_RANGE_FILTER_FIELDS = [
+    'pae_interaction',
+    'Average_i_pTM',
+    'design_to_target_iptm',
+    'quality_score',
+    'i_pTM',
+    'ipTM',
+    'iptm',
+    'pair_pae',
+    'rf3_ipsae_min',
+    'rf3_rmsd_target_aligned_binder_rmsd_all'
+] as const
+
+function designHasAnyScoreForRangeFilter(design: Design): boolean {
+    const d = design as Record<string, unknown>
+    for (const field of SCORE_RANGE_FILTER_FIELDS) {
+        const value = d[field]
+        if (value !== null && value !== undefined) return true
+    }
+    return false
+}
+
 export const useDesignsStore = defineStore('designs', () => {
     // State
     const designs = ref<Design[]>([])
@@ -473,61 +496,45 @@ export const useDesignsStore = defineStore('designs', () => {
             )
         }
 
-        // Apply score range filters
-        if (filters.value.score_min.value !== null) {
+        // Apply score range filters (rows with none of these fields pass — avoids hiding other methods after switching runs)
+        if (filters.value.score_min.value != null) {
+            const min = filters.value.score_min.value
             filtered = filtered.filter(design => {
-                const scoreFields = [
-                    'pae_interaction',
-                    'Average_i_pTM',
-                    'design_to_target_iptm',
-                    'quality_score',
-                    'i_pTM',
-                    'ipTM',
-                    'iptm',
-                    'pair_pae',
-                    'rf3_ipsae_min',
-                    'rf3_rmsd_target_aligned_binder_rmsd_all'
-                ]
-                return scoreFields.some(field => {
-                    const value = design[field]
-                    return value !== null && value !== undefined && value >= filters.value.score_min.value
+                if (!designHasAnyScoreForRangeFilter(design)) return true
+                return SCORE_RANGE_FILTER_FIELDS.some(field => {
+                    const value = (design as Record<string, unknown>)[field]
+                    return value !== null && value !== undefined && Number(value) >= min
                 })
             })
         }
 
-        if (filters.value.score_max.value !== null) {
+        if (filters.value.score_max.value != null) {
+            const max = filters.value.score_max.value
             filtered = filtered.filter(design => {
-                const scoreFields = [
-                    'pae_interaction',
-                    'Average_i_pTM',
-                    'design_to_target_iptm',
-                    'quality_score',
-                    'i_pTM',
-                    'ipTM',
-                    'iptm',
-                    'pair_pae',
-                    'rf3_ipsae_min',
-                    'rf3_rmsd_target_aligned_binder_rmsd_all'
-                ]
-                return scoreFields.some(field => {
-                    const value = design[field]
-                    return value !== null && value !== undefined && value <= filters.value.score_max.value
+                if (!designHasAnyScoreForRangeFilter(design)) return true
+                return SCORE_RANGE_FILTER_FIELDS.some(field => {
+                    const value = (design as Record<string, unknown>)[field]
+                    return value !== null && value !== undefined && Number(value) <= max
                 })
             })
         }
 
-        // Apply length range filters
-        if (filters.value.length_min.value !== null) {
+        // Apply length range filters (missing length passes — e.g. boltzgen rows without Length while bounds were set from another run)
+        if (filters.value.length_min.value != null) {
+            const min = filters.value.length_min.value
             filtered = filtered.filter(design => {
-                const length = design.Length || design.length
-                return length !== null && length !== undefined && Number(length) >= filters.value.length_min.value
+                const length = design.Length ?? design.length
+                if (length === null || length === undefined) return true
+                return Number(length) >= min
             })
         }
 
-        if (filters.value.length_max.value !== null) {
+        if (filters.value.length_max.value != null) {
+            const max = filters.value.length_max.value
             filtered = filtered.filter(design => {
-                const length = design.Length || design.length
-                return length !== null && length !== undefined && Number(length) <= filters.value.length_max.value
+                const length = design.Length ?? design.length
+                if (length === null || length === undefined) return true
+                return Number(length) <= max
             })
         }
 
