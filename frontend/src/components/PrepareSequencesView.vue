@@ -4,11 +4,17 @@
       <h2>Prepare sequences</h2>
     </div>
 
-    <p class="ps-intro">
-      Tags you place in the <strong>N-tagged</strong> and <strong>C-tagged</strong> areas are only added to designs whose
-      <strong>tag</strong> column is <code>N</code> or <code>C</code> respectively. Designs with another tag value get
-      only the core sequence plus the global N/C terminal additions and optional stop.
-    </p>
+    <div class="ps-intro-box">
+      <p class="ps-intro">
+        <strong>Tagging:</strong> Tags you place in the <strong>N-tagged</strong> and <strong>C-tagged</strong> areas are only added to designs whose
+        <strong>tag</strong> column is <code>N</code> or <code>C</code> respectively. Designs with another tag value get
+        only the core sequence plus the global N/C terminal additions and optional stop.
+      </p>
+      <p class="ps-case-help">
+        <strong>Entering amino acid and nucleotides:</strong> Sequences entered in uppercase are interpreted as amino acids, lowercase are nucleotides. You can mix and match
+        upper and lowercase (eg <code>atgGS</code> translates to <code>MGS</code>).
+      </p>
+    </div>
 
     <div class="ps-order-name">
       <label for="ps-export-order-name">Order name:</label>
@@ -84,7 +90,7 @@
       <div class="ps-custom-row">
         <InputText
           v-model="seqPrep.customTagInput"
-          placeholder="Custom AA sequence"
+          placeholder="Custom sequence (UPPERCASE=AA, lowercase=nuc)"
           class="ps-custom-input"
           @keyup.enter="addCustomBoth"
         />
@@ -127,17 +133,13 @@
         <Checkbox v-model="seqPrep.goodOnly" input-id="ps-good" binary />
         <label for="ps-good">Good only</label>
       </div>
-      <div class="ps-field ps-checks">
-        <Checkbox v-model="seqPrep.dnaMode" input-id="ps-dna" binary />
-        <label for="ps-dna">Reverse translate (E. coli codons)</label>
-      </div>
       <div class="ps-field">
         <label for="ps-pad">Post-stop padding</label>
         <InputText
           id="ps-pad"
           v-model="seqPrep.postStopPadding"
           class="w-full"
-          :placeholder="seqPrep.dnaMode ? 'DNA (ACGT…)' : 'Amino acids'"
+          placeholder="UPPERCASE=AA, lowercase=nuc (a,c,g,t)"
         />
       </div>
       <div v-if="seqPrep.dnaMode" class="ps-field">
@@ -162,6 +164,29 @@
         @click="onExtractMissing"
       />
       <span class="ps-hint">{{ inputSummary }}</span>
+    </div>
+
+    <div class="ps-view-bar">
+      <div class="ps-view-toggle">
+        <span :class="{ 'ps-toggle-active': !seqPrep.dnaMode }">Amino acid</span>
+        <InputSwitch
+          id="ps-view-mode"
+          v-model="seqPrep.dnaMode"
+          aria-label='Show as "Amino acid / Nucleotide"'
+        />
+        <span :class="{ 'ps-toggle-active': seqPrep.dnaMode }">Nucleotide</span>
+      </div>
+      <div class="ps-codon-field">
+        <label for="ps-codon-table">Codon table</label>
+        <Select
+          id="ps-codon-table"
+          v-model="seqPrep.selectedCodonTable"
+          :options="codonTableOptions"
+          option-label="label"
+          option-value="value"
+          class="ps-codon-select w-full"
+        />
+      </div>
     </div>
 
     <DataTable
@@ -200,11 +225,23 @@
       </Column>
     </DataTable>
 
+    <Message
+      v-if="seqPrep.validationErrors.length > 0"
+      severity="error"
+      class="ps-validation-msg"
+      :closable="false"
+    >
+      <ul class="ps-validation-list">
+        <li v-for="(err, i) in seqPrep.validationErrors" :key="i">{{ err }}</li>
+      </ul>
+    </Message>
+
     <div class="ps-download">
       <SplitButton
         label="Download FASTA"
         icon="pi pi-download"
         severity="secondary"
+        :disabled="!seqPrep.canDownload"
         @click="downloadFasta"
         :model="downloadMenuItems"
       />
@@ -222,9 +259,12 @@ import SplitButton from 'primevue/splitbutton'
 import Checkbox from 'primevue/checkbox'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
+import InputSwitch from 'primevue/inputswitch'
 import Select from 'primevue/select'
 import Chip from 'primevue/chip'
+import Message from 'primevue/message'
 import {
+  CODON_TABLE_OPTIONS,
   preparedExportBasename,
   tagPresetChipPt,
   tagPresetChromeStyle,
@@ -235,6 +275,7 @@ const seqPrep = useSeqPrepStore()
 const toast = useToast()
 
 const chainOptions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+const codonTableOptions = CODON_TABLE_OPTIONS
 
 const inputSummary = computed(() => {
   const n = seqPrep.inputDesigns.length
@@ -289,7 +330,21 @@ function exportDownloadStem(): string {
   return preparedExportBasename(seqPrep.exportOrderName)
 }
 
+function guardDownload(): boolean {
+  if (!seqPrep.canDownload) {
+    toast.add({
+      severity: 'error',
+      summary: 'Invalid sequence input',
+      detail: seqPrep.validationErrors[0] ?? 'Fix validation errors before downloading.',
+      life: 5000
+    })
+    return false
+  }
+  return true
+}
+
 function downloadFasta() {
+  if (!guardDownload()) return
   const rows = seqPrep.preparedRows
   if (rows.length === 0) {
     toast.add({ severity: 'warn', summary: 'No data', detail: 'No sequences to export', life: 2500 })
@@ -297,7 +352,7 @@ function downloadFasta() {
   }
   const lines: string[] = []
   for (const r of rows) {
-    const body = seqPrep.dnaMode && r.prepared_dna ? r.prepared_dna : r.prepared_aa.replace(/\*/g, '')
+    const body = seqPrep.dnaMode && r.prepared_dna ? r.prepared_dna : r.prepared_aa
     lines.push(`>${r.design_id}`)
     lines.push(body)
   }
@@ -306,6 +361,7 @@ function downloadFasta() {
 }
 
 function toTsv(): void {
+  if (!guardDownload()) return
   const rows = seqPrep.preparedRows
   if (rows.length === 0) return
   const dna = seqPrep.dnaMode
@@ -354,6 +410,7 @@ function toTsv(): void {
 }
 
 function toCsv(): void {
+  if (!guardDownload()) return
   const rows = seqPrep.preparedRows
   if (rows.length === 0) return
   const dna = seqPrep.dnaMode
@@ -399,6 +456,7 @@ function toCsv(): void {
 }
 
 function toCsvTwist(): void {
+  if (!guardDownload()) return
   const rows = seqPrep.preparedRows
   if (rows.length === 0) {
     toast.add({ severity: 'warn', summary: 'No data', detail: 'No sequences to export', life: 2500 })
@@ -439,10 +497,29 @@ const downloadMenuItems = [
   margin-top: 0;
 }
 
-.ps-intro {
+.ps-intro-box {
   max-width: 52rem;
-  line-height: 1.5;
   margin-bottom: 1.25rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--p-content-border-color, #d7dde3);
+  border-radius: 6px;
+  background: var(--p-content-background, #fff);
+}
+
+.ps-intro {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0 0 0.5rem 0;
+}
+
+.ps-case-help {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.ps-intro-box strong {
+  font-weight: 700;
 }
 
 .ps-order-name {
@@ -624,8 +701,60 @@ const downloadMenuItems = [
 }
 
 :deep(.seq-seg-stop) {
-  color: #c62828;
+  display: inline-block;
+  padding: 0.04em 0.2em;
+  border-radius: 3px;
+  border: 1px solid #b23a3a;
+  background: #d66868;
+  color: #ffffff !important;
   font-weight: 700;
+}
+
+:deep(.seq-seg-nuc-remainder) {
+  color: #6a1b9a;
+  font-style: italic;
+  text-decoration: underline;
+  text-decoration-color: #ce93d8;
+  font-size: 0.75em;
+}
+
+.ps-view-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.ps-view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.ps-toggle-active {
+  font-weight: 700;
+  color: var(--p-primary-color);
+}
+
+.ps-codon-field {
+  min-width: 12rem;
+}
+
+.ps-codon-field label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.ps-validation-msg {
+  margin: 0.75rem 0;
+}
+
+.ps-validation-list {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
 }
 
 :deep(.seq-seg-padding) {
