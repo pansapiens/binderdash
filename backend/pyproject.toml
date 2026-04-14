@@ -14,6 +14,7 @@ dependencies = [
     "requests",
     "biopython",
     "tmtools",
+    "python-codon-tables",
 ]
 
 [tool.pytest.ini_options]

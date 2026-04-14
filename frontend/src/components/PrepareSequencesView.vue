@@ -181,9 +181,10 @@
         <Select
           id="ps-codon-table"
           v-model="seqPrep.selectedCodonTable"
-          :options="codonTableOptions"
+          :options="seqPrep.codonTableOptions"
           option-label="label"
           option-value="value"
+          :loading="seqPrep.codonTablesListLoading || seqPrep.codonTablesDetailLoading"
           class="ps-codon-select w-full"
         />
       </div>
@@ -250,7 +251,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
@@ -264,7 +265,6 @@ import Select from 'primevue/select'
 import Chip from 'primevue/chip'
 import Message from 'primevue/message'
 import {
-  CODON_TABLE_OPTIONS,
   preparedExportBasename,
   tagPresetChipPt,
   tagPresetChromeStyle,
@@ -275,7 +275,10 @@ const seqPrep = useSeqPrepStore()
 const toast = useToast()
 
 const chainOptions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
-const codonTableOptions = CODON_TABLE_OPTIONS
+
+onMounted(() => {
+  void seqPrep.ensureCodonTablesLoaded()
+})
 
 const inputSummary = computed(() => {
   const n = seqPrep.inputDesigns.length

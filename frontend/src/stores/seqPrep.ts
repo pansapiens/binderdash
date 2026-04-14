@@ -3,9 +3,9 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useDesignsStore } from './designs'
-import { designsApi } from '../webapi'
+import { designsApi, sequencesApi, type CodonTableDetailResponseDto } from '../webapi'
 import type { Design } from '../types/store'
 
 export type TagZone = 'n' | 'c'
@@ -136,28 +136,56 @@ const ECOLI_FORWARD: Record<string, string> = {
     X: 'GCT'
 }
 
-function buildReverse(forward: Record<string, string>, stop: string): Record<string, string> {
+function buildReverse(
+    forward: Record<string, string>,
+    primaryStop: string,
+    allStopCodons?: string[]
+): Record<string, string> {
     const reverse: Record<string, string> = {}
     for (const [aa, codon] of Object.entries(forward)) {
         if (aa === '*') continue
         reverse[codon.toUpperCase()] = aa
     }
-    reverse[stop.toUpperCase()] = '*'
+    const stops =
+        allStopCodons && allStopCodons.length > 0
+            ? [...new Set(allStopCodons.map(s => s.toUpperCase()))]
+            : [primaryStop.toUpperCase()]
+    for (const sc of stops) {
+        reverse[sc] = '*'
+    }
     return reverse
 }
 
-export const CODON_TABLES: Record<string, CodonTable> = {
-    ecoli: {
-        label: 'E. coli',
-        forward: { ...ECOLI_FORWARD },
-        reverse: buildReverse(ECOLI_FORWARD, 'TAA'),
-        stop: 'TAA'
-    }
+/** Offline / API-failure fallback; matches prior hardcoded E. coli table. */
+const FALLBACK_ECOLLI_CODON_TABLE: CodonTable = {
+    label: 'E. coli',
+    forward: { ...ECOLI_FORWARD },
+    reverse: buildReverse(ECOLI_FORWARD, 'TAA', ['TAA', 'TAG', 'TGA']),
+    stop: 'TAA'
 }
 
-export const CODON_TABLE_OPTIONS: { label: string; value: string }[] = Object.entries(CODON_TABLES).map(
-    ([value, t]) => ({ label: t.label, value })
-)
+function codonDetailDtoToTable(detail: CodonTableDetailResponseDto): CodonTable {
+    const stops = detail.stop_codons.map(s => s.toUpperCase())
+    const stop = stops[0] || 'TAA'
+    const forward: Record<string, string> = {}
+    for (const [aa, freqs] of Object.entries(detail.codons_by_aa)) {
+        if (aa === '*') continue
+        const pairs = Object.entries(freqs)
+        pairs.sort((a, b) => {
+            if (b[1] !== a[1]) return b[1] - a[1]
+            return a[0].localeCompare(b[0])
+        })
+        if (pairs.length > 0) {
+            forward[aa] = pairs[0][0].toUpperCase()
+        }
+    }
+    if (!forward.X) {
+        forward.X = forward.A || forward.L || 'GCT'
+    }
+    forward['*'] = stop
+    const reverse = buildReverse(forward, stop, stops)
+    return { label: detail.label, forward, reverse, stop }
+}
 
 const N_TERMINAL_SEGMENT_STYLE: Record<string, string> = {
     display: 'inline-block',
@@ -473,7 +501,6 @@ function mixedToDnaSegments(
             continue
         }
         const low = run.text
-        const stopU = codonTable.stop.toUpperCase()
         for (let i = 0; i < low.length; i += 3) {
             const tri = low.slice(i, i + 3)
             if (tri.length < 3) {
@@ -483,7 +510,7 @@ function mixedToDnaSegments(
                 continue
             }
             const up = tri.toUpperCase()
-            if (up === stopU) {
+            if (codonTable.reverse[up] === '*') {
                 flushBody()
                 dna += up
                 segments.push({ text: up, cssClass: 'seq-seg-stop' })
@@ -540,11 +567,85 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
     const customTagInput = ref('')
     const exportOrderName = ref('')
     const extracting = ref(false)
-    const selectedCodonTable = ref<string>('ecoli')
+    const codonTableOptions = ref<{ label: string; value: string }[]>([])
+    const codonTablesById = ref<Record<string, CodonTable>>({})
+    const codonTablesListLoading = ref(false)
+    const codonTablesDetailLoading = ref(false)
+    const selectedCodonTable = ref('')
+    let codonTableListLoaded = false
+    const codonDetailInflight = new Map<string, Promise<void>>()
+    let codonDetailLoadCount = 0
 
     const activeCodonTable = computed((): CodonTable => {
-        const t = CODON_TABLES[selectedCodonTable.value]
-        return t ?? CODON_TABLES.ecoli
+        const id = selectedCodonTable.value
+        const t = id ? codonTablesById.value[id] : undefined
+        return t ?? FALLBACK_ECOLLI_CODON_TABLE
+    })
+
+    async function fetchCodonTableDetail(tableId: string): Promise<void> {
+        if (!tableId || codonTablesById.value[tableId]) return
+        const existing = codonDetailInflight.get(tableId)
+        if (existing) {
+            await existing
+            return
+        }
+        const run = (async () => {
+            codonDetailLoadCount += 1
+            codonTablesDetailLoading.value = true
+            try {
+                const d = await sequencesApi.getCodonTable(tableId)
+                const table = codonDetailDtoToTable(d)
+                const next = { ...codonTablesById.value, [tableId]: table }
+                if (d.value !== tableId) {
+                    next[d.value] = table
+                }
+                codonTablesById.value = next
+            } catch {
+                codonTablesById.value = {
+                    ...codonTablesById.value,
+                    [tableId]: FALLBACK_ECOLLI_CODON_TABLE
+                }
+            } finally {
+                codonDetailLoadCount -= 1
+                codonTablesDetailLoading.value = codonDetailLoadCount > 0
+            }
+        })()
+        codonDetailInflight.set(tableId, run)
+        try {
+            await run
+        } finally {
+            codonDetailInflight.delete(tableId)
+        }
+    }
+
+    async function ensureCodonTablesLoaded(): Promise<void> {
+        if (!codonTableListLoaded) {
+            codonTablesListLoading.value = true
+            try {
+                const res = await sequencesApi.listCodonTables()
+                codonTableOptions.value = res.items
+                codonTableListLoaded = true
+                const preferred = res.items.find(i => i.value === 'e_coli_316407')
+                if (
+                    !selectedCodonTable.value ||
+                    !res.items.some(i => i.value === selectedCodonTable.value)
+                ) {
+                    selectedCodonTable.value = preferred?.value ?? res.items[0]?.value ?? ''
+                }
+            } catch {
+                codonTableOptions.value = [{ label: 'E. coli (offline)', value: 'e_coli_316407' }]
+                codonTablesById.value = { e_coli_316407: FALLBACK_ECOLLI_CODON_TABLE }
+                selectedCodonTable.value = 'e_coli_316407'
+                codonTableListLoaded = true
+            } finally {
+                codonTablesListLoading.value = false
+            }
+        }
+    }
+
+    watch(selectedCodonTable, id => {
+        if (!id) return
+        void fetchCodonTableDetail(id)
     })
 
     const validationErrors = computed((): string[] => {
@@ -884,8 +985,12 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         customTagInput,
         exportOrderName,
         extracting,
+        codonTableOptions,
+        codonTablesListLoading,
+        codonTablesDetailLoading,
         selectedCodonTable,
         activeCodonTable,
+        ensureCodonTablesLoaded,
         validationErrors,
         canDownload,
         presetOptionsN,

@@ -64,6 +64,8 @@ pydantic-core==2.33.2
     # via pydantic
 pydantic-settings==2.10.1
     # via binderdash-backend (backend/pyproject.toml)
+python-codon-tables==0.1.18
+    # via binderdash-backend (backend/pyproject.toml)
 python-dateutil==2.9.0.post0
     # via pandas
 python-dotenv==1.1.1

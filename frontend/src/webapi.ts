@@ -504,6 +504,38 @@ export const designsApi = {
     }
 }
 
+export interface CodonTableOptionDto {
+    value: string
+    label: string
+}
+
+export interface CodonTableListResponseDto {
+    items: CodonTableOptionDto[]
+}
+
+export interface CodonTableDetailResponseDto {
+    value: string
+    label: string
+    stop_codons: string[]
+    codons_by_aa: Record<string, Record<string, number>>
+}
+
+export const sequencesApi = {
+    async listCodonTables(): Promise<CodonTableListResponseDto> {
+        return await apiRequest<CodonTableListResponseDto>(`${API_BASE}/api/sequences/codon-tables`, {
+            requireAuth: true
+        })
+    },
+
+    async getCodonTable(tableId: string): Promise<CodonTableDetailResponseDto> {
+        const enc = encodeURIComponent(tableId)
+        return await apiRequest<CodonTableDetailResponseDto>(
+            `${API_BASE}/api/sequences/codon-tables/${enc}`,
+            { requireAuth: true }
+        )
+    }
+}
+
 /**
  * Plots APIs - Simplified to work with raw data
  */
@@ -647,6 +679,7 @@ export default {
     tree: treeApi,
     runs: runsApi,
     designs: designsApi,
+    sequences: sequencesApi,
     plots: plotsApi,
     auth: authApi
 }

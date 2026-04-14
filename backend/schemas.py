@@ -174,3 +174,19 @@ class InputTargetItem(BaseModel):
 
 class InputTargetsResponse(BaseModel):
     targets: List[InputTargetItem]
+
+
+class CodonTableOption(BaseModel):
+    value: str
+    label: str
+
+
+class CodonTableListResponse(BaseModel):
+    items: List[CodonTableOption]
+
+
+class CodonTableDetailResponse(BaseModel):
+    value: str
+    label: str
+    stop_codons: List[str]
+    codons_by_aa: Dict[str, Dict[str, float]]

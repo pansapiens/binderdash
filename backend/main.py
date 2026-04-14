@@ -13,6 +13,7 @@ from .routers import designs as designs_routes
 from .routers import files as files_routes
 from .routers import plots as plots_routes
 from .routers import runs as runs_routes
+from .routers import sequences as sequences_routes
 from .persistence.factory import default_sqlite_url, init_designs_repository_from_url
 from .settings import CORS_ALLOWED_ORIGINS, raw_settings, settings
 
@@ -98,3 +99,4 @@ app.include_router(files_routes.router)
 app.include_router(files_routes.pdbs_router)
 app.include_router(files_routes.tree_router)
 app.include_router(plots_routes.router)
+app.include_router(sequences_routes.router)
