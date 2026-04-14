@@ -13,10 +13,18 @@ from ..cache import (
     refresh_designs_cache,
 )
 from ..routers.files import _resolve_structure_path
-from ..run_discovery import update_design_good_flag, update_design_tag
+from ..run_discovery import (
+    update_design_good_flag,
+    update_design_sequence_and_binder_chain,
+    update_design_tag,
+)
+from ..util.pdb_to_fasta import get_chain_sequences
 from ..schemas import (
     DesignGoodUpdate,
     DesignTagUpdate,
+    SequenceExtractRequest,
+    SequenceExtractResponse,
+    SequenceExtractResultRow,
     TagMetricsResponse,
     TagMetricsRow,
     TagPlacementRequest,
@@ -203,11 +211,35 @@ def _tag_placement_sync(body: TagPlacementRequest) -> TagPlacementResponse:
                 )
             )
             continue
+        seq_val: Optional[str] = None
+        if metrics and isinstance(metrics.get("sequence"), str):
+            seq_val = metrics["sequence"]
+        try:
+            update_design_sequence_and_binder_chain(
+                run,
+                item.design_id,
+                source_path=item.source_path,
+                sequence=seq_val,
+                binder_chain=binder,
+            )
+        except ValueError as e:
+            results.append(
+                TagPlacementResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error=str(e),
+                )
+            )
+            continue
+        cache_updates: Dict[str, Any] = {"tag": tag}
+        if seq_val is not None:
+            cache_updates["Sequence"] = seq_val
+        cache_updates["binder_chain"] = binder
         patch_design_in_cache(
             item.run_id,
             item.design_id,
             item.source_path,
-            {"tag": tag},
+            cache_updates,
         )
         if repo.is_enabled():
             sp = (item.source_path or "").strip()
@@ -234,6 +266,109 @@ def _tag_placement_sync(body: TagPlacementRequest) -> TagPlacementResponse:
             )
         )
     return TagPlacementResponse(results=results)
+
+
+def _sequences_extract_sync(body: SequenceExtractRequest) -> SequenceExtractResponse:
+    results: list[SequenceExtractResultRow] = []
+    repo = get_designs_repository()
+    if not repo.is_enabled():
+        for item in body.designs:
+            results.append(
+                SequenceExtractResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error="DATABASE is not configured; cannot persist sequences",
+                )
+            )
+        return SequenceExtractResponse(results=results)
+
+    for item in body.designs:
+        run = get_run_metadata(item.run_id)
+        if not run:
+            results.append(
+                SequenceExtractResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error="Run not found",
+                )
+            )
+            continue
+        fn_raw = (item.pdb_file or "").strip()
+        if not fn_raw:
+            results.append(
+                SequenceExtractResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error="No structure file for design",
+                )
+            )
+            continue
+        fn = Path(fn_raw).name
+        pdb_path = _resolve_structure_path(
+            run.get("pdb_files", []), fn, run.get("method")
+        )
+        if pdb_path is None or not pdb_path.is_file():
+            results.append(
+                SequenceExtractResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error="Structure file not found on disk",
+                )
+            )
+            continue
+        chain = (item.chain or "").strip() or "B"
+        try:
+            seqs = get_chain_sequences(str(pdb_path), [chain])
+        except Exception as e:
+            results.append(
+                SequenceExtractResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error=str(e),
+                )
+            )
+            continue
+        seq = seqs.get(chain)
+        if not seq:
+            results.append(
+                SequenceExtractResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error=f"Chain {chain!r} not found or has no residues",
+                )
+            )
+            continue
+        try:
+            update_design_sequence_and_binder_chain(
+                run,
+                item.design_id,
+                source_path=item.source_path,
+                sequence=seq,
+                binder_chain=chain,
+            )
+        except ValueError as e:
+            results.append(
+                SequenceExtractResultRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error=str(e),
+                )
+            )
+            continue
+        patch_design_in_cache(
+            item.run_id,
+            item.design_id,
+            item.source_path,
+            {"Sequence": seq, "binder_chain": chain},
+        )
+        results.append(
+            SequenceExtractResultRow(
+                run_id=item.run_id,
+                design_id=item.design_id,
+                sequence=seq,
+            )
+        )
+    return SequenceExtractResponse(results=results)
 
 
 def _tag_metrics_sync(body: TagPlacementRequest) -> TagMetricsResponse:
@@ -359,6 +494,29 @@ def _tag_metrics_sync(body: TagPlacementRequest) -> TagMetricsResponse:
                 more_distant_threshold=body.more_distant_threshold,
                 metrics=metrics,
             )
+            seq_m: Optional[str] = None
+            if isinstance(metrics.get("sequence"), str):
+                seq_m = metrics["sequence"]
+            try:
+                update_design_sequence_and_binder_chain(
+                    run,
+                    item.design_id,
+                    source_path=item.source_path,
+                    sequence=seq_m,
+                    binder_chain=binder,
+                )
+            except ValueError:
+                pass
+            else:
+                mu: Dict[str, Any] = {"binder_chain": binder}
+                if seq_m is not None:
+                    mu["Sequence"] = seq_m
+                patch_design_in_cache(
+                    item.run_id,
+                    item.design_id,
+                    item.source_path,
+                    mu,
+                )
     return TagMetricsResponse(results=results)
 
 
@@ -398,4 +556,19 @@ async def post_tag_placement(
         return out
     except Exception as e:
         logger.error("tag-placement batch failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/sequences", response_model=SequenceExtractResponse)
+async def post_extract_sequences(
+    body: SequenceExtractRequest,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
+    try:
+        out = await asyncio.to_thread(_sequences_extract_sync, body)
+        if body.refresh_cache_after:
+            refresh_designs_cache()
+        return out
+    except Exception as e:
+        logger.error("sequences extract batch failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e

@@ -592,6 +592,36 @@ def update_design_tag(
         )
 
 
+def update_design_sequence_and_binder_chain(
+    run_metadata: Dict[str, Any],
+    design_id: str,
+    *,
+    source_path: Optional[str] = None,
+    sequence: Optional[str] = None,
+    binder_chain: Optional[str] = None,
+) -> None:
+    """Persist binder ``Sequence`` (in data_json) and/or ``binder_chain`` column."""
+    from .persistence.factory import get_designs_repository
+
+    repo = get_designs_repository()
+    if not repo.is_enabled():
+        raise ValueError(
+            "DATABASE is not configured or persistence is disabled; set DATABASE in .env"
+        )
+    rid = str(run_metadata.get("run_id", ""))
+    ok = repo.update_design_sequence_and_binder_chain(
+        rid,
+        str(design_id),
+        source_path=source_path,
+        sequence=sequence,
+        binder_chain=binder_chain,
+    )
+    if not ok:
+        raise ValueError(
+            f"Design {design_id!r} not found for run {rid!r} in the database"
+        )
+
+
 def load_run_table(run_metadata: Dict[str, Any]) -> Optional[pd.DataFrame]:
     _t = Timer(logger, "load_run_table", path=run_metadata.get("path")).start()
     try:
@@ -660,6 +690,7 @@ def _standardise_dataframe_columns(df: pd.DataFrame, method: str) -> pd.DataFram
             "seq",
         ],
         "Length": ["Length", "length", "len", "binder_length"],
+        "binder_chain": ["binder_chain", "chain", "binder_chain_id", "Binder_chain"],
     }
     lower_to_original: Dict[str, str] = {col.lower(): col for col in df.columns}
     result_df = df.copy()

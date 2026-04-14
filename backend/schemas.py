@@ -73,6 +73,33 @@ class DesignTagUpdate(BaseModel):
     source_path: Optional[str] = None
 
 
+class SequenceExtractItem(BaseModel):
+    run_id: str
+    design_id: str
+    pdb_file: str
+    chain: str = "B"
+    source_path: Optional[str] = None
+
+
+class SequenceExtractRequest(BaseModel):
+    designs: List[SequenceExtractItem]
+    refresh_cache_after: bool = Field(
+        default=True,
+        description="When false, skip rebuilding the in-memory designs cache until a later refresh.",
+    )
+
+
+class SequenceExtractResultRow(BaseModel):
+    run_id: str
+    design_id: str
+    sequence: Optional[str] = None
+    error: Optional[str] = None
+
+
+class SequenceExtractResponse(BaseModel):
+    results: List[SequenceExtractResultRow]
+
+
 class TagPlacementItem(BaseModel):
     run_id: str
     design_id: str

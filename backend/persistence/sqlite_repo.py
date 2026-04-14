@@ -81,6 +81,7 @@ class SqliteDesignsRepository:
                     source_path TEXT NOT NULL DEFAULT '',
                     tag TEXT,
                     good INTEGER,
+                    binder_chain TEXT,
                     data_json TEXT NOT NULL,
                     FOREIGN KEY(run_id) REFERENCES binderdash_runs(run_id) ON DELETE CASCADE,
                     UNIQUE(run_id, design_dedupe)
@@ -117,7 +118,19 @@ class SqliteDesignsRepository:
                 );
                 """
             )
+            self._migrate_binder_chain_column(c)
             c.commit()
+
+    def _migrate_binder_chain_column(self, c: sqlite3.Cursor) -> None:
+        info = c.execute("PRAGMA table_info(binderdash_designs)").fetchall()
+        names = {row[1] for row in info}
+        if "binder_chain" in names:
+            return
+        try:
+            c.execute("ALTER TABLE binderdash_designs ADD COLUMN binder_chain TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
 
     def get_run_by_group_key(self, run_group_key: str) -> Optional[Dict[str, Any]]:
         with self._lock:
@@ -167,7 +180,9 @@ class SqliteDesignsRepository:
                 (run_id, run_group_key, project_id, method, run_name, run_json_str),
             )
             for d in designs:
-                did, pid, meth, sp, tag, good, payload = split_design_for_storage(d)
+                did, pid, meth, sp, tag, good, binder_chain, payload = (
+                    split_design_for_storage(d)
+                )
                 dedupe = design_dedupe_key(did, sp or None)
                 good_i: Optional[int]
                 if good is None:
@@ -178,8 +193,8 @@ class SqliteDesignsRepository:
                     """
                     INSERT INTO binderdash_designs (
                         run_id, design_dedupe, design_id, project_id, method,
-                        source_path, tag, good, data_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        source_path, tag, good, binder_chain, data_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         run_id,
@@ -190,6 +205,7 @@ class SqliteDesignsRepository:
                         sp,
                         tag,
                         good_i,
+                        binder_chain,
                         json.dumps(payload, default=str),
                     ),
                 )
@@ -206,8 +222,8 @@ class SqliteDesignsRepository:
     def list_all_design_dicts(self) -> List[Dict[str, Any]]:
         with self._lock:
             cur = self._get_conn().execute(
-                "SELECT run_id, design_id, project_id, method, source_path, tag, good, data_json "
-                "FROM binderdash_designs"
+                "SELECT run_id, design_id, project_id, method, source_path, tag, good, "
+                "binder_chain, data_json FROM binderdash_designs"
             )
             out: List[Dict[str, Any]] = []
             for row in cur.fetchall():
@@ -218,6 +234,10 @@ class SqliteDesignsRepository:
                 else:
                     good_v = bool(row["good"])
                 tag_v = row["tag"]
+                bc_v = row["binder_chain"]
+                binder_chain_out: Optional[str] = (
+                    str(bc_v).strip() if bc_v is not None and str(bc_v).strip() else None
+                )
                 out.append(
                     merge_design_from_storage(
                         row["run_id"],
@@ -228,6 +248,7 @@ class SqliteDesignsRepository:
                         tag_v,
                         good_v,
                         data,
+                        binder_chain=binder_chain_out,
                     )
                 )
             return out
@@ -268,6 +289,52 @@ class SqliteDesignsRepository:
             )
             self._get_conn().commit()
             return cur.rowcount > 0
+
+    def update_design_sequence_and_binder_chain(
+        self,
+        run_id: str,
+        design_id: str,
+        *,
+        source_path: Optional[str] = None,
+        sequence: Optional[str] = None,
+        binder_chain: Optional[str] = None,
+    ) -> bool:
+        if sequence is None and binder_chain is None:
+            return False
+        dedupe = design_dedupe_key(design_id, source_path)
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.execute(
+                "SELECT data_json, binder_chain FROM binderdash_designs "
+                "WHERE run_id = ? AND design_dedupe = ?",
+                (run_id, dedupe),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return False
+            data = json.loads(row["data_json"])
+            if sequence is not None:
+                data["Sequence"] = sequence
+            new_json = json.dumps(data, default=str)
+            if binder_chain is not None:
+                bc = binder_chain.strip() or None
+                conn.execute(
+                    """
+                    UPDATE binderdash_designs SET data_json = ?, binder_chain = ?
+                    WHERE run_id = ? AND design_dedupe = ?
+                    """,
+                    (new_json, bc, run_id, dedupe),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE binderdash_designs SET data_json = ?
+                    WHERE run_id = ? AND design_dedupe = ?
+                    """,
+                    (new_json, run_id, dedupe),
+                )
+            conn.commit()
+            return True
 
     def delete_run(self, run_id: str) -> bool:
         with self._lock:

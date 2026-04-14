@@ -137,7 +137,7 @@ export const useFolderStore = defineStore('folders', () => {
             const folderPaths = selectedFolderNodes.value.map(folder => folder.path)
             const data = await runsApi.scanRuns(folderPaths, options)
             scanResults.value = data.runs
-            selectedRuns.value = []
+            selectedRuns.value = [...data.runs]
 
             return data.runs
         } catch (err) {
@@ -156,7 +156,7 @@ export const useFolderStore = defineStore('folders', () => {
         try {
             const data = await runsApi.scanRuns(folderPaths, options)
             scanResults.value = data.runs
-            selectedRuns.value = []
+            selectedRuns.value = [...data.runs]
 
             return data.runs
         } catch (err) {

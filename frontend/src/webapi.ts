@@ -125,6 +125,25 @@ export interface TagMetricsResponse {
     results: TagMetricsRow[]
 }
 
+export interface SequenceExtractItem {
+    run_id: string
+    design_id: string
+    pdb_file: string
+    chain?: string
+    source_path?: string | null
+}
+
+export interface SequenceExtractResultRow {
+    run_id: string
+    design_id: string
+    sequence?: string | null
+    error?: string | null
+}
+
+export interface SequenceExtractResponse {
+    results: SequenceExtractResultRow[]
+}
+
 interface MessageResponse {
     message: string;
 }
@@ -469,6 +488,17 @@ export const designsApi = {
         return await apiRequest<{ ok: boolean }>(`${API_BASE}/api/designs/refresh-cache`, {
             method: 'POST',
             body: '{}',
+            requireAuth: true
+        })
+    },
+
+    async extractSequences(payload: {
+        designs: SequenceExtractItem[]
+        refresh_cache_after?: boolean
+    }): Promise<SequenceExtractResponse> {
+        return await apiRequest<SequenceExtractResponse>(`${API_BASE}/api/designs/sequences`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
             requireAuth: true
         })
     }

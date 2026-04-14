@@ -55,6 +55,18 @@ class DesignsRepository(Protocol):
     ) -> bool:
         ...
 
+    def update_design_sequence_and_binder_chain(
+        self,
+        run_id: str,
+        design_id: str,
+        *,
+        source_path: Optional[str] = None,
+        sequence: Optional[str] = None,
+        binder_chain: Optional[str] = None,
+    ) -> bool:
+        """Merge Sequence into data_json; set binder_chain column when provided. At least one of sequence or binder_chain must be set."""
+        ...
+
     def delete_run(self, run_id: str) -> bool:
         ...
 
@@ -101,8 +113,10 @@ def design_dedupe_key(design_id: str, source_path: Optional[str]) -> str:
 
 def split_design_for_storage(
     design: Dict[str, Any],
-) -> tuple[str, str, str, str, Optional[str], Optional[bool], Dict[str, Any]]:
-    """Return design_id, project_id, method, source_path_str, tag, good, payload_for_json."""
+) -> tuple[
+    str, str, str, str, Optional[str], Optional[bool], Optional[str], Dict[str, Any]
+]:
+    """Return design_id, project_id, method, source_path_str, tag, good, binder_chain, payload_for_json."""
     design_id = str(design.get("design_id", ""))
     project_id = str(design.get("project_id", ""))
     method = str(design.get("method", ""))
@@ -138,6 +152,13 @@ def split_design_for_storage(
     else:
         good = None
 
+    bc_v = design.get("binder_chain")
+    if bc_v is None:
+        binder_chain: Optional[str] = None
+    else:
+        s_bc = str(bc_v).strip()
+        binder_chain = s_bc if s_bc else None
+
     skip = {
         "design_id",
         "run_id",
@@ -146,9 +167,19 @@ def split_design_for_storage(
         "tag",
         "good",
         "source_path",
+        "binder_chain",
     }
     payload = {k: v for k, v in design.items() if k not in skip}
-    return design_id, project_id, method, source_path_str, tag, good, payload
+    return (
+        design_id,
+        project_id,
+        method,
+        source_path_str,
+        tag,
+        good,
+        binder_chain,
+        payload,
+    )
 
 
 def merge_design_from_storage(
@@ -160,6 +191,7 @@ def merge_design_from_storage(
     tag: Optional[str],
     good: Optional[bool],
     data: Dict[str, Any],
+    binder_chain: Optional[str] = None,
 ) -> Dict[str, Any]:
     out = dict(data)
     out["design_id"] = design_id
@@ -172,6 +204,8 @@ def merge_design_from_storage(
         out["tag"] = tag
     if good is not None:
         out["good"] = good
+    if binder_chain is not None:
+        out["binder_chain"] = binder_chain
     return out
 
 

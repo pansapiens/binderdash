@@ -44,6 +44,17 @@ class NoopDesignsRepository:
     ) -> bool:
         return False
 
+    def update_design_sequence_and_binder_chain(
+        self,
+        run_id: str,
+        design_id: str,
+        *,
+        source_path: Optional[str] = None,
+        sequence: Optional[str] = None,
+        binder_chain: Optional[str] = None,
+    ) -> bool:
+        return False
+
     def delete_run(self, run_id: str) -> bool:
         return False
 

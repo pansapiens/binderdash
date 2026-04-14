@@ -1,7 +1,10 @@
 import shutil
 from pathlib import Path
 
-from backend.run_discovery import update_design_tag
+from backend.run_discovery import (
+    update_design_sequence_and_binder_chain,
+    update_design_tag,
+)
 from backend.tag_placement import (
     compute_tag_metrics_for_structure_file,
     determine_his_tag_placement,
@@ -77,6 +80,21 @@ def test_update_design_tag_clear_in_db(sqlite_designs_repo, tmp_path: Path) -> N
     update_design_tag(run_dict, "b", None)
     rows = {d["design_id"]: d for d in sqlite_designs_repo.list_all_design_dicts()}
     assert rows["b"].get("tag") is None
+
+
+def test_update_design_sequence_and_binder_chain_persists(
+    sqlite_designs_repo, tmp_path: Path
+) -> None:
+    _, run_dict = _seed_tag_run(sqlite_designs_repo, tmp_path)
+    update_design_sequence_and_binder_chain(
+        run_dict,
+        "a",
+        sequence="ACDEFGHIK",
+        binder_chain="B",
+    )
+    rows = {d["design_id"]: d for d in sqlite_designs_repo.list_all_design_dicts()}
+    assert rows["a"]["Sequence"] == "ACDEFGHIK"
+    assert rows["a"]["binder_chain"] == "B"
 
 
 def test_compute_tag_metrics_returns_buried_and_predicted(tmp_path):

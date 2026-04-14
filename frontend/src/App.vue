@@ -5,6 +5,7 @@ import TabPanel from 'primevue/tabpanel'
 import Toast from 'primevue/toast'
 import Button from 'primevue/button'
 import RunsView from './components/DesignsView.vue'
+import PrepareSequencesView from './components/PrepareSequencesView.vue'
 import PlotsView from './components/PlotsView.vue'
 import FolderBrowser from './components/FolderBrowser.vue'
 import SelectRunsPanel from './components/SelectRunsPanel.vue'
@@ -28,7 +29,7 @@ const onIngestComplete = async (): Promise<void> => {
 
 // Handle tab change to refresh data when switching to Plots tab
 const handleTabChange = async (event: any): Promise<void> => {
-  if (event.index === 2) {
+  if (event.index === 3) {
     await nextTick()
     await plotsViewRef.value?.loadRunData?.()
   }
@@ -90,6 +91,9 @@ const shouldShowLoading = computed(() => {
         <TabView @tab-change="handleTabChange">
           <TabPanel header="Designs" value="designs">
             <RunsView ref="runsViewRef" />
+          </TabPanel>
+          <TabPanel header="Prepare Sequences" value="seq-prep">
+            <PrepareSequencesView />
           </TabPanel>
           <TabPanel header="Select Runs" value="select-runs">
             <SelectRunsPanel />
