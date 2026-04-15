@@ -279,19 +279,46 @@
         </template>
       </Column>
       <Column
+        v-if="selectedColumnKeys.includes('sequence')"
+        header="Sequence"
+        bodyClass="ps-sequence-cell"
+        style="width: 24rem"
+      >
+        <template #body="{ data }">
+          <span class="seq-wrap">
+            <template v-if="seqPrep.dnaMode && data.prepared_dna">
+              <span
+                v-for="(seg, i) in data.segments_dna || [{ text: data.prepared_dna, cssClass: 'seq-seg-dna-body' }]"
+                :key="i"
+                :class="seg.cssClass"
+                :style="seg.style"
+              >{{ seg.text }}</span>
+            </template>
+            <template v-else>
+              <span
+                v-for="(seg, i) in aaSegmentsForView(data)"
+                :key="i"
+                :class="seg.cssClass"
+                :style="seg.style"
+              >{{ seg.text }}</span>
+            </template>
+          </span>
+        </template>
+      </Column>
+      <Column
         v-if="selectedColumnKeys.includes('tag')"
         field="tag"
         header="Tag End"
         sortable
         :show-filter-menu="false"
-        style="width: 5rem"
+        style="width: 1%; white-space: nowrap"
       >
         <template #filter="{ filterModel, filterCallback }">
           <InputText
             v-model="filterModel.value"
             type="text"
-            placeholder="Filter"
-            class="p-column-filter w-full"
+            placeholder="N/C"
+            class="p-column-filter ps-tag-filter-input"
             @input="filterCallback()"
           />
         </template>
@@ -349,32 +376,6 @@
       >
         <template #body="{ data }">
           {{ formatPi(data.isoelectric_point) }}
-        </template>
-      </Column>
-      <Column
-        v-if="selectedColumnKeys.includes('sequence')"
-        header="Prepared sequence"
-        style="min-width: 20rem"
-      >
-        <template #body="{ data }">
-          <span class="seq-wrap">
-            <template v-if="seqPrep.dnaMode && data.prepared_dna">
-              <span
-                v-for="(seg, i) in data.segments_dna || [{ text: data.prepared_dna, cssClass: 'seq-seg-dna-body' }]"
-                :key="i"
-                :class="seg.cssClass"
-                :style="seg.style"
-              >{{ seg.text }}</span>
-            </template>
-            <template v-else>
-              <span
-                v-for="(seg, i) in aaSegmentsForView(data)"
-                :key="i"
-                :class="seg.cssClass"
-                :style="seg.style"
-              >{{ seg.text }}</span>
-            </template>
-          </span>
         </template>
       </Column>
     </DataTable>
@@ -464,18 +465,22 @@ const chainOptions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 
 const columnOptions: Array<{ key: string; label: string }> = [
   { key: 'design', label: 'Design' },
+  { key: 'sequence', label: 'Sequence' },
   { key: 'tag', label: 'Tag End' },
-  { key: 'length', label: 'Tagged length' },
+  { key: 'length', label: 'Length' },
   { key: 'warnings', label: 'Warnings' },
   { key: 'extinction', label: 'ε₂₈₀' },
   { key: 'pi', label: 'pI' },
-  { key: 'sequence', label: 'Prepared sequence' }
 ]
 
-const selectedColumnKeys = ref<string[]>(columnOptions.map((o) => o.key))
+const selectedColumnKeys = ref<string[]>(
+  columnOptions
+    .map((o) => o.key)
+    .filter((key) => key !== 'extinction' && key !== 'pi')
+)
 
 const lengthColumnHeader = computed(() =>
-  seqPrep.dnaMode ? 'Tagged length (nt)' : 'Tagged length (aa)'
+  seqPrep.dnaMode ? 'Length (nt)' : 'Length (aa)'
 )
 
 type PreparedRowWithSort = PreparedRow & {
@@ -1129,10 +1134,18 @@ const downloadMenuItems = [
 }
 
 .seq-wrap {
+  display: block;
   font-family: ui-monospace, monospace;
   font-size: 0.8rem;
-  word-break: break-all;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   line-height: 1.4;
+}
+
+.prepare-sequences-view :deep(.ps-sequence-cell) {
+  white-space: normal;
+  vertical-align: top;
 }
 
 :deep(.seq-seg-core) {
@@ -1215,6 +1228,11 @@ const downloadMenuItems = [
 .ps-column-multiselect {
   min-width: 14rem;
   max-width: min(100%, 36rem);
+}
+
+.prepare-sequences-view :deep(.ps-tag-filter-input.p-inputtext) {
+  width: 7ch;
+  min-width: 7ch;
 }
 
 .ps-warn-icon {
@@ -1316,6 +1334,7 @@ const downloadMenuItems = [
   color: #78909c;
   background: rgba(120, 144, 156, 0.12);
   border-radius: 2px;
+  font-style: italic;
 }
 
 :deep(.seq-seg-dna-body) {
