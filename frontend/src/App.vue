@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, nextTick } from 'vue'
-import TabView from 'primevue/tabview'
+import { ref, onMounted, computed, nextTick, watch } from 'vue'
+import Tabs from 'primevue/tabs'
+import TabList from 'primevue/tablist'
+import Tab from 'primevue/tab'
+import TabPanels from 'primevue/tabpanels'
 import TabPanel from 'primevue/tabpanel'
 import Toast from 'primevue/toast'
 import Button from 'primevue/button'
@@ -27,12 +30,17 @@ const onIngestComplete = async (): Promise<void> => {
   await designsStore.fetchDesigns()
 }
 
-// Handle tab change to refresh data when switching to Plots tab
-const handleTabChange = async (event: any): Promise<void> => {
-  if (event.index === 3) {
+const mainTab = ref<string>('designs')
+
+watch(mainTab, async (v) => {
+  if (v === 'plots') {
     await nextTick()
     await plotsViewRef.value?.loadRunData?.()
   }
+})
+
+const tabNavGroupSecondaryPt = {
+  root: { class: 'tab-nav-group-secondary' }
 }
 
 // Track if authentication has been initialized
@@ -88,23 +96,67 @@ const shouldShowLoading = computed(() => {
       </header>
 
       <main class="app-main">
-        <TabView @tab-change="handleTabChange">
-          <TabPanel header="Designs" value="designs">
-            <RunsView ref="runsViewRef" />
-          </TabPanel>
-          <TabPanel header="Prepare Sequences" value="seq-prep">
-            <PrepareSequencesView />
-          </TabPanel>
-          <TabPanel header="Select Runs" value="select-runs">
-            <SelectRunsPanel />
-          </TabPanel>
-          <TabPanel header="Plots" value="plots">
-            <PlotsView ref="plotsViewRef" />
-          </TabPanel>
-          <TabPanel header="Ingest Runs" value="ingest">
-            <FolderBrowser @ingest-complete="onIngestComplete" />
-          </TabPanel>
-        </TabView>
+        <Tabs v-model:value="mainTab" class="binderdash-main-tabs">
+          <TabList>
+            <Tab value="designs">
+              <span class="binderdash-tab-label">
+                <i class="pi pi-table" aria-hidden="true" />
+                <span>Designs</span>
+              </span>
+            </Tab>
+            <Tab value="plots">
+              <span class="binderdash-tab-label">
+                <i class="pi pi-chart-line" aria-hidden="true" />
+                <span>Plots</span>
+              </span>
+            </Tab>
+            <Tab value="seq-prep">
+              <span class="binderdash-tab-label">
+                <svg
+                  class="binderdash-tab-icon-dna"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 1v14h1.25V1H4zm6.75 0v14H12V1h-1.25zM5.5 3.25h5v1h-5v-1zm0 2.5h5v1h-5v-1zm0 2.5h5v1h-5v-1zm0 2.5h5v1h-5v-1z"
+                  />
+                </svg>
+                <span>Prepare Sequences</span>
+              </span>
+            </Tab>
+            <Tab value="select-runs" :pt="tabNavGroupSecondaryPt">
+              <span class="binderdash-tab-label">
+                <i class="pi pi-list-check" aria-hidden="true" />
+                <span>Select Runs</span>
+              </span>
+            </Tab>
+            <Tab value="ingest">
+              <span class="binderdash-tab-label">
+                <i class="pi pi-download" aria-hidden="true" />
+                <span>Ingest Runs</span>
+              </span>
+            </Tab>
+          </TabList>
+          <TabPanels>
+            <TabPanel value="designs">
+              <RunsView ref="runsViewRef" />
+            </TabPanel>
+            <TabPanel value="plots">
+              <PlotsView ref="plotsViewRef" />
+            </TabPanel>
+            <TabPanel value="seq-prep">
+              <PrepareSequencesView />
+            </TabPanel>
+            <TabPanel value="select-runs">
+              <SelectRunsPanel />
+            </TabPanel>
+            <TabPanel value="ingest">
+              <FolderBrowser @ingest-complete="onIngestComplete" />
+            </TabPanel>
+          </TabPanels>
+        </Tabs>
       </main>
     </template>
 
@@ -238,59 +290,83 @@ p, span, div, label, input, textarea, select, button, a, h1, h2, h3, h4, h5, h6 
   color: white !important;
 }
 
-/* PrimeVue TabView - COMPREHENSIVE OVERRIDE */
-.p-tabview {
+/* PrimeVue Tabs (v4; replaces deprecated TabView) */
+.app-main .binderdash-main-tabs.p-tabs {
   width: 100% !important;
   max-width: 100% !important;
 }
 
-.p-tabview .p-tabview-nav {
-  border-bottom: 2px solid #e9ecef !important;
-  background: white !important;
+.app-main .binderdash-main-tabs .p-tablist {
   border-radius: 8px 8px 0 0 !important;
+  overflow: hidden;
 }
 
-.p-tabview .p-tabview-nav .p-tabview-nav-link {
+.app-main .binderdash-main-tabs .binderdash-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-main .binderdash-main-tabs .binderdash-tab-label .pi {
+  font-size: 1rem;
+  opacity: 0.9;
+}
+
+.app-main .binderdash-main-tabs .binderdash-tab-label .binderdash-tab-icon-dna {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+/* Full-width row so margin-left: auto can separate the two groups */
+.app-main .binderdash-main-tabs .p-tablist-tab-list {
+  min-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* [Designs, Plots, Prepare] | [Select Runs, Ingest] — only on Select Runs */
+.app-main .binderdash-main-tabs .p-tab.tab-nav-group-secondary {
+  margin-left: auto !important;
+  padding-left: 1rem !important;
+  border-left: 1px solid #dee2e6 !important;
+}
+
+.app-main .binderdash-main-tabs .p-tab {
   padding: 1rem 1.5rem !important;
   font-weight: 500 !important;
   color: #495057 !important;
   background: #f8f9fa !important;
   border: none !important;
   border-bottom: 2px solid transparent !important;
-  transition: all 0.2s ease !important;
+  border-radius: 0 !important;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease !important;
 }
 
-.p-tabview .p-tabview-nav .p-tabview-nav-link:hover {
+.app-main .binderdash-main-tabs .p-tab:not(.p-disabled):hover {
   background: #e9ecef !important;
   color: #212529 !important;
 }
 
-.p-tabview .p-tabview-nav .p-tabview-nav-link.p-highlight {
+.app-main .binderdash-main-tabs .p-tab.p-tab-active {
   background: white !important;
   color: #667eea !important;
   border-bottom: 2px solid #667eea !important;
   font-weight: 600 !important;
 }
 
-.p-tabview .p-tabview-panels {
+.app-main .binderdash-main-tabs .p-tabpanels {
   background: white !important;
   border-radius: 0 0 8px 8px !important;
   padding: 2rem !important;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
-}
-
-.p-tabview .p-tabview-panels .p-tabview-panel {
-  padding: 0 !important;
-  width: 100% !important;
-}
-
-.p-tabview .p-tabview-panels {
-  background: white !important;
-  border-radius: 0 0 8px 8px !important;
-  padding: 2rem !important;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
   width: 100% !important;
   box-sizing: border-box !important;
+}
+
+.app-main .binderdash-main-tabs .p-tabpanel {
+  padding: 0 !important;
+  width: 100% !important;
 }
 
 /* DataTable styling - COMPREHENSIVE OVERRIDE */

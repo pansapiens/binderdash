@@ -28,6 +28,8 @@
                 optionValue="value"
                 placeholder="All Projects"
                 class="project-dropdown"
+                filter
+                filterPlaceholder="Search projects..."
                 @change="onProjectFilterChange"
                 showClear
               />
@@ -41,6 +43,8 @@
                 optionValue="value"
                 placeholder="All Methods"
                 class="protocol-dropdown"
+                filter
+                filterPlaceholder="Search methods..."
                 @change="onProtocolFilterChange"
                 showClear
               />
@@ -54,6 +58,8 @@
                 optionValue="run_id"
                 placeholder="Select runs..."
                 class="run-multiselect"
+                filter
+                filterPlaceholder="Search runs..."
                 @change="onRunsSelected"
                 :maxSelectedLabels="3"
                 selectedItemsLabel="{0} runs selected"
@@ -75,6 +81,8 @@
                     :options="plotsStore.numericColumns" 
                     placeholder="Select X column..."
                     class="axis-dropdown"
+                    filter
+                    filterPlaceholder="Search metrics..."
                     @change="updateAllPlots"
                   />
                 </div>
@@ -85,6 +93,8 @@
                     :options="plotsStore.numericColumns" 
                     placeholder="Select Y column..."
                     class="axis-dropdown"
+                    filter
+                    filterPlaceholder="Search metrics..."
                     @change="updateAllPlots"
                   />
                 </div>

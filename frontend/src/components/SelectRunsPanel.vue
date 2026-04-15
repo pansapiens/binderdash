@@ -15,6 +15,8 @@
             option-label="label"
             option-value="value"
             placeholder="All projects"
+            filter
+            filter-placeholder="Search projects..."
             show-clear
             class="filter-dropdown"
           />
@@ -28,6 +30,8 @@
             option-label="label"
             option-value="value"
             placeholder="All methods"
+            filter
+            filter-placeholder="Search methods..."
             show-clear
             class="filter-dropdown"
           />
