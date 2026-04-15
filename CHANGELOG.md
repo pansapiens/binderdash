@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Docs**: `.env.example` SQLite `DATABASE` example fixed: `sqlite:///app/db.sqlite` was parsed as a **relative** path `app/db.sqlite` (→ `/app/app/db.sqlite` when cwd is `/app`). Use `sqlite:///db.sqlite` (relative to cwd) or `sqlite:////app/db.sqlite` (absolute) for `/app/db.sqlite`.
 - **Navigation**: Add icons to **Tabs** and split tab string into two groups. Replaced deprecated **TabView** with PrimeVue v4 **Tabs** + **TabList** + **Tab** + **TabPanels** + **TabPanel** (`v-model:value`, string tab ids).
 - **Plots** and **Select Runs**: Add search filters to dropdowns.
 - **API**: `GET /api/sequences/codon-tables` lists builtin codon usage tables; `GET /api/sequences/codon-tables/{table_id}` returns frequencies (`python_codon_tables`) for Prepare Sequences and similar clients.

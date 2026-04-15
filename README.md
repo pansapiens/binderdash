@@ -82,13 +82,6 @@ This automatically rebuilds the frontend whenever you make changes, outputting t
 
 ### Running with Docker (optional)
 
-#### Production Mode
-Build and run using Docker Compose:
-
-```bash
-docker compose up --build -d
-```
-
 #### Development Mode
 For development with live reloading and source code watching:
 
@@ -115,6 +108,16 @@ This development setup includes:
 For detailed Docker setup instructions, troubleshooting, and production deployment guidance, see [DOCKER.md](DOCKER.md).
 
 Tip: Provide environment variables via an `.env` file or `docker compose --env-file` override.
+
+#### Production Mode
+
+Ensure the `DATABASE` folder has been created with permissions for the app user (1000:1000) (e.g. `sudo chown -R 1000:1000 data`).
+
+Build and run using Docker Compose:
+
+```bash
+docker compose up --build -d
+```
 
 ### Testing and quality
 
@@ -146,5 +149,4 @@ pnpm run build
 
 - Follow Python typing and import order conventions; log to stderr
 - Use Vue 3 Composition API, and keep `.vue` sections ordered as `<template>`, `<script>`, `<style>`
-- Never hardcode secrets; use environment variables
 - For notable features or fixes, update `CHANGELOG.md` after merging

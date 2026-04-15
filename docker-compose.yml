@@ -37,6 +37,11 @@ services:
       - ./example_runs:/app/example_runs:ro
       # Mount .env file inside the container if it exists
       - ./.env:/app/.env:ro
+      # Persist SQLite under ./data on the host. This directory should be
+      # created in advance and owned by the app user (1000:1000).
+      - ./data:/app/data:rw
+      # Mount the database file as read-write on the host
+      - ./db.sqlite:/app/db.sqlite:rw
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
