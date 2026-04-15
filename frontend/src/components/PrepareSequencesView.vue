@@ -37,7 +37,7 @@
               :label="`${t.label}: ${t.sequence}`"
               removable
               class="ps-tag-chip"
-              :pt="tagPresetChipPt(t.kind)"
+              :style="tagPresetChipCssVars(t.kind)"
               @remove="seqPrep.removeTag('n', i)"
             />
             <span v-if="seqPrep.nTags.length === 0" class="ps-placeholder">Add tags below</span>
@@ -53,7 +53,7 @@
               :label="`${t.label}: ${t.sequence}`"
               removable
               class="ps-tag-chip"
-              :pt="tagPresetChipPt(t.kind)"
+              :style="tagPresetChipCssVars(t.kind)"
               @remove="seqPrep.removeTag('c', i)"
             />
             <span v-if="seqPrep.cTags.length === 0" class="ps-placeholder">Add tags below</span>
@@ -99,7 +99,7 @@
       </div>
     </div>
 
-    <div class="ps-form grid">
+    <div class="ps-form grid card-like">
       <div class="ps-field">
         <label for="ps-npre">Add sequence to all N-terminal</label>
         <InputText
@@ -129,18 +129,27 @@
           class="w-full"
         />
       </div>
-      <div class="ps-field ps-checks">
-        <Checkbox v-model="seqPrep.goodOnly" input-id="ps-good" binary />
-        <label for="ps-good">Good only</label>
-      </div>
-      <div class="ps-field">
-        <label for="ps-pad">Post-stop padding</label>
-        <InputText
-          id="ps-pad"
-          v-model="seqPrep.postStopPadding"
-          class="w-full"
-          placeholder="UPPERCASE=AA, lowercase=nuc (a,c,g,t)"
-        />
+      <div class="ps-field-row ps-field-row--padding">
+        <div class="ps-field">
+          <label for="ps-pad">Post-stop padding</label>
+          <InputText
+            id="ps-pad"
+            v-model="seqPrep.postStopPadding"
+            class="w-full"
+            placeholder="UPPERCASE=AA, lowercase=nuc (a,c,g,t)"
+          />
+        </div>
+        <div class="ps-field">
+          <label for="ps-pad-up-to">Pad up to nucleotide length (bp)</label>
+          <InputNumber
+            id="ps-pad-up-to"
+            v-model="seqPrep.postStopPadUpToNucleotideLength"
+            class="w-full"
+            :min="0"
+            :allow-empty="true"
+            placeholder="Leave empty to omit padding"
+          />
+        </div>
       </div>
       <div v-if="seqPrep.dnaMode" class="ps-field">
         <label for="ps-minlen">Minimum DNA fragment length (bp)</label>
@@ -176,6 +185,15 @@
         />
         <span :class="{ 'ps-toggle-active': seqPrep.dnaMode }">Nucleotide</span>
       </div>
+      <div class="ps-view-toggle">
+        <span :class="{ 'ps-toggle-active': !seqPrep.goodOnly }">All</span>
+        <InputSwitch
+          id="ps-good-only"
+          v-model="seqPrep.goodOnly"
+          aria-label="Scope: all in scope or good designs only"
+        />
+        <span :class="{ 'ps-toggle-active': seqPrep.goodOnly }">Good only</span>
+      </div>
       <div class="ps-codon-field">
         <label for="ps-codon-table">Codon table</label>
         <Select
@@ -190,19 +208,154 @@
       </div>
     </div>
 
+    <div class="ps-table-toolbar">
+      <div class="ps-show-pad-toggle">
+        <InputSwitch
+          id="ps-show-post-pad"
+          v-model="seqPrep.showPostStopPadding"
+          :disabled="seqPrep.dnaMode"
+          binary
+          aria-label="Show post-stop padding (amino acid view)"
+        />
+        <label
+          for="ps-show-post-pad"
+          class="ps-show-pad-label"
+          :class="{ 'ps-show-pad-label--disabled': seqPrep.dnaMode }"
+        >
+          Show post-stop padding
+        </label>
+      </div>
+      <label for="ps-column-toggle" class="ps-column-toggle-label">Columns</label>
+      <MultiSelect
+        id="ps-column-toggle"
+        v-model="selectedColumnKeys"
+        :options="columnOptions"
+        option-label="label"
+        option-value="key"
+        placeholder="Columns"
+        class="ps-column-multiselect"
+        display="chip"
+        :max-selected-labels="3"
+      />
+    </div>
+
     <DataTable
-      :value="seqPrep.preparedRows"
+      v-model:filters="tableFilters"
+      :value="preparedRowsForTable"
       striped-rows
       paginator
-      :rows="10"
+      resizable-columns
+      show-gridlines
+      filter-display="row"
+      :rows="5"
+      :rowsPerPageOptions="[5, 10, 24, 48, 96]"
       data-key="row_key"
       class="ps-table"
     >
-      <Column field="design_id" header="Design ID" sortable style="min-width: 8rem" />
-      <Column field="project_id" header="Project" sortable style="min-width: 6rem" />
-      <Column field="run_name" header="Run" sortable style="min-width: 8rem" />
-      <Column field="tag" header="Tag" sortable style="width: 5rem" />
-      <Column header="Prepared sequence" style="min-width: 20rem">
+      <Column
+        v-if="selectedColumnKeys.includes('design')"
+        field="design_id"
+        filter-field="design_filter_text"
+        header="Design"
+        sortable
+        :show-filter-menu="false"
+        style="min-width: 11rem"
+      >
+        <template #body="{ data }">
+          <span class="ps-design-meta">
+            <span class="ps-design-meta-label">Design ID:</span> {{ data.design_id }}<br />
+            <span class="ps-design-meta-label">Project:</span> {{ data.project_id }}<br />
+            <span class="ps-design-meta-label">Run:</span> {{ data.run_name }}
+          </span>
+        </template>
+        <template #filter="{ filterModel, filterCallback }">
+          <InputText
+            v-model="filterModel.value"
+            type="text"
+            placeholder="Filter"
+            class="p-column-filter w-full"
+            @input="filterCallback()"
+          />
+        </template>
+      </Column>
+      <Column
+        v-if="selectedColumnKeys.includes('tag')"
+        field="tag"
+        header="Tag End"
+        sortable
+        :show-filter-menu="false"
+        style="width: 5rem"
+      >
+        <template #filter="{ filterModel, filterCallback }">
+          <InputText
+            v-model="filterModel.value"
+            type="text"
+            placeholder="Filter"
+            class="p-column-filter w-full"
+            @input="filterCallback()"
+          />
+        </template>
+      </Column>
+      <Column
+        v-if="selectedColumnKeys.includes('length')"
+        field="sort_tagged_length"
+        :header="lengthColumnHeader"
+        sortable
+        style="width: 8rem"
+      >
+        <template #body="{ data }">
+          {{ taggedLength(data) }}
+        </template>
+      </Column>
+      <Column
+        v-if="selectedColumnKeys.includes('warnings')"
+        field="sort_warnings"
+        header="Warnings"
+        sortable
+        style="width: 10rem"
+      >
+        <template #body="{ data }">
+          <span v-if="data.warnings.length > 0" class="ps-warn-cell">
+            <i class="pi pi-exclamation-triangle ps-warn-icon" aria-hidden="true" />
+            <span class="ps-warn-text">{{ data.warnings.join(', ') }}</span>
+          </span>
+        </template>
+      </Column>
+      <Column
+        v-if="selectedColumnKeys.includes('extinction')"
+        field="sort_extinction_coeff_reduced"
+        header="ε₂₈₀"
+        sortable
+        style="width: 7.5rem"
+      >
+        <template #body="{ data }">
+          <span class="ps-ext-stack">
+            <span class="ps-ext-main">{{ data.extinction_coeff_reduced }}</span>
+            <span
+              v-if="data.extinction_coeff_reduced !== data.extinction_coeff_oxidized"
+              class="ps-ext-ox"
+            >
+              (ox: {{ data.extinction_coeff_oxidized }})
+            </span>
+          </span>
+        </template>
+      </Column>
+      <Column
+        v-if="selectedColumnKeys.includes('pi')"
+        field="isoelectric_point"
+        header="pI"
+        sortable
+        style="width: 5rem"
+      >
+        <template #body="{ data }">
+          {{ formatPi(data.isoelectric_point) }}
+        </template>
+      </Column>
+      <Column
+        v-if="selectedColumnKeys.includes('sequence')"
+        header="Prepared sequence"
+        style="min-width: 20rem"
+      >
         <template #body="{ data }">
           <span class="seq-wrap">
             <template v-if="seqPrep.dnaMode && data.prepared_dna">
@@ -215,7 +368,7 @@
             </template>
             <template v-else>
               <span
-                v-for="(seg, i) in data.segments_aa"
+                v-for="(seg, i) in aaSegmentsForView(data)"
                 :key="i"
                 :class="seg.cssClass"
                 :style="seg.style"
@@ -225,6 +378,14 @@
         </template>
       </Column>
     </DataTable>
+
+    <p v-if="preparedLengthStats.count > 0" class="ps-length-summary">
+      Tagged lengths ({{ preparedLengthStats.unit }}):
+      <strong>min</strong> {{ preparedLengthStats.min }},
+      <strong>max</strong> {{ preparedLengthStats.max }}
+      <span class="ps-length-n">({{ preparedLengthStats.count }} sequence(s))</span>
+    </p>
+    <p v-else class="ps-length-summary ps-length-summary--empty">No sequences in scope.</p>
 
     <Message
       v-if="seqPrep.validationErrors.length > 0"
@@ -237,12 +398,35 @@
       </ul>
     </Message>
 
+    <Message
+      v-if="rowsWithWarnings.length > 0"
+      severity="warn"
+      class="ps-warnings-banner"
+      :closable="false"
+    >
+      <div class="ps-warnings-banner-inner">
+        <i class="pi pi-exclamation-triangle ps-warn-banner-icon" aria-hidden="true" />
+        <div class="ps-warnings-banner-body">
+          <p class="ps-warnings-banner-lead">
+            <strong>Warning:</strong> Some designs are less then ideal.
+          </p>
+          <ul class="ps-warnings-summary-list">
+            <li v-for="(line, i) in warningsSummaryLines" :key="i">{{ line }}</li>
+          </ul>
+          <div class="ps-warnings-ack">
+            <Checkbox v-model="warningsAcknowledged" input-id="ps-warn-ack" binary />
+            <label for="ps-warn-ack">Acknowledged, continue anyway</label>
+          </div>
+        </div>
+      </div>
+    </Message>
+
     <div class="ps-download">
       <SplitButton
         label="Download FASTA"
         icon="pi pi-download"
         severity="secondary"
-        :disabled="!seqPrep.canDownload"
+        :disabled="!downloadAllowed"
         @click="downloadFasta"
         :model="downloadMenuItems"
       />
@@ -251,7 +435,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
@@ -262,19 +446,94 @@ import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import InputSwitch from 'primevue/inputswitch'
 import Select from 'primevue/select'
+import MultiSelect from 'primevue/multiselect'
 import Chip from 'primevue/chip'
 import Message from 'primevue/message'
 import {
   preparedExportBasename,
-  tagPresetChipPt,
+  tagPresetChipCssVars,
   tagPresetChromeStyle,
-  useSeqPrepStore
+  useSeqPrepStore,
+  type PreparedRow
 } from '../stores/seqPrep'
 
 const seqPrep = useSeqPrepStore()
 const toast = useToast()
 
 const chainOptions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+
+const columnOptions: Array<{ key: string; label: string }> = [
+  { key: 'design', label: 'Design' },
+  { key: 'tag', label: 'Tag End' },
+  { key: 'length', label: 'Tagged length' },
+  { key: 'warnings', label: 'Warnings' },
+  { key: 'extinction', label: 'ε₂₈₀' },
+  { key: 'pi', label: 'pI' },
+  { key: 'sequence', label: 'Prepared sequence' }
+]
+
+const selectedColumnKeys = ref<string[]>(columnOptions.map((o) => o.key))
+
+const lengthColumnHeader = computed(() =>
+  seqPrep.dnaMode ? 'Tagged length (nt)' : 'Tagged length (aa)'
+)
+
+type PreparedRowWithSort = PreparedRow & {
+  sort_tagged_length: number
+  sort_warnings: string
+  sort_extinction_coeff_reduced: number
+}
+
+const preparedRowsForTable = computed<PreparedRowWithSort[]>(() =>
+  seqPrep.preparedRows.map((row) => ({
+    ...row,
+    sort_tagged_length: taggedLength(row),
+    sort_warnings: row.warnings.join(', '),
+    sort_extinction_coeff_reduced: row.extinction_coeff_reduced
+  }))
+)
+
+const tableFilters = ref({
+  design_filter_text: { value: null as string | null, matchMode: 'contains' as const },
+  tag: { value: null as string | null, matchMode: 'contains' as const }
+})
+
+const warningsAcknowledged = ref(false)
+
+const preparedRowsFingerprint = computed(() =>
+  seqPrep.preparedRows.map((r) => `${r.row_key}:${r.prepared_aa}`).join('|')
+)
+
+watch(preparedRowsFingerprint, () => {
+  warningsAcknowledged.value = false
+})
+
+const rowsWithWarnings = computed(() => seqPrep.preparedRows.filter((r) => r.warnings.length > 0))
+
+const warningsSummaryLines = computed(() => {
+  const map = new Map<string, string[]>()
+  for (const r of rowsWithWarnings.value) {
+    for (const w of r.warnings) {
+      if (!map.has(w)) map.set(w, [])
+      map.get(w)!.push(r.design_id)
+    }
+  }
+  const lines: string[] = []
+  const maxShow = 5
+  for (const [warn, ids] of map) {
+    const uniq = [...new Set(ids)]
+    const shown = uniq.slice(0, maxShow)
+    const more = uniq.length > maxShow ? ' …' : ''
+    lines.push(`Designs ${shown.join(', ')}${more}: ${warn}`)
+  }
+  return lines
+})
+
+const downloadAllowed = computed(() => {
+  if (!seqPrep.canDownload) return false
+  if (rowsWithWarnings.value.length === 0) return true
+  return warningsAcknowledged.value
+})
 
 onMounted(() => {
   void seqPrep.ensureCodonTablesLoaded()
@@ -284,6 +543,49 @@ const inputSummary = computed(() => {
   const n = seqPrep.inputDesigns.length
   if (n === 0) return 'No designs in scope (select rows on Designs or use Good only).'
   return `${n} design(s)`
+})
+
+function aaSegmentsForView(data: PreparedRow): PreparedRow['segments_aa_display'] {
+  return seqPrep.showPostStopPadding ? data.segments_aa : data.segments_aa_display
+}
+
+function aaSequenceForExport(r: PreparedRow): string {
+  if (seqPrep.dnaMode && r.prepared_dna) return r.prepared_dna
+  if (!seqPrep.dnaMode) return seqPrep.showPostStopPadding ? r.prepared_aa : r.prepared_aa_display
+  return r.prepared_aa
+}
+
+function taggedLength(data: PreparedRow): number {
+  if (seqPrep.dnaMode) return (data.prepared_dna ?? '').length
+  return seqPrep.showPostStopPadding ? data.prepared_aa.length : data.prepared_aa_display.length
+}
+
+function formatPi(v: number): string {
+  if (!Number.isFinite(v)) return '—'
+  return v.toFixed(2)
+}
+
+function exportPiRaw(v: number): string {
+  if (!Number.isFinite(v)) return ''
+  return String(v)
+}
+
+const preparedLengthStats = computed(() => {
+  const rows = seqPrep.preparedRows
+  const dna = seqPrep.dnaMode
+  const unit = dna ? 'nt' : 'aa'
+  if (rows.length === 0) {
+    return { count: 0, min: 0, max: 0, unit }
+  }
+  const lens = rows.map((r) =>
+    dna ? (r.prepared_dna ?? '').length : (seqPrep.showPostStopPadding ? r.prepared_aa.length : r.prepared_aa_display.length)
+  )
+  return {
+    count: rows.length,
+    min: Math.min(...lens),
+    max: Math.max(...lens),
+    unit
+  }
 })
 
 function addCustomBoth() {
@@ -343,6 +645,15 @@ function guardDownload(): boolean {
     })
     return false
   }
+  if (rowsWithWarnings.value.length > 0 && !warningsAcknowledged.value) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Acknowledge warnings',
+      detail: 'Check the warning box above or adjust sequences before downloading.',
+      life: 5000
+    })
+    return false
+  }
   return true
 }
 
@@ -355,7 +666,7 @@ function downloadFasta() {
   }
   const lines: string[] = []
   for (const r of rows) {
-    const body = seqPrep.dnaMode && r.prepared_dna ? r.prepared_dna : r.prepared_aa
+    const body = aaSequenceForExport(r)
     lines.push(`>${r.design_id}`)
     lines.push(body)
   }
@@ -369,8 +680,33 @@ function toTsv(): void {
   if (rows.length === 0) return
   const dna = seqPrep.dnaMode
   const cols = dna
-    ? ['design_id', 'project_id', 'run_name', 'tag', 'original_sequence', 'prepared_aa', 'prepared_dna', 'dna_length']
-    : ['design_id', 'project_id', 'run_name', 'tag', 'original_sequence', 'prepared_sequence', 'length']
+    ? [
+        'design_id',
+        'project_id',
+        'run_name',
+        'tag',
+        'original_sequence',
+        'prepared_aa',
+        'prepared_dna',
+        'dna_length',
+        'extinction_coeff_reduced',
+        'extinction_coeff_oxidized',
+        'isoelectric_point',
+        'warnings'
+      ]
+    : [
+        'design_id',
+        'project_id',
+        'run_name',
+        'tag',
+        'original_sequence',
+        'prepared_sequence',
+        'length',
+        'extinction_coeff_reduced',
+        'extinction_coeff_oxidized',
+        'isoelectric_point',
+        'warnings'
+      ]
   const esc = (v: string | number) => {
     const s = String(v ?? '')
     if (s.includes('\t') || s.includes('\n') || s.includes('"')) return `"${s.replace(/"/g, '""')}"`
@@ -388,10 +724,15 @@ function toTsv(): void {
           esc(r.original_sequence),
           esc(r.prepared_aa),
           esc(r.prepared_dna || ''),
-          esc((r.prepared_dna || '').length)
+          esc((r.prepared_dna || '').length),
+          esc(r.extinction_coeff_reduced),
+          esc(r.extinction_coeff_oxidized),
+          esc(exportPiRaw(r.isoelectric_point)),
+          esc(r.warnings.join('; '))
         ].join('\t')
       )
     } else {
+      const aa = aaSequenceForExport(r)
       lines.push(
         [
           esc(r.design_id),
@@ -399,8 +740,12 @@ function toTsv(): void {
           esc(r.run_name),
           esc(r.tag),
           esc(r.original_sequence),
-          esc(r.prepared_aa),
-          esc(r.prepared_aa.length)
+          esc(aa),
+          esc(aa.length),
+          esc(r.extinction_coeff_reduced),
+          esc(r.extinction_coeff_oxidized),
+          esc(exportPiRaw(r.isoelectric_point)),
+          esc(r.warnings.join('; '))
         ].join('\t')
       )
     }
@@ -418,8 +763,33 @@ function toCsv(): void {
   if (rows.length === 0) return
   const dna = seqPrep.dnaMode
   const cols = dna
-    ? ['design_id', 'project_id', 'run_name', 'tag', 'original_sequence', 'prepared_aa', 'prepared_dna', 'dna_length']
-    : ['design_id', 'project_id', 'run_name', 'tag', 'original_sequence', 'prepared_sequence', 'length']
+    ? [
+        'design_id',
+        'project_id',
+        'run_name',
+        'tag',
+        'original_sequence',
+        'prepared_aa',
+        'prepared_dna',
+        'dna_length',
+        'extinction_coeff_reduced',
+        'extinction_coeff_oxidized',
+        'isoelectric_point',
+        'warnings'
+      ]
+    : [
+        'design_id',
+        'project_id',
+        'run_name',
+        'tag',
+        'original_sequence',
+        'prepared_sequence',
+        'length',
+        'extinction_coeff_reduced',
+        'extinction_coeff_oxidized',
+        'isoelectric_point',
+        'warnings'
+      ]
   const esc = (v: string | number) => {
     const s = String(v ?? '')
     if (s.includes(',') || s.includes('\n') || s.includes('"')) return `"${s.replace(/"/g, '""')}"`
@@ -437,10 +807,15 @@ function toCsv(): void {
           esc(r.original_sequence),
           esc(r.prepared_aa),
           esc(r.prepared_dna || ''),
-          esc((r.prepared_dna || '').length)
+          esc((r.prepared_dna || '').length),
+          esc(r.extinction_coeff_reduced),
+          esc(r.extinction_coeff_oxidized),
+          esc(exportPiRaw(r.isoelectric_point)),
+          esc(r.warnings.join('; '))
         ].join(',')
       )
     } else {
+      const aa = aaSequenceForExport(r)
       lines.push(
         [
           esc(r.design_id),
@@ -448,8 +823,12 @@ function toCsv(): void {
           esc(r.run_name),
           esc(r.tag),
           esc(r.original_sequence),
-          esc(r.prepared_aa),
-          esc(r.prepared_aa.length)
+          esc(aa),
+          esc(aa.length),
+          esc(r.extinction_coeff_reduced),
+          esc(r.extinction_coeff_oxidized),
+          esc(exportPiRaw(r.isoelectric_point)),
+          esc(r.warnings.join('; '))
         ].join(',')
       )
     }
@@ -474,7 +853,7 @@ function toCsvTwist(): void {
   }
   const lines = [cols.join(',')]
   for (const r of rows) {
-    const sequence = dna && r.prepared_dna ? r.prepared_dna : r.prepared_aa
+    const sequence = aaSequenceForExport(r)
     lines.push([esc(r.design_id), esc(sequence)].join(','))
   }
   downloadBlob(
@@ -612,14 +991,24 @@ const downloadMenuItems = [
   margin-right: 0.15rem;
 }
 
-/* Palette buttons + chips: colours from `TAG_PRESET_DEFS` in seqPrep store */
+/* Palette buttons + chips: colours from `TAG_PRESET_DEFS` in seqPrep store.
+   Chips need !important + CSS vars so they beat global App.vue `.p-chip` / `.p-component *` rules. */
 
-.prepare-sequences-view :deep(.ps-tag-chip) {
+.prepare-sequences-view :deep(.ps-tag-chip.p-chip) {
   font-size: var(--p-button-sm-font-size, 0.875rem);
+  border-color: var(--ps-chip-border) !important;
+  border-width: 1px !important;
+  border-style: solid !important;
+  background-color: var(--ps-chip-bg) !important;
+  color: var(--ps-chip-fg) !important;
+}
+
+.prepare-sequences-view :deep(.ps-tag-chip.p-chip .p-chip-label) {
+  color: var(--ps-chip-fg) !important;
 }
 
 .prepare-sequences-view :deep(.ps-tag-chip .p-chip-remove-icon) {
-  color: inherit;
+  color: var(--ps-chip-fg) !important;
   opacity: 0.75;
 }
 
@@ -643,7 +1032,53 @@ const downloadMenuItems = [
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
   gap: 1rem;
+}
+
+.ps-form.card-like {
+  margin-top: 0.75rem;
   margin-bottom: 1rem;
+}
+
+.ps-field-row {
+  display: grid;
+  gap: 1rem;
+}
+
+.ps-field-row--padding {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(14rem, 1fr));
+  gap: 0.5rem;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
+  padding: 0.75rem 0.75rem 0.75rem 0;
+  border: 1px solid var(--p-content-border-color, #dee2e6);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--p-content-background, #fff) 88%, #eef3ff 12%);
+}
+
+.ps-field-row--padding > .ps-field {
+  margin: 0;
+}
+
+.ps-field-row--padding > .ps-field:first-child {
+  margin-left: 0;
+  padding-left: 0;
+}
+
+.ps-length-summary {
+  margin: 0.75rem 0 0;
+  font-size: 0.9rem;
+  color: var(--p-text-color);
+}
+
+.ps-length-summary--empty {
+  color: var(--p-text-muted-color, #6c757d);
+}
+
+.ps-length-summary .ps-length-n {
+  color: var(--p-text-muted-color, #6c757d);
+  font-size: 0.85rem;
 }
 
 .ps-field label {
@@ -678,6 +1113,19 @@ const downloadMenuItems = [
 
 .ps-download {
   margin-top: 1rem;
+}
+
+.ps-design-meta {
+  display: block;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.prepare-sequences-view :deep(.p-datatable-tbody > tr > td .ps-design-meta-label) {
+  font-weight: 600;
+  color: var(--p-text-color);
+  margin-right: 0.2em;
 }
 
 .seq-wrap {
@@ -749,6 +1197,110 @@ const downloadMenuItems = [
   display: block;
   font-size: 0.85rem;
   margin-bottom: 0.25rem;
+}
+
+.ps-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.ps-column-toggle-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.ps-column-multiselect {
+  min-width: 14rem;
+  max-width: min(100%, 36rem);
+}
+
+.ps-warn-icon {
+  color: #f59e0b;
+  font-size: 2rem;
+  margin-right: 0.35rem;
+  flex-shrink: 0;
+}
+
+.ps-warn-cell {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0;
+  padding: 0.25rem 0.4rem;
+  border-radius: 4px;
+  background: var(--p-message-warn-background, #fff3cd);
+  border: 1px solid var(--p-message-warn-border-color, #ffeaa7);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.ps-warn-text {
+  color: var(--p-text-color);
+}
+
+.ps-ext-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.85rem;
+  line-height: 1.25;
+}
+
+.ps-ext-main {
+  font-variant-numeric: tabular-nums;
+}
+
+.ps-ext-ox {
+  font-size: 0.72rem;
+  color: var(--p-text-muted-color, #6c757d);
+}
+
+.ps-warnings-banner {
+  margin: 0.75rem 0;
+  font-size: 0.9rem;
+}
+
+.ps-warnings-banner-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.ps-warn-banner-icon {
+  color: #f59e0b;
+  font-size: 1.15rem;
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+  font-size: 2rem;
+}
+
+.ps-warnings-banner-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ps-warnings-banner-lead {
+  margin: 0 0 0.35rem 0;
+}
+
+.ps-warnings-summary-list {
+  margin: 0 0 0.6rem 0;
+  padding-left: 1.25rem;
+}
+
+.ps-warnings-ack {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ps-warnings-ack label {
+  margin: 0;
+  font-size: 0.88rem;
+  cursor: pointer;
 }
 
 .ps-validation-msg {
