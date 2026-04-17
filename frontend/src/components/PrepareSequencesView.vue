@@ -163,6 +163,85 @@
       </div>
     </div>
 
+    <div class="ps-optimization-toolbar card-like mt-3">
+      <div class="ps-opt-header">
+        <div class="ps-codon-field">
+          <label for="ps-codon-table" class="ps-codon-label">Target organism (Codon table)</label>
+          <Select
+            id="ps-codon-table"
+            v-model="seqPrep.selectedCodonTable"
+            :options="seqPrep.codonTableOptions"
+            option-label="label"
+            option-value="value"
+            :loading="seqPrep.codonTablesListLoading || seqPrep.codonTablesDetailLoading"
+            class="ps-codon-select w-full md:w-20rem"
+          />
+        </div>
+        <div class="ps-opt-actions">
+          <Button
+            label="Optimize DNA"
+            icon="pi pi-bolt"
+            severity="primary"
+            :loading="seqPrep.optimizing"
+            :disabled="seqPrep.preparedRows.length === 0"
+            @click="seqPrep.runOptimization()"
+          />
+        </div>
+      </div>
+    </div>
+
+    <Panel
+      header="DNA Optimization Constraints"
+      :toggleable="true"
+      :collapsed="true"
+      class="ps-optimization-panel card-like mb-4"
+    >
+      <div class="ps-opt-content">
+        <Message v-if="seqPrep.optimizationGlobalError" severity="error" :closable="false" class="ps-opt-msg mb-4">{{ seqPrep.optimizationGlobalError }}</Message>
+        <Message v-if="seqPrep.optimizationStale && seqPrep.optimizationEverSucceeded" severity="warn" :closable="false" class="ps-opt-msg mb-4">Inputs changed. Run optimization to update sequence DNA.</Message>
+
+        <div class="ps-opt-panel-actions">
+          <Button
+            label="Defaults"
+            icon="pi pi-refresh"
+            severity="secondary"
+            size="small"
+            @click="seqPrep.resetConstraintsToDefaults()"
+          />
+          <Button
+            label="Add Constraint"
+            icon="pi pi-plus"
+            severity="secondary"
+            size="small"
+            @click="seqPrep.addConstraint()"
+          />
+        </div>
+
+        <DataTable :value="seqPrep.optimizationConstraints" class="p-datatable-sm" responsiveLayout="scroll">
+          <Column field="enabled" header="Active" style="width: 5rem">
+            <template #body="{ data }">
+              <Checkbox v-model="data.enabled" :binary="true" />
+            </template>
+          </Column>
+          <Column field="type" header="Constraint Type">
+            <template #body="{ data }">
+              <Select v-model="data.type" :options="['EnforceGCContent', 'AvoidHairpins', 'AvoidPattern', 'AvoidRareCodons', 'UniquifyAllKmers']" class="w-full" />
+            </template>
+          </Column>
+          <Column field="params" header="Parameters (JSON)">
+            <template #body="{ data }">
+               <InputText :value="JSON.stringify(data.params)" @change="updateConstraintParams(data, $event.target.value)" class="w-full" placeholder='{"mini": 0.25}' />
+            </template>
+          </Column>
+          <Column headerStyle="width: 4rem">
+            <template #body="{ index }">
+               <Button icon="pi pi-trash" severity="danger" text @click="seqPrep.removeConstraint(index)" />
+            </template>
+          </Column>
+        </DataTable>
+      </div>
+    </Panel>
+
     <div class="ps-actions">
       <Button
         label="Extract missing sequences from structures"
@@ -178,7 +257,7 @@
     <div class="ps-view-bar">
       <div class="ps-view-toggle">
         <span :class="{ 'ps-toggle-active': !seqPrep.dnaMode }">Amino acid</span>
-        <InputSwitch
+        <ToggleSwitch
           id="ps-view-mode"
           v-model="seqPrep.dnaMode"
           aria-label='Show as "Amino acid / Nucleotide"'
@@ -187,34 +266,21 @@
       </div>
       <div class="ps-view-toggle">
         <span :class="{ 'ps-toggle-active': !seqPrep.goodOnly }">All</span>
-        <InputSwitch
+        <ToggleSwitch
           id="ps-good-only"
           v-model="seqPrep.goodOnly"
           aria-label="Scope: all in scope or good designs only"
         />
         <span :class="{ 'ps-toggle-active': seqPrep.goodOnly }">Good only</span>
       </div>
-      <div class="ps-codon-field">
-        <label for="ps-codon-table">Codon table</label>
-        <Select
-          id="ps-codon-table"
-          v-model="seqPrep.selectedCodonTable"
-          :options="seqPrep.codonTableOptions"
-          option-label="label"
-          option-value="value"
-          :loading="seqPrep.codonTablesListLoading || seqPrep.codonTablesDetailLoading"
-          class="ps-codon-select w-full"
-        />
-      </div>
     </div>
 
     <div class="ps-table-toolbar">
       <div class="ps-show-pad-toggle">
-        <InputSwitch
+        <ToggleSwitch
           id="ps-show-post-pad"
           v-model="seqPrep.showPostStopPadding"
           :disabled="seqPrep.dnaMode"
-          binary
           aria-label="Show post-stop padding (amino acid view)"
         />
         <label
@@ -385,6 +451,18 @@
       <strong>min</strong> {{ preparedLengthStats.min }},
       <strong>max</strong> {{ preparedLengthStats.max }}
       <span class="ps-length-n">({{ preparedLengthStats.count }} sequence(s))</span>
+      <template
+        v-if="
+          seqPrep.dnaMode &&
+          seqPrep.optimizationEverSucceeded &&
+          !seqPrep.optimizationStale
+        "
+      >
+        <span class="ps-length-codon-meta">
+          Codon optimized for {{ seqPrep.activeCodonTable.label }}, with
+          {{ enabledOptimizationConstraintCount }} additional DNA optimization constraints.
+        </span>
+      </template>
     </p>
     <p v-else class="ps-length-summary ps-length-summary--empty">No sequences in scope.</p>
 
@@ -409,7 +487,7 @@
         <i class="pi pi-exclamation-triangle ps-warn-banner-icon" aria-hidden="true" />
         <div class="ps-warnings-banner-body">
           <p class="ps-warnings-banner-lead">
-            <strong>Warning:</strong> Some designs are less then ideal.
+            <strong>Warning:</strong> Some designs are less than ideal.
           </p>
           <ul class="ps-warnings-summary-list">
             <li v-for="(line, i) in warningsSummaryLines" :key="i">{{ line }}</li>
@@ -417,6 +495,26 @@
           <div class="ps-warnings-ack">
             <Checkbox v-model="warningsAcknowledged" input-id="ps-warn-ack" binary />
             <label for="ps-warn-ack">Acknowledged, continue anyway</label>
+          </div>
+        </div>
+      </div>
+    </Message>
+
+    <Message
+      v-if="dnaWarningActive"
+      severity="warn"
+      class="ps-warnings-banner"
+      :closable="false"
+    >
+      <div class="ps-warnings-banner-inner">
+        <i class="pi pi-exclamation-triangle ps-warn-banner-icon" aria-hidden="true" />
+        <div class="ps-warnings-banner-body">
+          <p class="ps-warnings-banner-lead">
+            <strong>Warning:</strong> DNA has not been optimized with current settings.
+          </p>
+          <div class="ps-warnings-ack">
+            <Checkbox v-model="dnaStalenessAcknowledged" input-id="ps-dna-stale-ack" binary />
+            <label for="ps-dna-stale-ack">Acknowledged, continue anyway</label>
           </div>
         </div>
       </div>
@@ -445,11 +543,12 @@ import SplitButton from 'primevue/splitbutton'
 import Checkbox from 'primevue/checkbox'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
-import InputSwitch from 'primevue/inputswitch'
+import ToggleSwitch from 'primevue/toggleswitch'
 import Select from 'primevue/select'
 import MultiSelect from 'primevue/multiselect'
 import Chip from 'primevue/chip'
 import Message from 'primevue/message'
+import Panel from 'primevue/panel'
 import {
   preparedExportBasename,
   tagPresetChipCssVars,
@@ -460,6 +559,14 @@ import {
 
 const seqPrep = useSeqPrepStore()
 const toast = useToast()
+
+const updateConstraintParams = (data: any, val: string) => {
+  try {
+    data.params = JSON.parse(val)
+  } catch (e) {
+    // Ignore invalid JSON format on change
+  }
+}
 
 const chainOptions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 
@@ -513,7 +620,26 @@ watch(preparedRowsFingerprint, () => {
   warningsAcknowledged.value = false
 })
 
+const dnaStalenessAcknowledged = ref(false)
+
+watch(
+  () =>
+    [seqPrep.dnaMode, seqPrep.optimizationStale, seqPrep.optimizationEverSucceeded] as const,
+  () => {
+    dnaStalenessAcknowledged.value = false
+  }
+)
+
 const rowsWithWarnings = computed(() => seqPrep.preparedRows.filter((r) => r.warnings.length > 0))
+
+const enabledOptimizationConstraintCount = computed(
+  () => seqPrep.optimizationConstraints.filter((c) => c.enabled).length
+)
+
+/** Shown until a successful Optimize DNA run; also while results are stale (matches panel "Inputs changed"). */
+const dnaWarningActive = computed(
+  () => !seqPrep.optimizationEverSucceeded || seqPrep.optimizationStale
+)
 
 const warningsSummaryLines = computed(() => {
   const map = new Map<string, string[]>()
@@ -536,8 +662,9 @@ const warningsSummaryLines = computed(() => {
 
 const downloadAllowed = computed(() => {
   if (!seqPrep.canDownload) return false
-  if (rowsWithWarnings.value.length === 0) return true
-  return warningsAcknowledged.value
+  if (rowsWithWarnings.value.length > 0 && !warningsAcknowledged.value) return false
+  if (dnaWarningActive.value && !dnaStalenessAcknowledged.value) return false
+  return true
 })
 
 onMounted(() => {
@@ -655,6 +782,15 @@ function guardDownload(): boolean {
       severity: 'warn',
       summary: 'Acknowledge warnings',
       detail: 'Check the warning box above or adjust sequences before downloading.',
+      life: 5000
+    })
+    return false
+  }
+  if (dnaWarningActive.value && !dnaStalenessAcknowledged.value) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Acknowledge DNA not optimised',
+      detail: 'Run Optimize DNA or tick the DNA acknowledgement before downloading.',
       life: 5000
     })
     return false
@@ -929,6 +1065,37 @@ const downloadMenuItems = [
   background: var(--p-content-background, #fff);
 }
 
+.ps-optimization-toolbar.card-like {
+  margin-bottom: 0.75rem;
+}
+
+.ps-opt-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.ps-codon-label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.ps-opt-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ps-opt-panel-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
 .ps-builder-row {
   display: flex;
   flex-wrap: wrap;
@@ -1082,6 +1249,13 @@ const downloadMenuItems = [
 }
 
 .ps-length-summary .ps-length-n {
+  color: var(--p-text-muted-color, #6c757d);
+  font-size: 0.85rem;
+}
+
+.ps-length-summary .ps-length-codon-meta {
+  display: block;
+  margin-top: 0.35rem;
   color: var(--p-text-muted-color, #6c757d);
   font-size: 0.85rem;
 }

@@ -520,6 +520,30 @@ export interface CodonTableDetailResponseDto {
     codons_by_aa: Record<string, Record<string, number>>
 }
 
+export interface DnaOptConstraintSpecDto {
+    type: string
+    enabled: boolean
+    params: Record<string, any>
+}
+
+export interface DnaOptimizeRequestDto {
+    sequences: Record<string, string>
+    codon_table_id: string
+    method: string
+    constraints: DnaOptConstraintSpecDto[]
+}
+
+export interface DnaOptResultRowDto {
+    design_id: string
+    optimized_dna?: string | null
+    error?: string | null
+}
+
+export interface DnaOptimizeResponseDto {
+    results: DnaOptResultRowDto[]
+    elapsed_seconds: number
+}
+
 export const sequencesApi = {
     async listCodonTables(): Promise<CodonTableListResponseDto> {
         return await apiRequest<CodonTableListResponseDto>(`${API_BASE}/api/sequences/codon-tables`, {
@@ -533,6 +557,14 @@ export const sequencesApi = {
             `${API_BASE}/api/sequences/codon-tables/${enc}`,
             { requireAuth: true }
         )
+    },
+
+    async optimizeDna(request: DnaOptimizeRequestDto): Promise<DnaOptimizeResponseDto> {
+        return await apiRequest<DnaOptimizeResponseDto>(`${API_BASE}/api/sequences/optimize-dna`, {
+            method: 'POST',
+            body: JSON.stringify(request),
+            requireAuth: true
+        })
     }
 }
 

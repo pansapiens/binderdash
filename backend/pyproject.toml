@@ -14,7 +14,7 @@ dependencies = [
     "requests",
     "biopython",
     "tmtools",
-    "python-codon-tables",
+    "dnachisel",
 ]
 
 [tool.pytest.ini_options]

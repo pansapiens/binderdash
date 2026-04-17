@@ -190,3 +190,28 @@ class CodonTableDetailResponse(BaseModel):
     label: str
     stop_codons: List[str]
     codons_by_aa: Dict[str, Dict[str, float]]
+
+
+class DnaOptConstraintSpec(BaseModel):
+    type: str
+    enabled: bool = True
+    params: Dict[str, Any] = {}
+
+
+class DnaOptimizeRequest(BaseModel):
+    sequences: Dict[str, str]
+    codon_table_id: str
+    method: str = "match_codon_usage"
+    constraints: List[DnaOptConstraintSpec] = []
+
+
+class DnaOptResultRow(BaseModel):
+    design_id: str
+    optimized_dna: Optional[str] = None
+    error: Optional[str] = None
+
+
+class DnaOptimizeResponse(BaseModel):
+    results: List[DnaOptResultRow]
+    elapsed_seconds: float
+

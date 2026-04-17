@@ -5,7 +5,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { useDesignsStore } from './designs'
-import { designsApi, sequencesApi, type CodonTableDetailResponseDto } from '../webapi'
+import {
+    designsApi,
+    sequencesApi,
+    type CodonTableDetailResponseDto,
+    type DnaOptConstraintSpecDto
+} from '../webapi'
 import type { Design } from '../types/store'
 import {
     isoelectricPoint,
@@ -16,6 +21,21 @@ import {
 export type TagZone = 'n' | 'c'
 
 export type PresetTagKind = 'hisN' | 'hisC' | 'flag' | 'cmyc' | 'ha' | 'custom'
+
+export const DEFAULT_TWIST_CONSTRAINTS: DnaOptConstraintSpecDto[] = [
+    { type: 'EnforceGCContent', enabled: true, params: { mini: 0.25, maxi: 0.64 } },
+    { type: 'EnforceGCContent', enabled: true, params: { mini: 0.25, maxi: 0.75, window: 50 } },
+    { type: 'AvoidHairpins', enabled: true, params: { stem_size: 20, hairpin_window: 48 } },
+    { type: 'AvoidPattern', enabled: true, params: { pattern: 'AAAAAAAAA' } },
+    { type: 'AvoidPattern', enabled: true, params: { pattern: 'TTTTTTTTT' } },
+    { type: 'AvoidPattern', enabled: true, params: { pattern: 'GGGGGG' } },
+    { type: 'AvoidPattern', enabled: true, params: { pattern: 'CCCCCC' } },
+    { type: 'AvoidRareCodons', enabled: true, params: { min_frequency: 0.09 } },
+    { type: 'UniquifyAllKmers', enabled: true, params: { k: 12 } },
+    { type: 'AvoidPattern', enabled: true, params: { pattern: { type: 'RepeatedKmerPattern', params: { n_repeats: 2, k_size: 20 } } } },
+    { type: 'AvoidPattern', enabled: true, params: { pattern: 'GGAGG' } },
+    { type: 'AvoidPattern', enabled: true, params: { pattern: 'TAAGGAG' } }
+]
 
 export interface PlacedTag {
     id: string
@@ -887,14 +907,33 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             let mainDna = ''
             let mainSegChunks: PreparedSegment[][] = []
             if (needMainDnaForPad) {
-                ;({ mainDna, mainSegChunks } = buildMainDnaForRow(
-                    table,
-                    nFix,
-                    cFix,
-                    tagCol,
-                    core,
-                    includeStop.value
-                ))
+                const optDna = !optimizationStale.value ? optimizedDnaByDesign.value[d.design_id] : undefined
+                if (optDna) {
+                    mainDna = optDna
+                    // Re-apply feature colouring: build the original segment layout (same
+                    // nucleotide lengths since optimisation preserves translation) and reslice
+                    // the optimised sequence across those boundaries.
+                    const { mainSegChunks: origChunks } = buildMainDnaForRow(
+                        table, nFix, cFix, tagCol, core, includeStop.value
+                    )
+                    let offset = 0
+                    mainSegChunks = origChunks.map(chunk =>
+                        chunk.map(seg => {
+                            const slice = optDna.slice(offset, offset + seg.text.length)
+                            offset += seg.text.length
+                            return { ...seg, text: slice }
+                        })
+                    )
+                } else {
+                    ;({ mainDna, mainSegChunks } = buildMainDnaForRow(
+                        table,
+                        nFix,
+                        cFix,
+                        tagCol,
+                        core,
+                        includeStop.value
+                    ))
+                }
             }
 
             let numFullPadRepeats = 0
@@ -939,6 +978,10 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             const ext = molarExtinctionCoefficient(prepared_aa)
             const pi = isoelectricPoint(prepared_aa)
             const warns = sequenceWarnings(prepared_aa)
+            const optError = !optimizationStale.value ? optimizedErrorsByDesign.value[d.design_id] : undefined
+            if (optError) {
+                warns.push(`DNA Opt: ${optError}`)
+            }
 
             let segments_dna: PreparedSegment[] | null = null
             let prepared_dna: string | null = null
@@ -1105,6 +1148,75 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         }
     }
 
+    const optimizationConstraints = ref<DnaOptConstraintSpecDto[]>(JSON.parse(JSON.stringify(DEFAULT_TWIST_CONSTRAINTS)))
+    const optimizationMethod = ref<string>('match_codon_usage')
+    const optimizedDnaByDesign = ref<Record<string, string>>({})
+    const optimizedErrorsByDesign = ref<Record<string, string>>({})
+    const optimizing = ref(false)
+    const optimizationGlobalError = ref<string | null>(null)
+    const optimizationStale = ref(false)
+    /** True after at least one successful per-sequence optimisation in this session (used for stale messaging). */
+    const optimizationEverSucceeded = ref(false)
+
+    watch([nTags, cTags, nTerminalPrefix, cTerminalSuffix, includeStop, selectedCodonTable, optimizationConstraints], () => {
+        optimizationStale.value = true
+    }, { deep: true })
+
+    async function runOptimization() {
+        const seqs: Record<string, string> = {}
+        for (const row of preparedRows.value) {
+            if (row.prepared_aa_display) {
+                seqs[row.design_id] = row.prepared_aa_display
+            }
+        }
+        if (Object.keys(seqs).length === 0) {
+            optimizationGlobalError.value = 'No sequences in scope to optimise.'
+            return
+        }
+
+        optimizing.value = true
+        optimizationGlobalError.value = null
+        try {
+            const req = {
+                sequences: seqs,
+                codon_table_id: selectedCodonTable.value || FALLBACK_ECOLLI_CODON_TABLE.label,
+                method: optimizationMethod.value,
+                constraints: optimizationConstraints.value
+            }
+            const res = await sequencesApi.optimizeDna(req)
+            const optMap: Record<string, string> = {}
+            const errMap: Record<string, string> = {}
+            for (const r of res.results) {
+                if (r.optimized_dna) {
+                    optMap[r.design_id] = r.optimized_dna
+                }
+                if (r.error) {
+                    errMap[r.design_id] = r.error
+                }
+            }
+            optimizedDnaByDesign.value = optMap
+            optimizedErrorsByDesign.value = errMap
+            optimizationStale.value = false
+            optimizationEverSucceeded.value = Object.keys(optMap).length > 0
+        } catch (e: any) {
+            optimizationGlobalError.value = String(e)
+        } finally {
+            optimizing.value = false
+        }
+    }
+
+    function resetConstraintsToDefaults() {
+        optimizationConstraints.value = JSON.parse(JSON.stringify(DEFAULT_TWIST_CONSTRAINTS))
+    }
+
+    function addConstraint() {
+        optimizationConstraints.value.push({ type: 'EnforceGCContent', enabled: true, params: {} })
+    }
+
+    function removeConstraint(idx: number) {
+        optimizationConstraints.value.splice(idx, 1)
+    }
+
     return {
         nTags,
         cTags,
@@ -1126,6 +1238,14 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         codonTablesDetailLoading,
         selectedCodonTable,
         activeCodonTable,
+        optimizationConstraints,
+        optimizationMethod,
+        optimizedDnaByDesign,
+        optimizedErrorsByDesign,
+        optimizing,
+        optimizationGlobalError,
+        optimizationStale,
+        optimizationEverSucceeded,
         ensureCodonTablesLoaded,
         validationErrors,
         canDownload,
@@ -1137,6 +1257,10 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         addCustomTag,
         removeTag,
         fetchMissingSequences,
-        getRawSequence
+        getRawSequence,
+        runOptimization,
+        resetConstraintsToDefaults,
+        addConstraint,
+        removeConstraint
     }
 })

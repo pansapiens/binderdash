@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Prepare sequences tab / DNA Optimization**: Added server-side DNA sequence optimization with customizable synthesis constraints (GC content, hairpins, rare codons, etc.) and Twist Bioscience defaults.
+- **Prepare sequences tab / DNA Optimization**: Added warnings and acknowledgment checkboxes when attempting to download unoptimized DNA or when settings have changed.
+- **Prepare sequences tab / DNA Optimization**: "Optimize DNA" can now be triggered directly from the amino-acid view, alongside UI improvements for managing constraints.
 - **Prepare sequences tab**: Added post-stop DNA padding, allowing sequences to be padded to a target nucleotide length.
 - **Prepare sequences tab**: Added a toggle to show or hide post-stop padding in the amino acid view and exports.
 - **Prepare sequences tab**: Added calculated protein metrics (ε₂₈₀, pI) and sequence warnings (Cys, no-Trp). Warnings must be acknowledged before export and are included in CSV/TSV downloads.

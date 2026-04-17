@@ -10,7 +10,9 @@ anyio==4.10.0
 bcrypt==4.3.0
     # via binderdash-backend (backend/pyproject.toml)
 biopython==1.85
-    # via binderdash-backend (backend/pyproject.toml)
+    # via
+    #   binderdash-backend (backend/pyproject.toml)
+    #   dnachisel
 certifi==2025.8.3
     # via
     #   httpcore
@@ -24,10 +26,16 @@ click==8.2.1
     # via uvicorn
 cryptography==45.0.7
     # via python-jose
+dnachisel==3.2.16
+    # via binderdash-backend (backend/pyproject.toml)
+docopt==0.6.2
+    # via dnachisel
 ecdsa==0.19.1
     # via python-jose
 fastapi==0.116.1
     # via binderdash-backend (backend/pyproject.toml)
+flametree==0.2.1
+    # via dnachisel
 h11==0.16.0
     # via
     #   httpcore
@@ -46,10 +54,13 @@ idna==3.10
 numpy==2.3.2
     # via
     #   biopython
+    #   dnachisel
     #   pandas
     #   tmtools
 pandas==2.3.2
     # via binderdash-backend (backend/pyproject.toml)
+proglog==0.1.12
+    # via dnachisel
 pyasn1==0.6.1
     # via
     #   python-jose
@@ -65,7 +76,7 @@ pydantic-core==2.33.2
 pydantic-settings==2.10.1
     # via binderdash-backend (backend/pyproject.toml)
 python-codon-tables==0.1.18
-    # via binderdash-backend (backend/pyproject.toml)
+    # via dnachisel
 python-dateutil==2.9.0.post0
     # via pandas
 python-dotenv==1.1.1
@@ -94,6 +105,8 @@ starlette==0.47.3
     # via fastapi
 tmtools==0.3.0
     # via binderdash-backend (backend/pyproject.toml)
+tqdm==4.67.3
+    # via proglog
 typing-extensions==4.15.0
     # via
     #   anyio

@@ -9,8 +9,12 @@ from ..schemas import (
     CodonTableDetailResponse,
     CodonTableListResponse,
     CodonTableOption,
+    DnaOptimizeRequest,
+    DnaOptimizeResponse,
+    DnaOptResultRow,
 )
 from ..settings import LocalUser
+from ..util.dna_optimization import optimize_sequences
 from ..util.codon_tables import (
     CodonTableNotFoundError,
     CodonTableUpstreamError,
@@ -58,3 +62,36 @@ async def get_codon_table_detail(
         stop_codons=stop_codons,
         codons_by_aa=codons_by_aa,
     )
+
+
+@router.post("/optimize-dna", response_model=DnaOptimizeResponse)
+async def optimize_dna_batch(
+    request: DnaOptimizeRequest,
+    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+):
+    import time
+    start_time = time.time()
+    try:
+        results_dict = await asyncio.to_thread(
+            optimize_sequences,
+            request.sequences,
+            request.codon_table_id,
+            [c.model_dump() for c in request.constraints],
+            request.method
+        )
+    except Exception as e:
+        logger.exception("dna optimization batch failed")
+        raise HTTPException(status_code=500, detail=f"Optimization failed: {str(e)}") from e
+        
+    result_rows = [
+        DnaOptResultRow(
+            design_id=design_id, 
+            optimized_dna=res["optimized_dna"],
+            error=res["error"]
+        )
+        for design_id, res in results_dict.items()
+    ]
+    
+    elapsed = float(time.time() - start_time)
+    return DnaOptimizeResponse(results=result_rows, elapsed_seconds=elapsed)
+
