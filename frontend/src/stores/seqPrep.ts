@@ -20,7 +20,7 @@ import {
 
 export type TagZone = 'n' | 'c'
 
-export type PresetTagKind = 'hisN' | 'hisC' | 'flag' | 'cmyc' | 'ha' | 'custom'
+export type PresetTagKind = 'hisN' | 'hisC' | 'flag' | 'cmyc' | 'ha' | 'linker' | 'custom'
 
 export const DEFAULT_TWIST_CONSTRAINTS: DnaOptConstraintSpecDto[] = [
     { type: 'EnforceGCContent', enabled: true, params: { mini: 0.25, maxi: 0.64 } },
@@ -130,11 +130,20 @@ export const TAG_PRESET_DEFS: readonly TagPresetDefinition[] = [
         background: 'rgba(123, 31, 162, 0.1)',
         foreground: '#6a1b9a',
         zones: ['n', 'c']
+    },
+    {
+        kind: 'linker',
+        tag_name: 'G4S',
+        sequence: 'GGGGS',
+        color: '#aaaaaa',
+        background: 'rgba(48, 48, 48, 0.1)',
+        foreground: '#aaaaaa',
+        zones: ['n', 'c']
     }
 ]
 
 export const CUSTOM_TAG_VISUAL = {
-    color: '#607d8b',
+    color: '#aa0000',
     background: 'rgba(69, 90, 100, 0.1)',
     foreground: '#37474f'
 } as const
@@ -283,6 +292,7 @@ function segmentClass(kind: PresetTagKind): string {
     if (kind === 'flag') return 'seq-seg-flag'
     if (kind === 'cmyc') return 'seq-seg-cmyc'
     if (kind === 'ha') return 'seq-seg-ha'
+    if (kind === 'linker') return 'seq-seg-linker'
     return 'seq-seg-custom'
 }
 

@@ -34,12 +34,17 @@
             <Chip
               v-for="(t, i) in seqPrep.nTags"
               :key="t.id"
-              :label="`${t.label}: ${t.sequence}`"
+              :label="`${t.label} ${t.sequence}`"
               removable
               class="ps-tag-chip"
               :style="tagPresetChipCssVars(t.kind)"
               @remove="seqPrep.removeTag('n', i)"
-            />
+            >
+              <div class="ps-tag-chip-body">
+                <span class="ps-tag-chip-name">{{ t.label }}</span>
+                <span class="ps-tag-chip-seq">{{ t.sequence }}</span>
+              </div>
+            </Chip>
             <span v-if="seqPrep.nTags.length === 0" class="ps-placeholder">Add tags below</span>
           </div>
         </div>
@@ -50,12 +55,17 @@
             <Chip
               v-for="(t, i) in seqPrep.cTags"
               :key="t.id"
-              :label="`${t.label}: ${t.sequence}`"
+              :label="`${t.label} ${t.sequence}`"
               removable
               class="ps-tag-chip"
               :style="tagPresetChipCssVars(t.kind)"
               @remove="seqPrep.removeTag('c', i)"
-            />
+            >
+              <div class="ps-tag-chip-body">
+                <span class="ps-tag-chip-name">{{ t.label }}</span>
+                <span class="ps-tag-chip-seq">{{ t.sequence }}</span>
+              </div>
+            </Chip>
             <span v-if="seqPrep.cTags.length === 0" class="ps-placeholder">Add tags below</span>
           </div>
         </div>
@@ -1177,6 +1187,27 @@ const downloadMenuItems = [
 
 .prepare-sequences-view :deep(.ps-tag-chip.p-chip .p-chip-label) {
   color: var(--ps-chip-fg) !important;
+}
+
+.ps-tag-chip-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15em;
+  line-height: 1.25;
+  text-align: left;
+  min-width: 0;
+}
+
+.ps-tag-chip-name {
+  font-weight: 600;
+}
+
+.ps-tag-chip-seq {
+  font-size: 0.72em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  word-break: break-all;
 }
 
 .prepare-sequences-view :deep(.ps-tag-chip .p-chip-remove-icon) {
