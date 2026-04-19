@@ -7,6 +7,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    libpam0g \
+    libpam-modules \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -38,7 +40,9 @@ COPY --chown=app:app backend/ ./backend/
 ARG BUILD_FRONTEND=true
 RUN if [ "$BUILD_FRONTEND" = "true" ]; then \
         cd frontend && \
-        pnpm run build; \
+        pnpm run build && \
+        test -d ../backend/static/assets \
+        || (echo "frontend build did not produce backend/static/assets" && exit 1); \
     fi
 
 USER app

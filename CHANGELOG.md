@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Auth**: Removed support for the `ALLOWED_USERS` environment variable (it was only a legacy fallback for the Google allowlist). Use `GOOGLE_AUTH_ALLOWED_USERS` only.
+- **Docker / PAM**: `docker-compose.yml` and `docker-compose.dev.yml` include commented optional bind-mounts for host `/etc/passwd`, `/etc/group`, and `/etc/shadow` (`:ro`) when using PAM for host local users — documented as high-risk; not enabled by default.
+- **PAM**: Default PAM stack is `common-auth` (configurable via `PAM_LOCAL_SERVICE`) instead of `login`, which often fails for non-TTY/container use. Dockerfile installs `libpam0g` and `libpam-modules`. Login UI hint about local-then-PAM moved to `.env.example` comments only.
+- **Docker / static files**: Resolve `backend/static` from `main.py`’s package directory (not the process cwd) so `StaticFiles` works when the working directory is not the repo root. If the frontend build is missing, log a warning and skip `/assets` and `/static` mounts instead of crashing; `/` returns 503 with a plain-text hint. Docker image build with `BUILD_FRONTEND=true` now fails if `backend/static/assets` is not produced.
+- **Authentication**: Optional **PAM** (Unix password) and **Google OAuth** sign-in alongside existing **LOCAL_USERS** (bcrypt). JWT session cookies include `provider` (`local` / `pam` / `google`); allowlists are re-checked on each request. SQLite persistence adds **`binderdash_auth_users`** for login audit (`record_login`). **`GET /api/auth/status`** returns enabled providers; login UI shows password and/or Google when configured. Dependencies: **authlib**, **python-pam**, **itsdangerous** (sessions). Requires **SessionMiddleware** (same `SECRET_KEY` as JWT).
 - **Prepare sequences tab / DNA Optimization**: Added server-side DNA sequence optimization with customizable synthesis constraints (GC content, hairpins, rare codons, etc.) and Twist Bioscience defaults.
 - **Prepare sequences tab / DNA Optimization**: Added warnings and acknowledgment checkboxes when attempting to download unoptimized DNA or when settings have changed.
 - **Prepare sequences tab / DNA Optimization**: "Optimize DNA" can now be triggered directly from the amino-acid view, alongside UI improvements for managing constraints.

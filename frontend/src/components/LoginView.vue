@@ -3,10 +3,17 @@
     <div class="login-card">
       <div class="login-header">
         <h2>Login to Binderdash</h2>
-        <p>Enter your credentials to access the application</p>
+        <p v-if="showPasswordLogin && showGoogleLogin">Choose a sign-in method</p>
+        <p v-else-if="showPasswordLogin">Enter your credentials to access the application</p>
+        <p v-else-if="showGoogleLogin">Sign in with your Google account</p>
+        <p v-else class="p-error">No sign-in methods are enabled on the server.</p>
       </div>
-      
-      <form @submit.prevent="handleLogin" class="login-form">
+
+      <form
+        v-if="showPasswordLogin"
+        @submit.prevent="handleLogin"
+        class="login-form"
+      >
         <div class="form-group">
           <label for="username">Username</label>
           <InputText
@@ -18,7 +25,7 @@
           />
           <small v-if="errors.username" class="p-error">{{ errors.username }}</small>
         </div>
-        
+
         <div class="form-group">
           <label for="password">Password</label>
           <Password
@@ -32,16 +39,31 @@
           />
           <small v-if="errors.password" class="p-error">{{ errors.password }}</small>
         </div>
-        
+
         <Button
           type="submit"
-          label="Login"
+          label="Sign in"
           :loading="isLoading"
           :disabled="isLoading"
           class="login-button"
         />
       </form>
-      
+
+      <div v-if="showPasswordLogin && showGoogleLogin" class="divider">
+        <span>or</span>
+      </div>
+
+      <div v-if="showGoogleLogin" class="google-block">
+        <Button
+          type="button"
+          label="Sign in with Google"
+          icon="pi pi-google"
+          severity="secondary"
+          class="google-button"
+          @click="goGoogle"
+        />
+      </div>
+
       <div v-if="loginError" class="error-message">
         <Message severity="error" :closable="false">
           {{ loginError }}
@@ -52,7 +74,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
 import Button from 'primevue/button'
@@ -61,13 +83,25 @@ import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
 
-// Form data
+const showPasswordLogin = computed(() => {
+  const p = authStore.authStatus?.providers
+  if (!p) return true
+  return p.local.enabled || p.pam.enabled
+})
+
+const showGoogleLogin = computed(
+  () => authStore.authStatus?.providers?.google?.enabled ?? false
+)
+
+const googleLoginHref = computed(
+  () => authStore.authStatus?.providers?.google?.login_url ?? '/api/auth/google/login'
+)
+
 const loginForm = reactive({
   username: '',
   password: ''
 })
 
-// Form state
 const isLoading = ref(false)
 const loginError = ref('')
 const errors = reactive({
@@ -75,41 +109,42 @@ const errors = reactive({
   password: ''
 })
 
-// Validation
 const validateForm = () => {
   errors.username = ''
   errors.password = ''
-  
+
   if (!loginForm.username.trim()) {
     errors.username = 'Username is required'
     return false
   }
-  
+
   if (!loginForm.password) {
     errors.password = 'Password is required'
     return false
   }
-  
+
   return true
 }
 
-// Handle login
 const handleLogin = async () => {
   if (!validateForm()) {
     return
   }
-  
+
   isLoading.value = true
   loginError.value = ''
-  
+
   try {
     await authStore.login(loginForm.username, loginForm.password)
-    // Login successful - the auth store will handle navigation
   } catch (error: any) {
     loginError.value = error.message || 'Login failed. Please check your credentials.'
   } finally {
     isLoading.value = false
   }
+}
+
+const goGoogle = () => {
+  window.location.href = googleLoginHref.value
 }
 </script>
 
@@ -183,11 +218,40 @@ const handleLogin = async () => {
   border-color: #5a6fd8 !important;
 }
 
+.divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 1.5rem 0;
+  color: #6c757d;
+  font-size: 0.85rem;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.divider span {
+  padding: 0 1rem;
+}
+
+.google-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.google-button {
+  width: 100%;
+  justify-content: center;
+}
+
 .error-message {
   margin-top: 1.5rem;
 }
 
-/* Override PrimeVue input styling for better appearance */
 :deep(.p-inputtext) {
   padding: 0.75rem;
   border-radius: 6px;
@@ -216,7 +280,6 @@ const handleLogin = async () => {
   color: #495057;
 }
 
-/* Error styling */
 :deep(.p-invalid) {
   border-color: #dc3545 !important;
 }

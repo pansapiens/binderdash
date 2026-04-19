@@ -13,7 +13,7 @@ from ..schemas import (
     DnaOptimizeResponse,
     DnaOptResultRow,
 )
-from ..settings import LocalUser
+from ..auth_providers.base import AuthUser
 from ..util.dna_optimization import optimize_sequences
 from ..util.codon_tables import (
     CodonTableNotFoundError,
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/sequences", tags=["sequences"])
 
 @router.get("/codon-tables", response_model=CodonTableListResponse)
 async def list_codon_tables(
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         raw_items = await asyncio.to_thread(list_builtin_codon_table_options)
@@ -44,7 +44,7 @@ async def list_codon_tables(
 @router.get("/codon-tables/{table_id}", response_model=CodonTableDetailResponse)
 async def get_codon_table_detail(
     table_id: str,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         value, label, stop_codons, codons_by_aa = await asyncio.to_thread(
@@ -67,7 +67,7 @@ async def get_codon_table_detail(
 @router.post("/optimize-dna", response_model=DnaOptimizeResponse)
 async def optimize_dna_batch(
     request: DnaOptimizeRequest,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     import time
     start_time = time.time()

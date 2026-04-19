@@ -92,3 +92,11 @@ class NoopDesignsRepository:
         metrics: Dict[str, Any],
     ) -> None:
         pass
+
+    def record_login(
+        self,
+        provider: str,
+        identifier: str,
+        email: Optional[str] = None,
+    ) -> None:
+        pass

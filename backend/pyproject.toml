@@ -15,6 +15,9 @@ dependencies = [
     "biopython",
     "tmtools",
     "dnachisel",
+    "authlib",
+    "python-pam",
+    "itsdangerous",
 ]
 
 [tool.pytest.ini_options]
