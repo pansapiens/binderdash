@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -30,11 +31,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
-@router.post("/scan")
-async def scan_runs(
-    request: ScanRequest,
-    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
-):
+def _scan_runs_sync(request: ScanRequest) -> Dict[str, Any]:
     try:
         _scan_t = Timer(
             logger, "POST /scan", folders=len(request.folders)
@@ -81,9 +78,19 @@ async def scan_runs(
                     )
         _scan_t.log(runs=len(merged))
         return {"runs": merged}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in scan_runs: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/scan")
+async def scan_runs(
+    request: ScanRequest,
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
+    return await asyncio.to_thread(_scan_runs_sync, request)
 
 
 @router.post("/ingest-preview")
@@ -109,11 +116,7 @@ async def ingest_preview(
     return {"reingest": reingest}
 
 
-@router.post("/ingest")
-async def ingest_runs(
-    body: IngestRequest,
-    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
-):
+def _ingest_runs_sync(body: IngestRequest) -> Dict[str, Any]:
     repo = get_designs_repository()
     if not repo.is_enabled():
         raise HTTPException(
@@ -139,6 +142,20 @@ async def ingest_runs(
     except Exception as e:
         logger.error("ingest_runs failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/ingest")
+async def ingest_runs(
+    body: IngestRequest,
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
+    repo = get_designs_repository()
+    if not repo.is_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="DATABASE is not configured or persistence is disabled",
+        )
+    return await asyncio.to_thread(_ingest_runs_sync, body)
 
 
 def merge_runs(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

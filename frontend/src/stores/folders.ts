@@ -6,6 +6,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { treeApi, runsApi } from '../webapi'
+import { mergeRuns } from '../utils/mergeRuns'
 import { PERSISTENCE_KEYS } from '../persistence/keys'
 import { kvGet, kvSet } from '../persistence/store'
 import type { FolderNode, Run, FolderState } from '../types/store'
@@ -129,17 +130,21 @@ export const useFolderStore = defineStore('folders', () => {
         }
     }
 
-    const scanSelectedFolders = async (options?: { forceRescanOfIngested?: boolean }) => {
-        if (selectedFolderNodes.value.length === 0) return []
-
+    const scanFolders = async (
+        folderPaths: string[],
+        options?: { forceRescanOfIngested?: boolean }
+    ) => {
         scanning.value = true
         try {
-            const folderPaths = selectedFolderNodes.value.map(folder => folder.path)
-            const data = await runsApi.scanRuns(folderPaths, options)
-            scanResults.value = data.runs
-            selectedRuns.value = [...data.runs]
+            let acc: Run[] = []
+            for (const path of folderPaths) {
+                const data = await runsApi.scanRuns([path], options)
+                acc = mergeRuns([...acc, ...data.runs])
+                scanResults.value = acc
+            }
+            selectedRuns.value = [...scanResults.value]
 
-            return data.runs
+            return scanResults.value
         } catch (err) {
             console.error('Error scanning folders:', err)
             throw err
@@ -148,23 +153,10 @@ export const useFolderStore = defineStore('folders', () => {
         }
     }
 
-    const scanFolders = async (
-        folderPaths: string[],
-        options?: { forceRescanOfIngested?: boolean }
-    ) => {
-        scanning.value = true
-        try {
-            const data = await runsApi.scanRuns(folderPaths, options)
-            scanResults.value = data.runs
-            selectedRuns.value = [...data.runs]
-
-            return data.runs
-        } catch (err) {
-            console.error('Error scanning folders:', err)
-            throw err
-        } finally {
-            scanning.value = false
-        }
+    const scanSelectedFolders = async (options?: { forceRescanOfIngested?: boolean }) => {
+        if (selectedFolderNodes.value.length === 0) return []
+        const folderPaths = selectedFolderNodes.value.map(folder => folder.path)
+        return scanFolders(folderPaths, options)
     }
 
     const clearSelection = () => {

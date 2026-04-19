@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Ingest Runs**: Scan calls **`POST /api/runs/scan` once per selected folder** (results merge client-side as on the server). Ingest calls **`POST /api/runs/ingest` once per selected run** (sequential). Scan/ingest handlers run heavy work in a **thread pool** via **`asyncio.to_thread`** so the API event loop stays responsive. The scan results table adds an **Ingested** column (green check when that run’s ingest succeeded).
 - **Auth**: Removed support for the `ALLOWED_USERS` environment variable (it was only a legacy fallback for the Google allowlist). Use `GOOGLE_AUTH_ALLOWED_USERS` only.
 - **Docker / PAM**: `docker-compose.yml` and `docker-compose.dev.yml` include commented optional bind-mounts for host `/etc/passwd`, `/etc/group`, and `/etc/shadow` (`:ro`) when using PAM for host local users — documented as high-risk; not enabled by default.
 - **PAM**: Default PAM stack is `common-auth` (configurable via `PAM_LOCAL_SERVICE`) instead of `login`, which often fails for non-TTY/container use. Dockerfile installs `libpam0g` and `libpam-modules`. Login UI hint about local-then-PAM moved to `.env.example` comments only.
