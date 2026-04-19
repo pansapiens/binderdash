@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..auth import get_current_user_optional
 from ..run_discovery import load_run_table
 from ..schemas import PdbTarRequest
-from ..settings import LocalUser
+from ..auth_providers.base import AuthUser
 from ..cache import get_run_metadata
 
 
@@ -58,7 +58,7 @@ def get_default_plot_columns(df: pd.DataFrame, method: str) -> Dict[str, str]:
 @router.post("/columns")
 async def get_plot_columns_multiple(
     request: Dict[str, Any],
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         run_ids = request.get("run_ids", [])
@@ -102,7 +102,7 @@ async def get_plot_columns_multiple(
 @router.post("/scatter")
 async def get_scatter_plot_multiple(
     request: Dict[str, Any],
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         run_ids = request.get("run_ids", [])
@@ -164,7 +164,7 @@ async def get_scatter_plot_multiple(
 @router.post("/histogram")
 async def get_histogram_plot_multiple(
     request: Dict[str, Any],
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         run_ids = request.get("run_ids", [])

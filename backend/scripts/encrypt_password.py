@@ -30,29 +30,15 @@ import getpass
 import sys
 from pathlib import Path
 
-# Add backend to path so we can import the password hashing function
-backend_path = Path(__file__).parent / "backend"
-sys.path.insert(0, str(backend_path))
+_repo_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_repo_root))
 
 try:
-    import bcrypt
+    from backend.auth_providers.passwords import get_password_hash, verify_password
 except ImportError:
-    print("Error: bcrypt not installed. Please install dependencies:")
+    print("Error: could not import password helpers. Install dependencies:")
     print("  cd backend && uv pip install -r requirements.txt")
     sys.exit(1)
-
-
-def get_password_hash(password: str) -> str:
-    """Hash a password using bcrypt."""
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash."""
-    return bcrypt.checkpw(
-        plain_password.encode("utf-8"), hashed_password.encode("utf-8")
-    )
 
 
 def main():

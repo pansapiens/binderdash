@@ -42,6 +42,14 @@ services:
       - ./data:/app/data:rw
       # Mount the database file as read-write on the host
       - ./db.sqlite:/app/db.sqlite:rw
+      # --- Optional: PAM against host local users (DISABLE BY DEFAULT)
+      # Un-comment to let pam_unix see the same accounts as the Docker host. This
+      # exposes host passwd/shadow to the container — use only on trusted hosts and
+      # understand the risk. You may also need nsswitch + pam.d alignment; LDAP/SSSD
+      # on the host usually needs more than these three files.
+      # - /etc/passwd:/etc/passwd:ro
+      # - /etc/group:/etc/group:ro
+      # - /etc/shadow:/etc/shadow:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

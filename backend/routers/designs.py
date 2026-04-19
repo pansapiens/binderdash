@@ -32,7 +32,7 @@ from ..schemas import (
     TagPlacementResultRow,
 )
 from ..persistence.factory import get_designs_repository
-from ..settings import LocalUser
+from ..auth_providers.base import AuthUser
 from ..tag_placement import compute_tag_metrics_for_structure_file
 
 
@@ -42,7 +42,7 @@ router = APIRouter(prefix="/api/designs", tags=["designs"])
 
 @router.get("")
 async def list_designs(
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         if not designs_cache:
@@ -55,7 +55,7 @@ async def list_designs(
 
 @router.delete("")
 async def clear_designs(
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         designs_cache.clear()
@@ -68,7 +68,7 @@ async def clear_designs(
 @router.patch("/good")
 async def patch_design_good(
     body: DesignGoodUpdate,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     run = get_run_metadata(body.run_id)
     if not run:
@@ -98,7 +98,7 @@ async def patch_design_good(
 @router.patch("/tag")
 async def patch_design_tag(
     body: DesignTagUpdate,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     run = get_run_metadata(body.run_id)
     if not run:
@@ -522,7 +522,7 @@ def _tag_metrics_sync(body: TagPlacementRequest) -> TagMetricsResponse:
 
 @router.post("/refresh-cache")
 async def post_refresh_designs_cache(
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         refresh_designs_cache()
@@ -535,7 +535,7 @@ async def post_refresh_designs_cache(
 @router.post("/tag-metrics", response_model=TagMetricsResponse)
 async def post_tag_metrics(
     body: TagPlacementRequest,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         return await asyncio.to_thread(_tag_metrics_sync, body)
@@ -547,7 +547,7 @@ async def post_tag_metrics(
 @router.post("/tag-placement", response_model=TagPlacementResponse)
 async def post_tag_placement(
     body: TagPlacementRequest,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         out = await asyncio.to_thread(_tag_placement_sync, body)
@@ -562,7 +562,7 @@ async def post_tag_placement(
 @router.post("/sequences", response_model=SequenceExtractResponse)
 async def post_extract_sequences(
     body: SequenceExtractRequest,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         out = await asyncio.to_thread(_sequences_extract_sync, body)

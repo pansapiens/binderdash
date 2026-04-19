@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -21,7 +22,8 @@ from ..schemas import (
     ScanRequest,
 )
 from ..util.input_targets import list_input_targets
-from ..settings import LocalUser, settings
+from ..auth_providers.base import AuthUser
+from ..settings import settings
 from ..util.profiling import Timer
 
 
@@ -29,11 +31,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
-@router.post("/scan")
-async def scan_runs(
-    request: ScanRequest,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
-):
+def _scan_runs_sync(request: ScanRequest) -> Dict[str, Any]:
     try:
         _scan_t = Timer(
             logger, "POST /scan", folders=len(request.folders)
@@ -80,15 +78,25 @@ async def scan_runs(
                     )
         _scan_t.log(runs=len(merged))
         return {"runs": merged}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in scan_runs: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/scan")
+async def scan_runs(
+    request: ScanRequest,
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
+    return await asyncio.to_thread(_scan_runs_sync, request)
 
 
 @router.post("/ingest-preview")
 async def ingest_preview(
     body: IngestPreviewRequest,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     repo = get_designs_repository()
     if not repo.is_enabled():
@@ -108,11 +116,7 @@ async def ingest_preview(
     return {"reingest": reingest}
 
 
-@router.post("/ingest")
-async def ingest_runs(
-    body: IngestRequest,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
-):
+def _ingest_runs_sync(body: IngestRequest) -> Dict[str, Any]:
     repo = get_designs_repository()
     if not repo.is_enabled():
         raise HTTPException(
@@ -140,6 +144,20 @@ async def ingest_runs(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.post("/ingest")
+async def ingest_runs(
+    body: IngestRequest,
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
+    repo = get_designs_repository()
+    if not repo.is_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="DATABASE is not configured or persistence is disabled",
+        )
+    return await asyncio.to_thread(_ingest_runs_sync, body)
+
+
 def merge_runs(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     merged_runs: Dict[str, Dict[str, Any]] = {}
     for run in runs:
@@ -165,7 +183,7 @@ def merge_runs(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 @router.get("")
 async def list_runs(
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         all_runs = list(run_cache.values())
@@ -178,7 +196,7 @@ async def list_runs(
 
 @router.delete("/{run_id}")
 async def delete_run(
-    run_id: str, current_user: Optional[LocalUser] = Depends(get_current_user_optional)
+    run_id: str, current_user: Optional[AuthUser] = Depends(get_current_user_optional)
 ):
     repo = get_designs_repository()
     in_cache = run_id in run_cache
@@ -193,7 +211,7 @@ async def delete_run(
 
 @router.delete("")
 async def clear_runs(
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     repo = get_designs_repository()
     if repo.is_enabled():
@@ -207,7 +225,7 @@ async def clear_runs(
 @router.get("/{run_id}/input-targets", response_model=InputTargetsResponse)
 async def get_input_targets(
     run_id: str,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     run_metadata = get_run_metadata(run_id)
     if not run_metadata:
@@ -220,7 +238,7 @@ async def get_input_targets(
 
 @router.get("/{run_id}/table")
 async def get_run_table(
-    run_id: str, current_user: Optional[LocalUser] = Depends(get_current_user_optional)
+    run_id: str, current_user: Optional[AuthUser] = Depends(get_current_user_optional)
 ):
     try:
         run_metadata = get_run_metadata(run_id)

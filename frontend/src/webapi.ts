@@ -654,8 +654,16 @@ export const authApi = {
      * @param password - Password
      * @returns Promise with login response including CSRF token
      */
-    async login(username: string, password: string): Promise<{ message: string, user: { username: string }, csrf_token: string }> {
-        const response = await apiRequest<{ message: string, user: { username: string }, csrf_token: string }>(`${API_BASE}/api/auth/login`, {
+    async login(username: string, password: string): Promise<{
+        message: string
+        user: { username: string; provider: string; email: string | null }
+        csrf_token: string
+    }> {
+        const response = await apiRequest<{
+            message: string
+            user: { username: string; provider: string; email: string | null }
+            csrf_token: string
+        }>(`${API_BASE}/api/auth/login`, {
             method: 'POST',
             body: JSON.stringify({ username, password }),
             requireAuth: false
@@ -687,8 +695,11 @@ export const authApi = {
      * Get current user information
      * @returns Promise with user data
      */
-    async getMe(): Promise<{ username: string }> {
-        return await apiRequest<{ username: string }>(`${API_BASE}/api/auth/me`, { requireAuth: true })
+    async getMe(): Promise<{ username: string; provider: string; email: string | null }> {
+        return await apiRequest<{ username: string; provider: string; email: string | null }>(
+            `${API_BASE}/api/auth/me`,
+            { requireAuth: true }
+        )
     },
 
     /**
@@ -697,9 +708,19 @@ export const authApi = {
      */
     async getStatus(): Promise<{
         auth_disabled: boolean
+        providers: {
+            local: { enabled: boolean }
+            pam: { enabled: boolean }
+            google: { enabled: boolean; login_url: string }
+        }
     }> {
         return await apiRequest<{
             auth_disabled: boolean
+            providers: {
+                local: { enabled: boolean }
+                pam: { enabled: boolean }
+                google: { enabled: boolean; login_url: string }
+            }
         }>(`${API_BASE}/api/auth/status`, { requireAuth: false })
     }
 }

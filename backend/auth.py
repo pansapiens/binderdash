@@ -1,40 +1,19 @@
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
-import bcrypt
 from fastapi import Depends, HTTPException, Request, Response, status
 from jose import JWTError, jwt
 
-from .settings import SECRET_KEY, settings, LocalUser
-from .schemas import TokenData
-
+from .auth_providers.base import AuthUser
+from .settings import SECRET_KEY, settings
 
 logger = logging.getLogger(__name__)
-
 
 ALGORITHM = "HS256"
 COOKIE_NAME = "binderdash_session"
 CSRF_COOKIE_NAME = "binderdash_csrf"
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(
-        plain_password.encode("utf-8"), hashed_password.encode("utf-8")
-    )
-
-
-def get_password_hash(password: str) -> str:
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
-
-
-def authenticate_user(username: str, password: str) -> Optional[LocalUser]:
-    for user in settings.local_users:
-        if user.username == username and verify_password(password, user.password_hash):
-            return user
-    return None
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -91,7 +70,55 @@ def clear_csrf_cookie(response: Response):
     response.delete_cookie(key=CSRF_COOKIE_NAME, path="/", secure=False, samesite="lax")
 
 
-async def get_current_user(request: Request):
+def _claims_to_user(sub: str, provider: str, email: Optional[str]) -> AuthUser:
+    if provider == "local":
+        if not any(u.username == sub for u in settings.local_users):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return AuthUser(username=sub, provider="local", email=None)
+    if provider == "pam":
+        if not settings.pam_local_enabled or not settings.is_pam_user_allowed(sub):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return AuthUser(username=sub, provider="pam", email=None)
+    if provider == "google":
+        em = (email or sub or "").strip()
+        if not settings.google_auth_enabled or not settings.is_google_user_allowed(em):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return AuthUser(username=em, provider="google", email=em)
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _decode_user_from_payload(payload: dict[str, Any]) -> AuthUser:
+    sub = payload.get("sub")
+    if sub is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    provider = payload.get("provider") or "local"
+    email = payload.get("email")
+    if email is not None and not isinstance(email, str):
+        email = str(email)
+    return _claims_to_user(str(sub), str(provider), email)
+
+
+async def get_current_user(request: Request) -> AuthUser:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -104,25 +131,14 @@ async def get_current_user(request: Request):
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-        token_data = TokenData(username=username)
+        return _decode_user_from_payload(payload)
+    except HTTPException:
+        raise
     except JWTError:
         raise credentials_exception
 
-    user = None
-    for local_user in settings.local_users:
-        if local_user.username == token_data.username:
-            user = local_user
-            break
 
-    if user is None:
-        raise credentials_exception
-    return user
-
-
-async def get_current_active_user(current_user: LocalUser = Depends(get_current_user)):
+async def get_current_active_user(current_user: AuthUser = Depends(get_current_user)):
     return current_user
 
 
@@ -157,28 +173,8 @@ async def get_current_user_optional_with_query(
     if token:
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            username = payload.get("sub")
-            if username is None:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Authentication required",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-            token_data = TokenData(username=username)
-
-            user = None
-            for local_user in settings.local_users:
-                if local_user.username == token_data.username:
-                    user = local_user
-                    break
-            if user is None:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Authentication required",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-            return user
-        except JWTError:
+            return _decode_user_from_payload(payload)
+        except (JWTError, HTTPException):
             pass
 
     raise HTTPException(
@@ -186,3 +182,35 @@ async def get_current_user_optional_with_query(
         detail="Authentication required",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def record_login_audit(user: AuthUser) -> None:
+    try:
+        from .persistence.factory import get_designs_repository
+
+        repo = get_designs_repository()
+        ident = user.email if user.provider == "google" else user.username
+        repo.record_login(user.provider, ident, user.email)
+    except RuntimeError:
+        pass
+    except Exception:
+        logger.exception("record_login failed")
+
+
+def issue_session_cookies(response: Response, user: AuthUser) -> str:
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    token_data: dict[str, Any] = {
+        "sub": user.username,
+        "provider": user.provider,
+    }
+    if user.email:
+        token_data["email"] = user.email
+    access_token = create_access_token(
+        data=token_data,
+        expires_delta=access_token_expires,
+    )
+    set_auth_cookie(response, access_token, access_token_expires)
+    csrf = generate_csrf_token()
+    set_csrf_cookie(response, csrf)
+    record_login_audit(user)
+    return csrf

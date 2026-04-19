@@ -5,18 +5,17 @@ import { authApi, setCsrfToken } from '../webapi'
 
 interface AuthStatus {
     auth_disabled: boolean
+    providers: {
+        local: { enabled: boolean }
+        pam: { enabled: boolean }
+        google: { enabled: boolean; login_url: string }
+    }
 }
 
 interface User {
     username: string
-}
-
-interface LoginResponse {
-    message: string
-    user: {
-        username: string
-    }
-    csrf_token: string
+    provider?: string
+    email?: string | null
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -107,8 +106,14 @@ export const useAuthStore = defineStore('auth', () => {
             return status
         } catch (error) {
             console.error('Failed to check auth status:', error)
-            // Default to auth enabled (auth_disabled: false) so the login can be shown
-            const fallback = { auth_disabled: false }
+            const fallback: AuthStatus = {
+                auth_disabled: false,
+                providers: {
+                    local: { enabled: false },
+                    pam: { enabled: false },
+                    google: { enabled: false, login_url: '/api/auth/google/login' }
+                }
+            }
             setAuthStatus(fallback)
             return fallback
         }

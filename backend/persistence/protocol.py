@@ -106,6 +106,15 @@ class DesignsRepository(Protocol):
     ) -> None:
         ...
 
+    def record_login(
+        self,
+        provider: str,
+        identifier: str,
+        email: Optional[str] = None,
+    ) -> None:
+        """Upsert audit row for successful login (SQLite); noop when persistence disabled."""
+        ...
+
 
 def design_dedupe_key(design_id: str, source_path: Optional[str]) -> str:
     return f"{design_id}\x1f{source_path or ''}"

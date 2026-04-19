@@ -82,6 +82,23 @@
         </template>
 
         <Column selectionMode="multiple" headerStyle="width: 3rem"></Column>
+        <Column header="Ingested" headerStyle="width: 4rem" bodyStyle="text-align: center">
+          <template #body="{ data }">
+            <span v-if="ingestStatusFor(data) === 'pending'" class="ingest-pending" aria-label="Ingesting">
+              <i class="pi pi-spin pi-spinner"></i>
+            </span>
+            <i
+              v-else-if="ingestStatusFor(data) === 'success'"
+              class="pi pi-check ingest-ok"
+              aria-label="Ingested"
+            ></i>
+            <i
+              v-else-if="ingestStatusFor(data) === 'error'"
+              class="pi pi-times ingest-err"
+              aria-label="Ingest failed"
+            ></i>
+          </template>
+        </Column>
         <Column field="metadata.name" header="Name" sortable style="min-width: 150px">
           <template #body="{ data }">
             <div class="run-name">
@@ -192,7 +209,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import TreeTable from 'primevue/treetable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
@@ -204,6 +221,7 @@ import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import { useFolderStore } from '../stores'
 import type { Run } from '../types/store'
+import { runGroupKey } from '../utils/mergeRuns'
 import { runsApi } from '../webapi'
 import type { IngestPreviewReingestItem } from '../webapi'
 
@@ -217,6 +235,32 @@ const forceRescanOfIngested = ref(false)
 const ingesting = ref(false)
 const reingestDialogVisible = ref(false)
 const pendingReingest = ref<IngestPreviewReingestItem[]>([])
+
+type IngestRowStatus = 'idle' | 'pending' | 'success' | 'error'
+const ingestStatusByGroupKey = ref<Record<string, IngestRowStatus>>({})
+
+watch(
+  () => folderStore.scanning,
+  (v) => {
+    if (v) ingestStatusByGroupKey.value = {}
+  }
+)
+
+const ingestStatusFor = (row: Run): IngestRowStatus => {
+  return ingestStatusByGroupKey.value[runGroupKey(row)] ?? 'idle'
+}
+
+const patchScanRowFromIngest = (outRun: Run) => {
+  const gk = runGroupKey(outRun)
+  const idx = folderStore.scanResults.findIndex((r) => runGroupKey(r) === gk)
+  if (idx >= 0) {
+    folderStore.scanResults[idx] = outRun
+  }
+  const sidx = folderStore.selectedRuns.findIndex((r) => runGroupKey(r) === gk)
+  if (sidx >= 0) {
+    folderStore.selectedRuns[sidx] = outRun
+  }
+}
 
 // Local UI state (not shared across components)
 const filters = ref<any>(null)
@@ -367,7 +411,21 @@ const clearSelection = () => {
 const doIngest = async (rows: Run[]) => {
   ingesting.value = true
   try {
-    await runsApi.ingestRuns(rows as unknown as Record<string, unknown>[])
+    for (const row of rows) {
+      const gk = runGroupKey(row)
+      ingestStatusByGroupKey.value = { ...ingestStatusByGroupKey.value, [gk]: 'pending' }
+      try {
+        const res = await runsApi.ingestRuns([row as unknown as Record<string, unknown>])
+        const outRun = res.runs[0] as Run | undefined
+        if (outRun) {
+          patchScanRowFromIngest(outRun)
+        }
+        ingestStatusByGroupKey.value = { ...ingestStatusByGroupKey.value, [gk]: 'success' }
+      } catch (err) {
+        ingestStatusByGroupKey.value = { ...ingestStatusByGroupKey.value, [gk]: 'error' }
+        throw err
+      }
+    }
     toast.add({
       severity: 'success',
       summary: 'Ingest complete',
@@ -756,5 +814,17 @@ const findNodeByKey = (nodes: any[], targetKey: string): any => {
   border-color: #667eea;
 }
 
+.ingest-ok {
+  color: var(--p-green-500, #22c55e);
+  font-weight: 600;
+}
+
+.ingest-err {
+  color: var(--p-red-500, #ef4444);
+}
+
+.ingest-pending {
+  color: var(--p-text-muted-color, #6c757d);
+}
 
 </style>

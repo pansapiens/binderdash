@@ -28,8 +28,11 @@
 - Use `.env` (create from `.env.example`) and ensure `.env` is in `.gitignore`
 - Expected variables:
   - `RUN_BASE_DIRS="/data/runs,/data2/runs"` (comma-separated list of base directories)
-  - `ALLOWED_USERS="user1@example.com,user2@example.com"` (optional; Google OAuth allowlist)
-  - `LOCAL_USERS="user1:$2b$...,user2:$2b$..."` (optional dev fallback; bcrypt hashes)
+  - `DISABLE_AUTHENTICATION="true|false"`
+  - `LOCAL_USERS="user1:$2b$...,user2:$2b$..."` (optional; bcrypt hashes; enabled when non-empty)
+  - `PAM_LOCAL_ENABLED` / `PAM_LOCAL_ALLOWED_USERS` / `PAM_LOCAL_SERVICE` (optional; PAM after `LOCAL_USERS`; default service `common-auth`; Docker: either `LOCAL_USERS`, add users in the image, or optional bind-mounts of host `/etc/passwd` + `/etc/group` + `/etc/shadow` — commented in `docker-compose.yml`, security-sensitive)
+  - `GOOGLE_AUTH_ENABLED`, `GOOGLE_AUTH_CLIENT_ID`, `GOOGLE_AUTH_CLIENT_SECRET`, `GOOGLE_AUTH_REDIRECT_URI`, `GOOGLE_AUTH_ALLOWED_USERS` (optional; Google OAuth; emails case-insensitive)
+  - `SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `DATABASE`, `CORS_ALLOWED_ORIGINS` as needed
 - When adding new env vars, update `.env.example` accordingly
 - Do not delete `.env`, but ensure it is in `.gitignore`
 

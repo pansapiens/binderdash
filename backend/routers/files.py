@@ -18,7 +18,8 @@ from ..auth import (
 )
 from ..cache import get_run_metadata
 from ..path_policy import is_allowed_path
-from ..settings import LocalUser, settings
+from ..auth_providers.base import AuthUser
+from ..settings import settings
 from ..schemas import PdbTarRequest
 from ..util.input_targets import find_input_target_by_id
 from ..util.superpose import (
@@ -160,7 +161,7 @@ def _media_type_for_structure_path(structure_path: Path) -> str:
 async def get_pdb_file(
     run_id: str,
     filename: str,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional_with_query),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional_with_query),
     ):
     """Legacy endpoint for serving PDB files; kept for backwards compatibility."""
     try:
@@ -199,7 +200,7 @@ async def get_pdb_file(
 async def get_structure_file(
     run_id: str,
     filename: str,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional_with_query),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional_with_query),
 ):
     """Serve a structure file (PDB or mmCIF) for a run."""
     try:
@@ -243,7 +244,7 @@ async def get_aligned_reference_structure(
         None,
         description="Optional comma/space-separated reference chain IDs (limits TM-align and returned structure)",
     ),
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional_with_query),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional_with_query),
 ):
     """Return the reference structure superimposed onto the given design (TM-align, mmCIF)."""
     try:
@@ -342,7 +343,7 @@ def stream_tar_archive(file_entries: List[Tuple[str, Path]]):
 @pdbs_router.post("/tar")
 async def download_pdbs_tar(
     request: PdbTarRequest,
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         if not request.items:
@@ -390,7 +391,7 @@ tree_router = APIRouter(tags=["tree"])
 @tree_router.get("/api/tree")
 async def get_tree(
     path: str = "",
-    current_user: Optional[LocalUser] = Depends(get_current_user_optional),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     logging.getLogger(__name__).info(
         f"get_tree called with path: '{path}', run_base_dirs: {settings.run_base_dirs}"

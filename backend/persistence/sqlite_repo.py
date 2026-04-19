@@ -88,6 +88,15 @@ class SqliteDesignsRepository:
                 );
                 CREATE INDEX IF NOT EXISTS idx_designs_run_id
                     ON binderdash_designs(run_id);
+                CREATE TABLE IF NOT EXISTS binderdash_auth_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    provider TEXT NOT NULL,
+                    identifier TEXT NOT NULL,
+                    email TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    last_login_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    UNIQUE(provider, identifier)
+                );
                 CREATE TABLE IF NOT EXISTS binderdash_tag_metrics_cache (
                     run_id TEXT NOT NULL,
                     design_id TEXT NOT NULL,
@@ -345,6 +354,26 @@ class SqliteDesignsRepository:
             cur = conn.execute("DELETE FROM binderdash_runs WHERE run_id = ?", (run_id,))
             conn.commit()
             return cur.rowcount > 0
+
+    def record_login(
+        self,
+        provider: str,
+        identifier: str,
+        email: Optional[str] = None,
+    ) -> None:
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute(
+                """
+                INSERT INTO binderdash_auth_users (provider, identifier, email, last_login_at)
+                VALUES (?, ?, ?, datetime('now'))
+                ON CONFLICT(provider, identifier) DO UPDATE SET
+                    last_login_at = datetime('now'),
+                    email = COALESCE(excluded.email, binderdash_auth_users.email)
+                """,
+                (provider, identifier, email),
+            )
+            conn.commit()
 
     def get_tag_metrics_cache(
         self,

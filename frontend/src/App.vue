@@ -6,6 +6,7 @@ import Tab from 'primevue/tab'
 import TabPanels from 'primevue/tabpanels'
 import TabPanel from 'primevue/tabpanel'
 import Toast from 'primevue/toast'
+import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import RunsView from './components/DesignsView.vue'
 import PrepareSequencesView from './components/PrepareSequencesView.vue'
@@ -20,6 +21,7 @@ const designsStore = useDesignsStore()
 const plotsStore = usePlotsStore()
 const runsStore = useRunsStore()
 const authStore = useAuthStore()
+const toast = useToast()
 
 // Create refs to components so we can call their methods
 const runsViewRef = ref<any>(null)
@@ -55,6 +57,28 @@ onMounted(async () => {
   } finally {
     authInitialized.value = true
   }
+  const params = new URLSearchParams(window.location.search)
+  const authErr = params.get('auth_error')
+  if (authErr === 'not_allowed') {
+    toast.add({
+      severity: 'error',
+      summary: 'Sign-in denied',
+      detail: 'Your Google account is not on the allowed list.',
+      life: 8000
+    })
+  } else if (authErr === 'oauth_failed') {
+    toast.add({
+      severity: 'error',
+      summary: 'Google sign-in failed',
+      detail: 'Try again or use another sign-in method.',
+      life: 8000
+    })
+  }
+  if (authErr) {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('auth_error')
+    window.history.replaceState({}, document.title, url.pathname + url.search)
+  }
 })
 
 // Computed property to check if we should show loading state
@@ -65,7 +89,7 @@ const shouldShowLoading = computed(() => {
 </script>
 
 <template>
-  <div id="app">
+  <div class="binderdash-root">
     <!-- Show loading state while authentication is being initialized -->
     <div v-if="shouldShowLoading" class="loading-container">
       <div class="loading-content">
@@ -80,15 +104,20 @@ const shouldShowLoading = computed(() => {
     <!-- Show main app if authentication is disabled or user is authenticated -->
     <template v-else>
       <header class="app-header">
-        <!-- Show logout button if authenticated -->
-        <Button 
-          v-if="authStore.isAuthenticated"
-          label="Logout" 
-          severity="primary" 
-          size="small" 
-          @click="authStore.logout"
-          class="logout-button"
-        />
+        <div
+          v-if="authStore.isAuthEnabled && authStore.isAuthenticated"
+          class="app-header__actions"
+        >
+          <Button
+            type="button"
+            label="Logout"
+            icon="pi pi-sign-out"
+            severity="secondary"
+            size="small"
+            class="logout-button"
+            @click="authStore.logout"
+          />
+        </div>
         <div class="banner-overlay">
           <h1>Binderdash</h1>
           <p>De novo protein binder design results viewer</p>
@@ -165,7 +194,7 @@ const shouldShowLoading = computed(() => {
 </template>
 
 <style>
-#app {
+.binderdash-root {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   min-height: 100vh;
   background-color: #f8f9fa;
@@ -232,13 +261,36 @@ body {
   text-shadow: 0 1px 2px rgba(0,0,0,0.3);
 }
 
-.logout-button {
-  position: absolute !important;
-  top: 1rem;
+.app-header__actions {
+  position: absolute;
+  top: 0.75rem;
   right: 1rem;
-  z-index: 1000;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.logout-button {
   font-size: 0.8rem !important;
-  padding: 0.4rem 0.8rem !important;
+  padding: 0.45rem 0.85rem !important;
+  flex-shrink: 0;
+}
+
+/* Keep logout readable on the banner (global .p-component rules fight header) */
+.app-header .logout-button.p-button {
+  color: #fff !important;
+  background: rgba(0, 0, 0, 0.35) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+}
+
+.app-header .logout-button.p-button .p-button-icon {
+  color: #fff !important;
+}
+
+.app-header .logout-button.p-button:hover {
+  background: rgba(0, 0, 0, 0.5) !important;
+  border-color: rgba(255, 255, 255, 0.75) !important;
 }
 
 .loading-container {
