@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..auth import get_current_user_optional
 from ..cache import (
@@ -42,12 +42,24 @@ router = APIRouter(prefix="/api/designs", tags=["designs"])
 
 @router.get("")
 async def list_designs(
+    run_ids: Optional[str] = Query(
+        None,
+        description="Comma-separated run_id values to filter designs; omit for all designs.",
+    ),
     current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         if not designs_cache:
             refresh_designs_cache()
-        return {"designs": designs_cache}
+        if not run_ids or not run_ids.strip():
+            return {"designs": designs_cache}
+        allowed = {rid.strip() for rid in run_ids.split(",") if rid.strip()}
+        if not allowed:
+            return {"designs": designs_cache}
+        filtered = [
+            d for d in designs_cache if str(d.get("run_id")) in allowed
+        ]
+        return {"designs": filtered}
     except Exception as e:
         logger.error(f"Error in list_designs: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

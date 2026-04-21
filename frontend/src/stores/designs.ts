@@ -36,8 +36,30 @@ function designHasAnyScoreForRangeFilter(design: Design): boolean {
 export const useDesignsStore = defineStore('designs', () => {
     // State
     const designs = ref<Design[]>([])
+    /** Designs grouped by run_id (mirrors `designs` after each load/patch). */
+    const designsByRun = ref<Map<string, Design[]>>(new Map())
     const selectedDesigns = ref<Design[]>([])
     const selectedRunIds = ref<string[]>([]) // Track selected run IDs for filtering
+    /** Sorted join of run ids last successfully loaded into `designs`. */
+    const loadedRunIdsSignature = ref<string>('')
+    let fetchSeq = 0
+    let selectionDebounceTimer: ReturnType<typeof setTimeout> | null = null
+    const SELECTION_DEBOUNCE_MS = 200
+
+    function runIdsSignature(runIds: string[]): string {
+        return [...runIds].sort().join('|')
+    }
+
+    function rebuildDesignsByRun(rows: Design[]): void {
+        const m = new Map<string, Design[]>()
+        for (const d of rows) {
+            const rid = String(d.run_id)
+            const arr = m.get(rid) ?? []
+            arr.push(d)
+            m.set(rid, arr)
+        }
+        designsByRun.value = m
+    }
     const pendingSelectedDesignKeys = ref<Array<{ run_id: string; design_id: string }>>([])
     const pendingCurrentNavDesignId = ref<string | null>(null)
     const designsPersistenceHydrated = ref(false)
@@ -204,10 +226,13 @@ export const useDesignsStore = defineStore('designs', () => {
 
     const columnsForSelectedRuns = computed((): ColumnConfig[] => {
         if (selectedRunIds.value.length === 0) return []
-        const idSet = new Set(selectedRunIds.value)
-        const slice = designs.value.filter(d => idSet.has(d.run_id))
-        if (slice.length === 0) return []
-        return buildColumnsFromData(slice)
+        const parts: Design[] = []
+        for (const id of selectedRunIds.value) {
+            const rows = designsByRun.value.get(id)
+            if (rows?.length) parts.push(...rows)
+        }
+        if (parts.length === 0) return []
+        return buildColumnsFromData(parts)
     })
 
     watch(
@@ -435,7 +460,7 @@ export const useDesignsStore = defineStore('designs', () => {
         customFilters.value[idx] = { ...customFilters.value[idx], ...patch }
     }
 
-    // Getters
+    // Getters — `designs` holds only rows for the current selected runs after fetch
     const filteredDesigns = computed(() => {
         let filtered = designs.value
 
@@ -542,13 +567,11 @@ export const useDesignsStore = defineStore('designs', () => {
             )
         }
 
-        // Filter by selected run IDs - show only selected runs, or nothing if none selected
+        // Filter by selected run IDs (defensive; payload is usually already scoped)
         if (selectedRunIds.value.length > 0) {
-            filtered = filtered.filter(design =>
-                selectedRunIds.value.includes(design.run_id)
-            )
+            const idSet = new Set(selectedRunIds.value.map(String))
+            filtered = filtered.filter(design => idSet.has(String(design.run_id)))
         } else {
-            // If no runs are selected, show no designs
             filtered = []
         }
 
@@ -792,25 +815,37 @@ export const useDesignsStore = defineStore('designs', () => {
     })
 
     // Actions
-    const fetchDesigns = async () => {
+    const fetchDesignsForRuns = async (runIds: string[]) => {
+        const seq = ++fetchSeq
+        if (runIds.length === 0) {
+            designs.value = []
+            rebuildDesignsByRun([])
+            loadedRunIdsSignature.value = ''
+            selectedDesigns.value = []
+            currentNavDesignId.value = null
+            loading.value = false
+            return
+        }
+
         loading.value = true
         try {
             const hadDesigns = designs.value.length > 0
             const prevVisible = [...visibleColumns.value]
-            const data = await designsApi.listDesigns()
-            designs.value = data.designs
+            const data = await designsApi.listDesigns(runIds)
+            if (seq !== fetchSeq) return
 
-            // Build columns dynamically from the loaded data
+            designs.value = data.designs
+            rebuildDesignsByRun(data.designs)
+            loadedRunIdsSignature.value = runIdsSignature(runIds)
+
             columns.value = buildColumnsFromData(data.designs)
 
-            // Update default visible columns to include score columns if they exist
             const newDefaultColumns = ['design_id', 'project_id', 'run_name', 'method']
 
             if (data.designs.some(d => Object.prototype.hasOwnProperty.call(d, 'good'))) {
                 newDefaultColumns.push('good')
             }
 
-            // Add Length column if it exists in the data
             if (data.designs.some(d => 'Length' in d && d['Length'] != null)) {
                 newDefaultColumns.push('Length')
             }
@@ -822,9 +857,6 @@ export const useDesignsStore = defineStore('designs', () => {
                 }
             })
 
-            // Note: target_sequence column is available but not shown by default
-            // Users can toggle it on via the column selector if needed
-
             if (!hadDesigns) {
                 visibleColumns.value = newDefaultColumns
             } else {
@@ -832,13 +864,11 @@ export const useDesignsStore = defineStore('designs', () => {
                 visibleColumns.value = prevVisible.filter(f => fieldSet.has(f))
             }
 
-            // Restore persisted row/view state once we have live design objects.
             if (pendingSelectedDesignKeys.value.length > 0) {
                 const keySet = new Set(pendingSelectedDesignKeys.value.map((k) => `${k.run_id}::${k.design_id}`))
                 selectedDesigns.value = designs.value.filter((d) => keySet.has(`${d.run_id}::${d.design_id}`))
                 pendingSelectedDesignKeys.value = []
             } else {
-                // Keep selection object identity in sync after refresh.
                 const keySet = new Set(selectedDesigns.value.map((d) => `${d.run_id}::${d.design_id}`))
                 selectedDesigns.value = designs.value.filter((d) => keySet.has(`${d.run_id}::${d.design_id}`))
             }
@@ -855,8 +885,30 @@ export const useDesignsStore = defineStore('designs', () => {
             console.error('Error loading designs:', err)
             throw err
         } finally {
-            loading.value = false
+            if (seq === fetchSeq) {
+                loading.value = false
+            }
         }
+    }
+
+    /** Refresh designs for the current `selectedRunIds` (e.g. after cache refresh). */
+    const fetchDesigns = async () => {
+        await fetchDesignsForRuns(selectedRunIds.value)
+    }
+
+    const flushSelectedRunIds = async (): Promise<void> => {
+        if (selectionDebounceTimer) {
+            clearTimeout(selectionDebounceTimer)
+            selectionDebounceTimer = null
+        }
+        await fetchDesignsForRuns(selectedRunIds.value)
+    }
+
+    const ensureDesignsForCurrentSelection = async (): Promise<void> => {
+        if (selectedRunIds.value.length === 0) return
+        const sig = runIdsSignature(selectedRunIds.value)
+        if (sig === loadedRunIdsSignature.value && designs.value.length > 0) return
+        await fetchDesignsForRuns(selectedRunIds.value)
     }
 
     const setFilters = (newFilters: Partial<FilterState>) => {
@@ -914,6 +966,8 @@ export const useDesignsStore = defineStore('designs', () => {
         try {
             await designsApi.clearDesigns()
             designs.value = []
+            rebuildDesignsByRun([])
+            loadedRunIdsSignature.value = ''
             selectedDesigns.value = []
             currentNavDesignId.value = null
         } catch (err) {
@@ -924,10 +978,24 @@ export const useDesignsStore = defineStore('designs', () => {
 
     const setSelectedRunIds = (runIds: string[]) => {
         selectedRunIds.value = runIds
-        // Clear any selected designs that are no longer in the filtered list
         selectedDesigns.value = selectedDesigns.value.filter(design =>
             runIds.length === 0 || runIds.includes(design.run_id)
         )
+
+        if (selectionDebounceTimer) {
+            clearTimeout(selectionDebounceTimer)
+            selectionDebounceTimer = null
+        }
+
+        if (runIds.length === 0) {
+            void fetchDesignsForRuns([])
+            return
+        }
+
+        selectionDebounceTimer = setTimeout(() => {
+            selectionDebounceTimer = null
+            void fetchDesignsForRuns(runIds)
+        }, SELECTION_DEBOUNCE_MS)
     }
 
     const viewDesign = (design: Design) => {
@@ -962,6 +1030,7 @@ export const useDesignsStore = defineStore('designs', () => {
             return { ...d, good }
         }
         designs.value = designs.value.map(sync)
+        rebuildDesignsByRun(designs.value)
         selectedDesigns.value = selectedDesigns.value.map(sync)
 
         if (!columns.value.some(c => c.field === 'good')) {
@@ -1043,6 +1112,7 @@ export const useDesignsStore = defineStore('designs', () => {
             return { ...d, tag }
         }
         designs.value = designs.value.map(sync)
+        rebuildDesignsByRun(designs.value)
         selectedDesigns.value = selectedDesigns.value.map(sync)
         ensureTagColumnVisible()
     }
@@ -1066,6 +1136,7 @@ export const useDesignsStore = defineStore('designs', () => {
             return { ...d, tag: row.tag }
         }
         designs.value = designs.value.map(sync)
+        rebuildDesignsByRun(designs.value)
         selectedDesigns.value = selectedDesigns.value.map(sync)
         ensureTagColumnVisible()
     }
@@ -1088,6 +1159,7 @@ export const useDesignsStore = defineStore('designs', () => {
     return {
         // State
         designs,
+        designsByRun,
         selectedDesigns,
         selectedRunIds,
         filters,
@@ -1115,6 +1187,9 @@ export const useDesignsStore = defineStore('designs', () => {
 
         // Actions
         fetchDesigns,
+        fetchDesignsForRuns,
+        flushSelectedRunIds,
+        ensureDesignsForCurrentSelection,
         setFilters,
         clearFilters,
         addCustomFilter,

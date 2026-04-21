@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **API / Designs**: `GET /api/designs` accepts optional `run_ids` (comma-separated) to return only designs for those runs; omit for all designs (unchanged).
+- **Designs / Select Runs**: The client loads designs only for the selected runs (`run_ids` query), debounces selection changes, indexes by `run_id` for column metadata, removes forced DataTable remounts, and loads scoped data when the **Designs** or **Plots** tab is active (with deduplication when selection is unchanged). Ingest completion refreshes runs and reloads designs only for the current selection.
 - **Backend**: Pipeline/method/score config lives under `backend/config/` (signatures consumed by `run_discovery`/`cache`; IDs, path heuristics, params keys, basename rules in `method_paths.py`).
 - **Frontend**: `frontend/src/config/pipelineDisplay.ts` centralises method tags, score columns, colours, structure helpers, and Select Runs chips; pipeline **Tag**s use theme palette CSS vars instead of `severity`.
 - **Docs**: MkDocs skeleton (`mkdocs.yml`, `docs/index.md`, `requirements-docs.txt`); `site/` gitignored.

@@ -29,17 +29,27 @@ const plotsViewRef = ref<any>(null)
 
 const onIngestComplete = async (): Promise<void> => {
   await runsStore.fetchRuns()
-  await designsStore.fetchDesigns()
+  if (designsStore.selectedRunIds.length > 0) {
+    await designsStore.fetchDesignsForRuns(designsStore.selectedRunIds)
+  }
 }
 
 const mainTab = ref<string>('designs')
 
-watch(mainTab, async (v) => {
-  if (v === 'plots') {
-    await nextTick()
-    await plotsViewRef.value?.loadRunData?.()
-  }
-})
+watch(
+  () => [mainTab.value, authStore.canLoadData] as const,
+  async ([tab, canLoad]) => {
+    if (!canLoad) return
+    if (tab === 'designs' || tab === 'plots') {
+      await designsStore.ensureDesignsForCurrentSelection()
+    }
+    if (tab === 'plots') {
+      await nextTick()
+      await plotsViewRef.value?.loadRunData?.()
+    }
+  },
+  { immediate: true }
+)
 
 const tabNavGroupSecondaryPt = {
   root: { class: 'tab-nav-group-secondary' }

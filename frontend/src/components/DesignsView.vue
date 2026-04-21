@@ -269,7 +269,6 @@
 
         <div class="designs-table-section">
           <DataTable 
-          :key="`designs-table-${designsStore.selectedRunIds.length}-${designsStore.filteredDesigns.length}`"
           :value="designsStore.filteredDesigns" 
           :loading="designsStore.loading"
           v-model:sortField="designsStore.tableSortField"
@@ -1920,14 +1919,13 @@ const lengthRangeValue = computed({
 // Methods
 
 const loadDesigns = async () => {
-  // Only load designs if authentication allows it
   if (!authStore.canLoadData) {
     console.log('Authentication required - skipping designs load')
     return
   }
 
   try {
-    await designsStore.fetchDesigns()
+    await designsStore.ensureDesignsForCurrentSelection()
   } catch (error: any) {
     console.error('Error loading designs:', error)
     // Don't show toast for authentication errors - user will be redirected to login
@@ -2741,11 +2739,7 @@ const getVisibleColumns = () => {
 
 
 // Watchers
-watch(() => authStore.canLoadData, (canLoad) => {
-  if (canLoad && designsStore.designs.length === 0) {
-    loadDesigns()
-  }
-}, { immediate: true })
+// Designs load is triggered from App.vue (tab + auth) and run selection in the store.
 
 // Sync spinning state when viewer changes
 watch(() => molstarViewerRef.value?.isSpinning, (newSpinningState) => {
@@ -2900,9 +2894,6 @@ onMounted(() => {
   void loadGlobalAdvRef()
   void loadViewerControlsPos()
   window.addEventListener('resize', onViewerControlsResize)
-  if (authStore.canLoadData) {
-    loadDesigns()
-  }
 })
 
 onUnmounted(() => {

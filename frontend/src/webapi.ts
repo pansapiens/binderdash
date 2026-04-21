@@ -441,8 +441,14 @@ export const designsApi = {
      * List all designs from all cached runs
      * @returns Promise with all designs
      */
-    async listDesigns(): Promise<DesignsResponse> {
-        return await apiRequest<DesignsResponse>(`${API_BASE}/api/designs`, { requireAuth: true })
+    async listDesigns(runIds?: string[]): Promise<DesignsResponse> {
+        const qs =
+            runIds && runIds.length > 0
+                ? `?run_ids=${encodeURIComponent(runIds.join(','))}`
+                : ''
+        return await apiRequest<DesignsResponse>(`${API_BASE}/api/designs${qs}`, {
+            requireAuth: true
+        })
     },
 
     /**
