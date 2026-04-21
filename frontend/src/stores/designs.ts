@@ -472,14 +472,21 @@ export const useDesignsStore = defineStore('designs', () => {
 
     const ensureAllMatching = async (): Promise<Design[]> => {
         if (selectedRunIds.value.length === 0) return []
-        if (allMatching.value && totalRows.value <= pageSize.value && pageIndex.value === 0) {
+        if (totalRows.value === 0) {
+            return allMatching.value ?? []
+        }
+        // Full list already in memory — no GET /api/designs (e.g. Mol* toolbar next/prev).
+        if (
+            allMatching.value != null &&
+            allMatching.value.length === totalRows.value
+        ) {
             return allMatching.value
         }
         allMatchingLoading.value = true
         try {
             const data = await designsApi.listDesigns(buildListQuery())
             allMatching.value = data.designs
-            return allMatching.value
+            return allMatching.value ?? []
         } finally {
             allMatchingLoading.value = false
         }

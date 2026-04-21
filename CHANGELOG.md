@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fixed (Designs)**: Structure navigation (Mol* toolbar prev/next) no longer issues a full `GET /api/designs` on every step when the full matching list is already loaded (e.g. multi-page tables after the background sync).
 - **API / Designs**: `GET /api/designs` supports optional `run_ids`, `page`/`page_size`, `sort_field`/`sort_order` (`-1`/`0`/`1`), `global`, `global_score_fields`, JSON `filters` (column filters), `custom_filters`, JSON `range`, and `best_mpnn_only`. Responses include `designs`, `total`, and `page`/`page_size` (null when unpaged). **`GET /api/designs/columns?run_ids=…`** returns table column metadata for the union of those runs. Filtering/sorting/pagination run server-side over the designs cache.
 - **Designs**: The main DataTable is **lazy** (server-paged); exports, structure navigation, plots, and length-range hints use a full matching fetch when needed.
 - **Designs / Select Runs**: The client loads designs only for the selected runs (`run_ids` query), debounces selection changes, indexes by `run_id` for column metadata, removes forced DataTable remounts, and loads scoped data when the **Designs** or **Plots** tab is active (with deduplication when selection is unchanged). Ingest completion refreshes runs and reloads designs only for the current selection.
 - **Backend**: Pipeline/method/score config lives under `backend/config/` (signatures consumed by `run_discovery`/`cache`; IDs, path heuristics, params keys, basename rules in `method_paths.py`).
 - **Frontend**: `frontend/src/config/pipelineDisplay.ts` centralises method tags, score columns, colours, structure helpers, and Select Runs chips; pipeline **Tag**s use theme palette CSS vars instead of `severity`.
+- **Docs**: Development page on adding pipeline method types (`docs/development/pipeline-methods.md`) with pointers to `run_signatures`, `method_paths`, `run_discovery`, and `pipelineDisplay.ts`.
 - **Docs**: MkDocs skeleton (`mkdocs.yml`, `docs/index.md`, `requirements-docs.txt`); `site/` gitignored.
 - **Runs / ingest**: `trajectory_count` from params or CSV line counts; ingest stores `primary_score_stats`; UI shows Accepted/total and Select Runs primary-score stats; merged runs sum `trajectory_count`.
 - **Ingest Runs**: Scan calls **`POST /api/runs/scan` once per selected folder** (results merge client-side as on the server). Ingest calls **`POST /api/runs/ingest` once per selected run** (sequential). Scan/ingest handlers run heavy work in a **thread pool** via **`asyncio.to_thread`** so the API event loop stays responsive. The scan results table adds an **Ingested** column (green check when that run’s ingest succeeded).
