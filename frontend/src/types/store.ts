@@ -3,6 +3,16 @@
  */
 
 // Base types from webapi.ts
+export interface PrimaryScoreStats {
+    column: string;
+    count: number;
+    min: number;
+    max: number;
+    mean: number;
+    median: number;
+    stddev: number;
+}
+
 export interface Run {
     run_id: string;
     project_id: string;
@@ -11,7 +21,11 @@ export interface Run {
     metadata: {
         name: string;
         pdb_count: number;
+        trajectory_count?: number;
+        primary_score_stats?: PrimaryScoreStats;
         results_file: string;
+        merged_count?: number;
+        total_pdb_count?: number;
     };
 }
 

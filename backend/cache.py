@@ -2,7 +2,8 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from .run_discovery import parse_designs_from_run, run_folder_signatures
+from .config.run_signatures import run_folder_signatures
+from .run_discovery import parse_designs_from_run
 from .util.profiling import Timer
 
 

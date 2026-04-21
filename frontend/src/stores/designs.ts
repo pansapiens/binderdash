@@ -10,20 +10,19 @@ import { designsApi } from '../webapi'
 import { PERSISTENCE_KEYS } from '../persistence/keys'
 import { kvGet, kvSet } from '../persistence/store'
 import type { Design, FilterState, ColumnConfig, StructureInfo, CustomFilter } from '../types/store'
+import {
+    scoreFieldsForRangeFilter,
+    scoreFieldsForGlobalFilter,
+    scoreColumnConfigsForTable,
+    DESIGN_BUILD_COLUMN_STATIC_KEYS,
+    METHOD_BEST_SCORE,
+    getStructureFilenameFromDesign,
+    designHasStructureFile,
+    defaultVisibleScoreColumnFields,
+} from '../config/pipelineDisplay'
 
-/** Fields used by score min/max filters in `filteredDesigns`. */
-const SCORE_RANGE_FILTER_FIELDS = [
-    'pae_interaction',
-    'Average_i_pTM',
-    'design_to_target_iptm',
-    'quality_score',
-    'i_pTM',
-    'ipTM',
-    'iptm',
-    'pair_pae',
-    'rf3_ipsae_min',
-    'rf3_rmsd_target_aligned_binder_rmsd_all'
-] as const
+const SCORE_RANGE_FILTER_FIELDS = scoreFieldsForRangeFilter() as readonly string[]
+const GLOBAL_FILTER_SCORE_FIELDS = new Set(scoreFieldsForGlobalFilter())
 
 function designHasAnyScoreForRangeFilter(design: Design): boolean {
     const d = design as Record<string, unknown>
@@ -129,22 +128,7 @@ export const useDesignsStore = defineStore('designs', () => {
         }
 
         const scoreColumns: ColumnConfig[] = []
-        const knownScoreFields = [
-            { field: 'pae_interaction', header: 'PAE Interaction' },
-            { field: 'Average_i_pTM', header: 'Average i_pTM' },
-            { field: 'design_to_target_iptm', header: 'Design→Target ipTM' },
-            { field: 'quality_score', header: 'Quality Score' },
-            { field: 'pLDDT', header: 'pLDDT' },
-            { field: 'i_pTM', header: 'i_pTM' },
-            { field: 'ipTM', header: 'ipTM' },
-            { field: 'iptm', header: 'ipTM' },
-            { field: 'pair_pae', header: 'Pair PAE' },
-            { field: 'rf3_ipsae_min', header: 'RF3 ipSAE Min' },
-            {
-                field: 'rf3_rmsd_target_aligned_binder_rmsd_all',
-                header: 'RF3 RMSD (Target-aligned Binder)'
-            }
-        ]
+        const knownScoreFields = scoreColumnConfigsForTable()
 
         knownScoreFields.forEach(scoreField => {
             if (designs.some(d => scoreField.field in d && d[scoreField.field] != null)) {
@@ -166,12 +150,7 @@ export const useDesignsStore = defineStore('designs', () => {
             { field: 'run_path', header: 'Run Path', sortable: false, filter: false, style: 'min-width: 200px' }
         ]
 
-        const existingFields = new Set([
-            'design_id', 'project_id', 'run_name', 'method', 'good', 'tag',
-            'pae_interaction', 'Average_i_pTM', 'design_to_target_iptm', 'quality_score',
-            'pLDDT', 'i_pTM', 'ipTM',
-            'pdb_file', 'run_path', 'run_id', 'target_sequence'
-        ])
+        const existingFields = DESIGN_BUILD_COLUMN_STATIC_KEYS
 
         const dynamicKeys = new Set<string>()
         for (const design of designs) {
@@ -606,17 +585,9 @@ export const useDesignsStore = defineStore('designs', () => {
         return pdbFile.split('/').pop() || ''
     }
 
-    const getStructureFilename = (design: Design): string => {
-        const fromPdb = extractFilename(design.pdb_file)
-        if (fromPdb) return fromPdb
-        if ((design as any).method === 'boltzgen' && (design as any).file_name != null && (design as any).file_name !== '') {
-            return String((design as any).file_name).trim()
-        }
-        return ''
-    }
+    const getStructureFilename = (design: Design): string => getStructureFilenameFromDesign(design)
 
-    const hasStructureFile = (d: Design): boolean =>
-        !!(d.pdb_file || ((d as any).method === 'boltzgen' && (d as any).file_name))
+    const hasStructureFile = (d: Design): boolean => designHasStructureFile(d)
 
     const totalDesigns = computed(() => designs.value.length)
 
@@ -625,31 +596,12 @@ export const useDesignsStore = defineStore('designs', () => {
         if (designs.length === 0) return designs[0]
         if (designs.length === 1) return designs[0]
 
-        // Define primary and secondary scores for each method
-        const scoreConfig = {
-            bindcraft: {
-                primary: 'Average_i_pTM',
-                secondary: ['Average_Binder_pLDDT'],
-                higherIsBetter: true
-            },
-            rfd: {
-                primary: 'pae_interaction',
-                secondary: ['plddt_binder'],
-                higherIsBetter: false
-            },
-            rfd3: {
-                primary: 'iptm',
-                secondary: ['rf3_ipsae_min'],
-                higherIsBetter: true
-            }
-        }
-
         let bestDesign = designs[0]
         let bestScore: number | null = null
 
         for (const design of designs) {
             const method = (design as any).method || ''
-            const config = scoreConfig[method as keyof typeof scoreConfig]
+            const config = METHOD_BEST_SCORE[method]
 
             if (!config) {
                 // Unknown method, keep the first design
@@ -769,9 +721,7 @@ export const useDesignsStore = defineStore('designs', () => {
         const baseFields = ['design_id', 'project_id', 'run_name', 'method', 'Length']
 
         // Add score columns that are currently visible
-        const scoreFields = visibleColumns.value.filter((col: string) =>
-            ['pae_interaction', 'Average_i_pTM', 'i_pTM', 'ipTM', 'plddt_binder', 'Average_Binder_pLDDT'].includes(col)
-        )
+        const scoreFields = visibleColumns.value.filter((col: string) => GLOBAL_FILTER_SCORE_FIELDS.has(col))
 
         return [...baseFields, ...scoreFields]
     }
@@ -865,19 +815,7 @@ export const useDesignsStore = defineStore('designs', () => {
                 newDefaultColumns.push('Length')
             }
 
-            // Dynamically add score columns that exist in the data
-            const scoreColumns = [
-                'pae_interaction',
-                'Average_i_pTM',
-                'design_to_target_iptm',
-                'quality_score',
-                'i_pTM',
-                'ipTM',
-                'iptm',
-                'pair_pae',
-                'rf3_ipsae_min',
-                'rf3_rmsd_target_aligned_binder_rmsd_all'
-            ]
+            const scoreColumns = defaultVisibleScoreColumnFields()
             scoreColumns.forEach(scoreCol => {
                 if (data.designs.some(d => scoreCol in d && d[scoreCol] != null)) {
                     newDefaultColumns.push(scoreCol)

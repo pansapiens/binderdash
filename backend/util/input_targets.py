@@ -7,41 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+from ..config.method_paths import STRUCTURE_PARAM_KEYS_BY_METHOD
 from ..run_discovery import parse_run_params
 
 _STRUCTURE_EXT_RE = re.compile(
     r".+\.(?:pdb|cif)(?:\.gz)?$", re.IGNORECASE
 )
-
-# Keys often used in binder-design pipelines (extend as real params are confirmed).
-_METHOD_STRUCTURE_KEYS: Dict[str, Tuple[str, ...]] = {
-    "bindcraft": (
-        "target_pdb",
-        "starting_pdb",
-        "input_pdb",
-        "pdb_path",
-        "target_path",
-        "binder_target",
-        "structure",
-    ),
-    "rfd": (
-        "target_pdb",
-        "input_pdb",
-        "pdb_path",
-        "starting_pdb",
-    ),
-    "boltzgen": (
-        "target_pdb",
-        "input_pdb",
-        "pdb_path",
-        "structure",
-    ),
-    "rfd3": (
-        "target_pdb",
-        "input_pdb",
-        "pdb_path",
-    ),
-}
 
 
 @dataclass(frozen=True)
@@ -147,7 +118,7 @@ def list_input_targets(run_metadata: Dict[str, Any]) -> List[InputTargetInfo]:
     method = (run_metadata.get("method") or "").lower()
 
     pairs: List[Tuple[str, str]] = []
-    keys = set(_METHOD_STRUCTURE_KEYS.get(method, ()))
+    keys = set(STRUCTURE_PARAM_KEYS_BY_METHOD.get(method, ()))
     keyed: List[Tuple[str, str]] = []
     if params is not None and keys:
         _collect_keyed_strings(params, keys, keyed)

@@ -17,6 +17,7 @@ from ..auth import (
     get_current_user_optional_with_query,
 )
 from ..cache import get_run_metadata
+from ..config.method_paths import structure_resolve_uses_strip_after_first_underscore
 from ..path_policy import is_allowed_path
 from ..auth_providers.base import AuthUser
 from ..settings import settings
@@ -127,7 +128,7 @@ def _resolve_structure_path(
     basename_to_path: dict[str, Path] = {Path(p).name: Path(p) for p in structure_files}
     if filename in basename_to_path:
         return basename_to_path[filename]
-    if method == "boltzgen":
+    if structure_resolve_uses_strip_after_first_underscore(method):
         for p in structure_files:
             name = Path(p).name
             if "_" in name:

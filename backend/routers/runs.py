@@ -13,7 +13,13 @@ from ..cache import get_run_metadata, refresh_designs_cache, run_cache
 from ..path_policy import is_allowed_path
 from ..persistence import run_group_key
 from ..persistence.factory import get_designs_repository
-from ..run_discovery import find_runs_recursive, load_run_table, parse_designs_from_run
+from ..run_discovery import (
+    compute_primary_score_stats,
+    find_runs_recursive,
+    load_run_table,
+    parse_designs_from_run,
+    resolve_trajectory_count,
+)
 from ..schemas import (
     IngestPreviewRequest,
     IngestRequest,
@@ -132,6 +138,17 @@ def _ingest_runs_sync(body: IngestRequest) -> Dict[str, Any]:
             run_id = str(existing["run_id"]) if existing else str(uuid.uuid4())
             run["run_id"] = run_id
             designs = parse_designs_from_run(run)
+            sig = run.get("signature") or {}
+            df_table = load_run_table(run)
+            stats = compute_primary_score_stats(df_table, sig)
+            md = run.setdefault("metadata", {})
+            if stats:
+                md["primary_score_stats"] = stats
+            rp = Path(str(run.get("path", "")))
+            if rp.is_dir():
+                tc = resolve_trajectory_count(rp, sig)
+                if tc is not None:
+                    md["trajectory_count"] = tc
             repo.upsert_run_and_replace_designs(gk, run_id, run, designs)
             run_cache[run_id] = run
             out.append(run)
@@ -158,6 +175,20 @@ async def ingest_runs(
     return await asyncio.to_thread(_ingest_runs_sync, body)
 
 
+def _metadata_trajectory_int(md: Optional[Dict[str, Any]]) -> Optional[int]:
+    """Prefer ``trajectory_count``; fall back to legacy ``attempt_count`` in stored run_json."""
+    if not md:
+        return None
+    for key in ("trajectory_count", "attempt_count"):
+        v = md.get(key)
+        if v is not None:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
 def merge_runs(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     merged_runs: Dict[str, Dict[str, Any]] = {}
     for run in runs:
@@ -174,6 +205,12 @@ def merge_runs(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             existing["merged_pdb_files"].extend(run.get("pdb_files", []))
             existing["metadata"]["merged_count"] = len(existing["merged_paths"])
             existing["metadata"]["total_pdb_count"] = len(existing["merged_pdb_files"])
+            a = _metadata_trajectory_int(existing.get("metadata"))
+            b = _metadata_trajectory_int(run.get("metadata"))
+            if a is not None or b is not None:
+                ai = a if a is not None else 0
+                bi = b if b is not None else 0
+                existing["metadata"]["trajectory_count"] = ai + bi
     result: List[Dict[str, Any]] = []
     for run in merged_runs.values():
         run.pop("merged_pdb_files", None)

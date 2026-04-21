@@ -534,7 +534,7 @@
             <div class="details-section">
               <div class="details-section-title">Scores</div>
               <div class="details-grid">
-                <template v-for="scoreField in displayScores" :key="scoreField">
+                <template v-for="scoreField in STRUCTURE_CARD_SCORE_ORDER" :key="scoreField">
                   <div
                     v-if="hasValidValue(getScoreValue(designsStore.currentStructure.design, scoreField)) || designsStore.isFieldReferencedByCustomFilter(scoreField)"
                     class="detail-item"
@@ -543,7 +543,7 @@
                     <div
                       v-show="!isStructureCardContentHidden(scoreField)"
                       class="score-bar"
-                      :style="{ backgroundColor: scoreColor(scoreField, getScoreValue(designsStore.currentStructure.design, scoreField)) }"
+                      :style="{ backgroundColor: scoreFieldColor(scoreField, getScoreValue(designsStore.currentStructure.design, scoreField)) }"
                     ></div>
                     <div class="detail-label-row">
                       <i
@@ -1145,6 +1145,12 @@ import { useDesignsStore, useAppStore, useAuthStore } from '../stores'
 import type { CustomFilter, Design } from '../types/store'
 import { PERSISTENCE_KEYS, tagPlacementKey, advRefKey } from '../persistence/keys'
 import { kvGet, kvSet, kvRemove } from '../persistence/store'
+import {
+    PIPELINE_METHOD_IDS,
+    STRUCTURE_CARD_SCORE_ORDER,
+    niceNameForScoreField,
+    scoreFieldColor,
+} from '../config/pipelineDisplay'
 
 const toast = useToast()
 
@@ -1886,37 +1892,13 @@ const exportMenuItems = ref([
 const showParamsDialog = ref(false)
 const currentParamsJson = ref<string>('')
 
-// Filter options
-const methodOptions = ref(['bindcraft', 'rfd', 'boltzgen', 'rfd3'])
+// Filter options (pipeline methods)
+const methodOptions = ref<string[]>([...PIPELINE_METHOD_IDS])
 
 // Length filter state
 const lengthRange = ref([0, 300]) // Default range, will be updated based on data
 const lengthMin = ref(0)
 const lengthMax = ref(300)
-
-// Primary scores to display in structure details
-const primaryScores = ref(['Average_i_pTM', 'design_to_target_iptm', 'pae_interaction'])
-const secondaryScores = ref(['Average_Binder_pLDDT', 'plddt_binder'])
-// const binderRMSD = ref(['Average_Binder_RMSD', 'binder_aligned_rmsd'])
-
-// Human-readable field name mapping
-const niceFieldNames: Record<string, string> = {
-  'Average_i_pTM': 'Average i-pTM',
-  'design_to_target_iptm': 'Design→Target ipTM',
-  'pae_interaction': 'PAE Interaction',
-  'Average_Binder_RMSD': 'Average Binder RMSD',
-  'Average_Target_RMSD': 'Average Target RMSD',
-  'Average_Binder_pLDDT': 'Average Binder pLDDT',
-  'plddt_binder': 'Binder pLDDT',
-  'binder_aligned_rmsd': 'Binder Aligned RMSD',
-  'interaction_pae': 'Interaction PAE',
-  'min_interation_pae': 'Min interaction PAE',
-  'design_ipsae_min': 'Design ipSAE min',
-  iptm: 'ipTM',
-  pair_pae: 'Pair PAE',
-  rf3_ipsae_min: 'RF3 ipSAE Min',
-  rf3_rmsd_target_aligned_binder_rmsd_all: 'RF3 RMSD (Target-aligned Binder)'
-}
 
 // Computed properties using store
 const isColumnVisible = (field: string): boolean => {
@@ -2642,110 +2624,13 @@ const formatScore = (value: any): string => {
   return num.toFixed(3)
 }
 
-const formatScoreHeader = (fieldName: string): string => {
-  // Convert field names to user-friendly headers
-  return niceFieldNames[fieldName] || fieldName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-}
-
-// Display scores list (order as requested plus existing primary)
-const displayScores = ref([
-  'Average_i_pTM',
-  'design_to_target_iptm',
-  'design_ipsae_min',
-  'interaction_pae',
-  'min_interation_pae',
-  'Average_Binder_RMSD',
-  'Average_Target_RMSD',
-  'Average_Binder_pLDDT',
-  'pae_interaction',
-  'plddt_binder',
-  'binder_aligned_rmsd',
-  'iptm',
-  'pair_pae',
-  'rf3_ipsae_min',
-  'rf3_rmsd_target_aligned_binder_rmsd_all'
-])
+const formatScoreHeader = (fieldName: string): string => niceNameForScoreField(fieldName)
 
 const getLengthValue = (design: any): string | number => {
   const len = design?.Length ?? design?.length
   return (len != null && !isNaN(Number(len))) ? Number(len) : ''
 }
 
-
-// Score colour utilities
-const clamp01 = (x: number) => Math.max(0, Math.min(1, x))
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t
-const colorFromT = (t: number): string => {
-  // t in [0,1], map 0=red (#e74c3c), 0.5=amber (#f1c40f), 1=green (#2ecc71)
-  const r1 = 231, g1 = 76, b1 = 60
-  const r2 = 241, g2 = 196, b2 = 15
-  const r3 = 46, g3 = 204, b3 = 113
-  if (t <= 0.5) {
-    const k = t / 0.5
-    const r = Math.round(lerp(r1, r2, k))
-    const g = Math.round(lerp(g1, g2, k))
-    const b = Math.round(lerp(b1, b2, k))
-    return `rgb(${r}, ${g}, ${b})`
-  } else {
-    const k = (t - 0.5) / 0.5
-    const r = Math.round(lerp(r2, r3, k))
-    const g = Math.round(lerp(g2, g3, k))
-    const b = Math.round(lerp(b2, b3, k))
-    return `rgb(${r}, ${g}, ${b})`
-  }
-}
-
-/** PAE (Å): ≤10 green, 10–15 orange, >15 red (lower is better). */
-const paeBandColor = (v: number): string => {
-  if (v <= 10) return colorFromT(1)
-  if (v <= 15) return 'rgb(241, 196, 15)'
-  return colorFromT(0)
-}
-
-/** Min interaction PAE (Å): ≤5 green, >5–≤7 orange, >7 red. */
-const minInteractionPaeBandColor = (v: number): string => {
-  if (v <= 5) return colorFromT(1)
-  if (v <= 7) return 'rgb(241, 196, 15)'
-  return colorFromT(0)
-}
-
-const scoreColor = (field: string, raw: any): string => {
-  const v = Number(raw)
-  if (!isFinite(v)) return '#dfe6e9'
-
-  if (field === 'min_interation_pae') {
-    return minInteractionPaeBandColor(v)
-  }
-
-  const paeFields = new Set(['pae_interaction', 'interaction_pae'])
-  if (paeFields.has(field)) {
-    return paeBandColor(v)
-  }
-
-  // ipSAE: same 0–1 “higher is better” scale as ipTM
-  if (field === 'design_ipsae_min') {
-    const t = clamp01((v - 0) / 1)
-    return colorFromT(t)
-  }
-
-  // Field-specific ranges and whether higher is better
-  const config: Record<string, { min: number, max: number, higherBetter: boolean }> = {
-    'Average_i_pTM': { min: 0, max: 1, higherBetter: true },
-    'design_to_target_iptm': { min: 0, max: 1, higherBetter: true },
-    'Average_Binder_pLDDT': { min: 0, max: 1, higherBetter: true },
-    'plddt_binder': { min: 0, max: 100, higherBetter: true },
-    'Average_Binder_RMSD': { min: 0, max: 3.5, higherBetter: false },
-    'Average_Target_RMSD': { min: 0, max: 3.5, higherBetter: false },
-    'binder_aligned_rmsd': { min: 0, max: 3.5, higherBetter: false }
-  }
-
-  const cfg = config[field]
-  if (!cfg) return '#dfe6e9'
-  const span = Math.max(1e-9, cfg.max - cfg.min)
-  let t = clamp01((v - cfg.min) / span)
-  if (!cfg.higherBetter) t = 1 - t
-  return colorFromT(t)
-}
 
 const STATIC_STRUCTURE_DETAIL_FIELDS = new Set([
   'design_id',
@@ -2788,7 +2673,7 @@ const formatExtraScoreValue = (value: unknown): string => {
 const extraScoreBarColor = (field: string, raw: unknown): string => {
   if (raw === true) return '#2ecc71'
   if (raw === false) return '#e74c3c'
-  return scoreColor(field, raw)
+  return scoreFieldColor(field, raw)
 }
 
 /** Columns shown in structure Design Data / Scores cards: toggled columns plus any field used in an active custom filter. */
@@ -2820,7 +2705,7 @@ function isStructureCardContentHidden(field: string): boolean {
 const extraVisibleScoreFields = computed((): string[] => {
   const design = designsStore.currentStructure?.design as Record<string, unknown> | undefined
   if (!design) return []
-  const primary = new Set(displayScores.value)
+  const primary = new Set(STRUCTURE_CARD_SCORE_ORDER)
   const out: string[] = []
   for (const field of structureDetailFieldSource.value) {
     if (STATIC_STRUCTURE_DETAIL_FIELDS.has(field) || primary.has(field)) continue
@@ -2834,7 +2719,7 @@ const extraVisibleScoreFields = computed((): string[] => {
 const extraVisibleDesignDataFields = computed((): string[] => {
   const design = designsStore.currentStructure?.design as Record<string, unknown> | undefined
   if (!design) return []
-  const primary = new Set(displayScores.value)
+  const primary = new Set(STRUCTURE_CARD_SCORE_ORDER)
   const out: string[] = []
   for (const field of structureDetailFieldSource.value) {
     if (STATIC_STRUCTURE_DETAIL_FIELDS.has(field) || primary.has(field)) continue

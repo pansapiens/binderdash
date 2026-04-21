@@ -6,6 +6,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_user_optional
+from ..config.plot_defaults import default_plot_xy_columns
 from ..run_discovery import load_run_table
 from ..schemas import PdbTarRequest
 from ..auth_providers.base import AuthUser
@@ -14,45 +15,6 @@ from ..cache import get_run_metadata
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/runs/plots", tags=["plots"])
-
-
-def get_default_plot_columns(df: pd.DataFrame, method: str) -> Dict[str, str]:
-    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    defaults = {"x": "", "y": ""}
-    if method == "bindcraft":
-        if "Average_pLDDT" in numeric_cols:
-            defaults["x"] = "Average_pLDDT"
-        elif "mean_plddt" in numeric_cols:
-            defaults["x"] = "mean_plddt"
-        elif "plddt" in numeric_cols:
-            defaults["x"] = "plddt"
-        if "Average_i_pTM" in numeric_cols:
-            defaults["y"] = "Average_i_pTM"
-        elif "ipTM" in numeric_cols:
-            defaults["y"] = "ipTM"
-    elif method == "rfd":
-        if "plddt_binder" in numeric_cols:
-            defaults["x"] = "plddt_binder"
-        elif "plddt" in numeric_cols:
-            defaults["x"] = "plddt"
-        if "pae_interaction" in numeric_cols:
-            defaults["y"] = "pae_interaction"
-        elif "pae_binder" in numeric_cols:
-            defaults["y"] = "pae_binder"
-    elif method == "rfd3":
-        if "rf3_ipsae_min" in numeric_cols:
-            defaults["x"] = "rf3_ipsae_min"
-        elif "pair_pae" in numeric_cols:
-            defaults["x"] = "pair_pae"
-        if "iptm" in numeric_cols:
-            defaults["y"] = "iptm"
-    if not defaults["x"] and numeric_cols:
-        defaults["x"] = numeric_cols[0]
-    if not defaults["y"] and len(numeric_cols) > 1:
-        defaults["y"] = numeric_cols[1]
-    elif not defaults["y"] and numeric_cols:
-        defaults["y"] = numeric_cols[0]
-    return defaults
 
 
 @router.post("/columns")
@@ -85,7 +47,7 @@ async def get_plot_columns_multiple(
         combined_df = pd.concat(all_dfs, ignore_index=True)
         numeric_cols = combined_df.select_dtypes(include=[np.number]).columns.tolist()
         most_common_method = max(methods, key=list(methods).count) if methods else ""
-        defaults = get_default_plot_columns(combined_df, most_common_method)
+        defaults = default_plot_xy_columns(combined_df, most_common_method)
         return {
             "numeric_columns": numeric_cols,
             "defaults": defaults,

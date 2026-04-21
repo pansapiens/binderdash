@@ -32,10 +32,24 @@ export function mergeRuns(runs: Run[]): Run[] {
             const existing = mergedRuns[groupKey]
             existing.merged_paths!.push(run.path)
             existing.merged_pdb_files!.push(...pdbFiles)
+            const legacy = (m: Run['metadata'] | undefined) =>
+                m as Run['metadata'] & { attempt_count?: number } | undefined
+            const a =
+                legacy(existing.metadata)?.trajectory_count ??
+                legacy(existing.metadata)?.attempt_count
+            const b =
+                legacy(run.metadata)?.trajectory_count ?? legacy(run.metadata)?.attempt_count
+            let trajectorySum: number | undefined
+            if (a != null || b != null) {
+                const ai = typeof a === 'number' && !Number.isNaN(a) ? a : 0
+                const bi = typeof b === 'number' && !Number.isNaN(b) ? b : 0
+                trajectorySum = ai + bi
+            }
             existing.metadata = {
                 ...existing.metadata,
                 merged_count: existing.merged_paths!.length,
-                total_pdb_count: existing.merged_pdb_files!.length
+                total_pdb_count: existing.merged_pdb_files!.length,
+                ...(trajectorySum !== undefined ? { trajectory_count: trajectorySum } : {})
             }
         }
     }

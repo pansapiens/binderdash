@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Backend**: Pipeline/method/score config lives under `backend/config/` (signatures consumed by `run_discovery`/`cache`; IDs, path heuristics, params keys, basename rules in `method_paths.py`).
+- **Frontend**: `frontend/src/config/pipelineDisplay.ts` centralises method tags, score columns, colours, structure helpers, and Select Runs chips; pipeline **Tag**s use theme palette CSS vars instead of `severity`.
+- **Docs**: MkDocs skeleton (`mkdocs.yml`, `docs/index.md`, `requirements-docs.txt`); `site/` gitignored.
+- **Runs / ingest**: `trajectory_count` from params or CSV line counts; ingest stores `primary_score_stats`; UI shows Accepted/total and Select Runs primary-score stats; merged runs sum `trajectory_count`.
 - **Ingest Runs**: Scan calls **`POST /api/runs/scan` once per selected folder** (results merge client-side as on the server). Ingest calls **`POST /api/runs/ingest` once per selected run** (sequential). Scan/ingest handlers run heavy work in a **thread pool** via **`asyncio.to_thread`** so the API event loop stays responsive. The scan results table adds an **Ingested** column (green check when that run’s ingest succeeded).
 - **Auth**: Removed support for the `ALLOWED_USERS` environment variable (it was only a legacy fallback for the Google allowlist). Use `GOOGLE_AUTH_ALLOWED_USERS` only.
 - **Docker / PAM**: `docker-compose.yml` and `docker-compose.dev.yml` include commented optional bind-mounts for host `/etc/passwd`, `/etc/group`, and `/etc/shadow` (`:ro`) when using PAM for host local users — documented as high-risk; not enabled by default.

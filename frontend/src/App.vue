@@ -507,6 +507,11 @@ p, span, div, label, input, textarea, select, button, a, h1, h2, h3, h4, h5, h6 
   font-weight: 500 !important;
 }
 
+/* Method + primary-score chips use PrimeVue palette vars (`pipelineDisplay.ts`), not `severity`. */
+.p-tag.pipeline-palette-tag {
+  border: none !important;
+}
+
 .p-tag.p-tag-success {
   background: #d4edda !important;
   color: #155724 !important;

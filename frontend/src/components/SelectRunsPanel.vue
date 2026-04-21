@@ -87,7 +87,7 @@
       <Column field="metadata.name" header="Name" sortable style="min-width: 150px">
         <template #body="{ data }">
           <div class="run-name">
-            <i :class="getMethodIcon(data.method)" class="protocol-icon" aria-hidden="true" />
+            <i :class="getMethodIconClass(data.method)" class="protocol-icon" aria-hidden="true" />
             {{ data.metadata?.name ?? '—' }}
           </div>
         </template>
@@ -99,17 +99,39 @@
       </Column>
       <Column field="method" header="Method" sortable style="min-width: 100px">
         <template #body="{ data }">
-          <Tag :value="data.method" :severity="getMethodSeverity(data.method)" />
+          <Tag
+            :value="data.method"
+            :style="getMethodTagStyle(data.method)"
+            class="pipeline-palette-tag"
+          />
         </template>
       </Column>
-      <Column field="metadata.pdb_count" header="Designs" sortable style="min-width: 100px">
+      <Column field="metadata.pdb_count" sortable style="min-width: 110px">
+        <template #header>
+          <span v-tooltip.top="'Accepted or filtered designs / pre-filter trajectories or designs'">Accepted / total</span>
+        </template>
         <template #body="{ data }">
-          <Tag
-            v-if="typeof data.metadata?.pdb_count === 'number'"
-            :value="String(data.metadata.pdb_count)"
-            severity="info"
-          />
-          <span v-else class="muted-cell">—</span>
+          {{ formatAcceptedTotalText(data) }}
+        </template>
+      </Column>
+      <Column field="metadata.primary_score_stats.median" sortable style="min-width: 300px">
+        <template #header>
+          <span
+            v-tooltip.top="'Mean ± σ over accepted/filtered designs, range [min - max]; chip shows the score column.'"
+          >Primary score</span>
+        </template>
+        <template #body="{ data }">
+          <template v-for="w in [primaryScoreDisplay(data)]" :key="data.run_id">
+            <div v-if="w" class="primary-score-row">
+              <span v-tooltip.top="w.title" class="primary-score-numbers">{{ w.numbersLine }}</span>
+              <Tag
+                :value="w.chipLabel"
+                :style="w.tagStyle"
+                class="primary-score-type-tag pipeline-palette-tag"
+              />
+            </div>
+            <span v-else class="muted-cell">—</span>
+          </template>
         </template>
       </Column>
       <Column field="path" header="Path" style="min-width: 200px">
@@ -136,6 +158,8 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import { useRunsStore, useDesignsStore, usePlotsStore } from '../stores'
 import type { Run } from '../types/store'
+import { formatAcceptedTotalText, primaryScoreDisplay } from '../utils/runDisplay'
+import { getMethodTagStyle, getMethodIconClass } from '../config/pipelineDisplay'
 
 const runsStore = useRunsStore()
 const designsStore = useDesignsStore()
@@ -184,32 +208,6 @@ const filteredRuns = computed(() => {
   }
   return rows
 })
-
-function getMethodSeverity(method: string | undefined): string {
-  switch (method) {
-    case 'bindcraft':
-      return 'success'
-    case 'rfd':
-      return 'info'
-    case 'rfd3':
-      return 'info'
-    default:
-      return 'warning'
-  }
-}
-
-function getMethodIcon(method: string | undefined): string {
-  switch (method) {
-    case 'bindcraft':
-      return 'pi pi-code'
-    case 'rfd':
-      return 'pi pi-file'
-    case 'rfd3':
-      return 'pi pi-box'
-    default:
-      return 'pi pi-info-circle'
-  }
-}
 
 const tableSelection = ref<Run[]>([])
 
@@ -325,6 +323,32 @@ onMounted(() => {
 
 .muted-cell {
   color: #6c757d;
+}
+
+.primary-score-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.primary-score-numbers {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  color: #495057;
+  word-break: break-word;
+}
+
+.primary-score-type-tag {
+  flex-shrink: 0;
+  max-width: 100%;
+}
+
+.primary-score-type-tag :deep(.p-tag-label) {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .results-file {

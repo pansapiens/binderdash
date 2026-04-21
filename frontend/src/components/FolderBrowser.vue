@@ -102,7 +102,7 @@
         <Column field="metadata.name" header="Name" sortable style="min-width: 150px">
           <template #body="{ data }">
             <div class="run-name">
-              <i :class="getMethodIcon(data.method)" class="protocol-icon"></i>
+              <i :class="getMethodIconClass(data.method)" class="protocol-icon"></i>
               {{ data.metadata.name }}
             </div>
           </template>
@@ -114,12 +114,19 @@
         </Column>
         <Column field="method" header="Method" sortable style="min-width: 100px">
           <template #body="{ data }">
-            <Tag :value="data.method" :severity="getMethodSeverity(data.method)" />
+            <Tag
+              :value="data.method"
+              :style="getMethodTagStyle(data.method)"
+              class="pipeline-palette-tag"
+            />
           </template>
         </Column>
-        <Column field="metadata.pdb_count" header="Designs" sortable style="min-width: 100px">
+        <Column field="metadata.pdb_count" sortable style="min-width: 110px">
+          <template #header>
+            <span v-tooltip.top="'Accepted or filtered designs / pre-filter trajectories or designs'">Accepted / total</span>
+          </template>
           <template #body="{ data }">
-            {{ data.metadata.pdb_count ?? '-' }}
+            {{ formatAcceptedTotalText(data) }}
           </template>
         </Column>
         <Column field="path" header="Path" style="min-width: 200px">
@@ -222,6 +229,8 @@ import Toast from 'primevue/toast'
 import { useFolderStore } from '../stores'
 import type { Run } from '../types/store'
 import { runGroupKey } from '../utils/mergeRuns'
+import { formatAcceptedTotalText } from '../utils/runDisplay'
+import { getMethodTagStyle, getMethodIconClass } from '../config/pipelineDisplay'
 import { runsApi } from '../webapi'
 import type { IngestPreviewReingestItem } from '../webapi'
 
@@ -519,32 +528,6 @@ const toggleNodeSelection = (node: any): void => {
   
   console.log('Selected keys after toggle:', folderStore.selectedKeys)
   console.log('isNodeSelected result:', isNodeSelected(node))
-}
-
-const getMethodSeverity = (method: any): string => {
-  switch (method) {
-    case 'bindcraft':
-      return 'success'
-    case 'rfd':
-      return 'info'
-    case 'rfd3':
-      return 'info'
-    default:
-      return 'warning'
-  }
-}
-
-const getMethodIcon = (method: any): string => {
-  switch (method) {
-    case 'bindcraft':
-      return 'pi pi-code'
-    case 'rfd':
-      return 'pi pi-file'
-    case 'rfd3':
-      return 'pi pi-box'
-    default:
-      return 'pi pi-info-circle'
-  }
 }
 
 // Lifecycle

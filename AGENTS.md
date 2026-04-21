@@ -5,6 +5,7 @@
 - Single-page app to view results of de novo protein binder design runs
 - Frontend: Vite + Typescript + Vue 3 (Composition API) + PrimeVue, Mol* viewer, Vega-Lite plots
 - Backend: FastAPI (async) serving API and built frontend static files
+- **Pipeline config** (method IDs, run folder signatures, score columns, plot defaults, path heuristics, structure-file rules, score column names matching source files): `backend/config/` (`run_signatures.py`, `plot_defaults.py`, `method_paths.py`, `score_labels.py`). Import `backend.config` or submodules; `run_discovery` still imports `run_folder_signatures` from there.
 
 ## Setup commands
 

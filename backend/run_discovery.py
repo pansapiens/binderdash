@@ -11,6 +11,12 @@ import json
 
 from .util.pdb_to_fasta import get_chain_sequences
 from .util.profiling import Timer
+from .config.method_paths import (
+    is_disallowed_project_id_segment,
+    is_disallowed_run_name_segment,
+    should_prune_walk_bindcraft_batches,
+)
+from .config.run_signatures import run_folder_signatures
 
 # Import will be done inside the function to avoid linting issues
 
@@ -102,170 +108,96 @@ def extract_backbone_id(design_id: str, method: str) -> str:
     return backbone_id
 
 
-# Directories to skip during recursive walk (common to all signatures)
-DEFAULT_SKIP_DIRS = [".nextflow", "work"]
+def count_csv_data_rows(file_path: Path) -> Optional[int]:
+    """Count non-empty data rows in a CSV (one header line, then data)."""
+    if not file_path.is_file():
+        return None
+    try:
+        with open(file_path, "rb") as f:
+            line_no = 0
+            data_rows = 0
+            for raw in f:
+                line_no += 1
+                if line_no == 1:
+                    continue
+                if raw.strip():
+                    data_rows += 1
+        return data_rows
+    except OSError:
+        return None
 
-# Run folder signatures for declarative run detection
-# Each signature defines the structure required to identify a run type
-run_folder_signatures = [
-    {
-        "method": "bindcraft",
-        "submethod": "nf-binder-design",
-        "priority": 1,  # Higher priority = checked first
-        "required_files": ["results/bindcraft/final_design_stats.csv"],
-        "required_dirs": ["results/bindcraft/accepted"],
-        "results_table": "results/bindcraft/final_design_stats.csv",
-        "pdb_pattern": "results/bindcraft/accepted/*.pdb",
-        "params_files": ["results/params.json"],
-        "skip_dirs": DEFAULT_SKIP_DIRS,
-        # Design parsing configuration
-        "design_id_columns": ["Design"],
-        "primary_score_columns": ["Average_i_pTM"],
-        "sort_ascending": False,
-        "structure_file_column": None,
-        "structure_search_patterns": [
-            "{design_id}.pdb",
-            "{design_id}_*.pdb",
-            "{design_id}*.pdb",
-        ],
-    },
-    {
-        "method": "rfd",
-        "submethod": "nf-binder-design",
-        "priority": 2,
-        "required_files": ["results/combined_scores.tsv"],
-        "required_dirs": [
-            "results/af2_initial_guess",
-            "results/proteinmpnn",
-            "results/rfdiffusion",
-        ],
-        "results_table": "results/combined_scores.tsv",
-        "pdb_pattern": "results/af2_initial_guess/pdbs/*.pdb",
-        "params_files": ["results/params.json"],
-        "skip_dirs": DEFAULT_SKIP_DIRS,
-        # Design parsing configuration
-        "design_id_columns": ["description"],
-        "primary_score_columns": ["pae_interaction"],
-        "sort_ascending": True,
-        "structure_file_column": None,
-        "structure_search_patterns": ["{design_id}.pdb"],
-    },
-    {
-        "method": "bindcraft",
-        "submethod": "regular",
-        "priority": 3,
-        "required_files": ["final_design_stats.csv"],
-        "required_dirs": ["Accepted"],
-        "results_table": "final_design_stats.csv",
-        "pdb_pattern": "Accepted/*.pdb",
-        "params_files": ["../settings.json"],
-        "skip_dirs": DEFAULT_SKIP_DIRS,
-        # Design parsing configuration
-        "design_id_columns": ["Design"],
-        "primary_score_columns": ["Average_i_pTM"],
-        "sort_ascending": False,
-        "structure_file_column": None,
-        "structure_search_patterns": [
-            "{design_id}.pdb",
-            "{design_id}_*.pdb",
-            "{design_id}*.pdb",
-        ],
-    },
-    {
-        "method": "rfd",
-        "submethod": "regular",
-        "priority": 4,
-        "required_dirs": ["af2_initial_guess"],
-        "results_table": "combined_scores.tsv",
-        "pdb_pattern": "af2_initial_guess/pdbs/*.pdb",
-        "skip_dirs": DEFAULT_SKIP_DIRS,
-        # Design parsing configuration
-        "design_id_columns": ["description"],
-        "primary_score_columns": ["pae_interaction"],
-        "sort_ascending": True,
-        "structure_file_column": None,
-        "structure_search_patterns": ["{design_id}.pdb"],
-    },
-    {
-        "method": "boltzgen",
-        "submethod": "nf-binder-design",
-        "priority": 5,
-        # results/boltzgen/filtered/final_ranked_designs must exist
-        "required_dirs": ["results/boltzgen/filtered/final_ranked_designs"],
-        # final_designs_metrics_*.csv may have varying numeric suffixes
-        "required_patterns": [
-            "results/boltzgen/filtered/final_ranked_designs/final_designs_metrics_*.csv"
-        ],
-        # Pattern for resolving the concrete results table at detection time
-        "results_table_pattern": "results/boltzgen/filtered/final_ranked_designs/final_designs_metrics_*.csv",
-        # Pattern for locating structure files (mmCIF) across possible final_*_designs dirs
-        "structure_pattern": "results/boltzgen/filtered/final_ranked_designs/final_*_designs/*.cif",
-        "structure_format": "cif",
-        "params_files": ["results/params.json"],
-        "skip_dirs": DEFAULT_SKIP_DIRS,
-        # Design parsing configuration
-        "design_id_columns": ["id"],
-        "primary_score_columns": ["design_to_target_iptm"],
-        "sort_ascending": False,
-        # Use the CSV file_name (if available) when searching; otherwise fall back to id
-        "structure_file_column": "file_name",
-        "structure_search_patterns": [
-            "{file_name}",
-            "rank*_{file_name}",
-        ],
-    },
-    {
-        "method": "rfd3",
-        "submethod": "nf-binder-design",
-        "priority": 6,
-        "required_files": ["results/rfd3/combined_scores.tsv"],
-        "required_dirs": [
-            "results/rfd3/rosettafold3",
-            "results/rfd3/rfdiffusion3",
-        ],
-        "results_table": "results/rfd3/combined_scores.tsv",
-        "structure_pattern": "results/rfd3/rosettafold3/output/*/*.cif",
-        "additional_pdb_patterns": [
-            "results/rfd3/rosettafold3/output/*/*.cif.gz",
-            "results/rfd3/rosettafold3/output/*/*.pdb",
-            "results/rfd3/rosettafold3/output/*/*.pdb.gz",
-        ],
-        "structure_format": "cif",
-        "params_files": ["results/params.json"],
-        "skip_dirs": DEFAULT_SKIP_DIRS,
-        "design_id_columns": ["id"],
-        "primary_score_columns": [
-            "iptm",
-            "pair_pae",
-            "rf3_ipsae_min",
-            "rf3_rmsd_target_aligned_binder_rmsd_all",
-        ],
-        "sort_ascending": False,
-        "structure_file_column": None,
-        "structure_base_dir": "results/rfd3/rosettafold3/output/{design_id}",
-        "structure_search_patterns": [
-            "{design_id}_model.cif",
-            "{design_id}_model.cif.gz",
-            "{design_id}_model.pdb",
-            "{design_id}_model.pdb.gz",
-        ],
-    },
-]
+
+def _params_value_from_run_params_json(
+    data: Any, key_dotted: str
+) -> Optional[Any]:
+    """Look up a value under the top-level ``params`` object (supports dotted keys)."""
+    if not isinstance(data, dict) or not key_dotted:
+        return None
+    params_obj = data.get("params")
+    if not isinstance(params_obj, dict):
+        return None
+    cur: Any = params_obj
+    for part in key_dotted.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return None
+        cur = cur[part]
+    return cur
+
+
+def resolve_trajectory_count(run_path: Path, signature: Dict[str, Any]) -> Optional[int]:
+    """Pre-filter trajectory/design count: params.json key first, else line count on trajectory_count_file."""
+    key = signature.get("trajectory_count_params_key")
+    if key:
+        stub: Dict[str, Any] = {"path": str(run_path), "signature": signature}
+        raw = parse_run_params(stub)
+        if raw is not None:
+            val = _params_value_from_run_params_json(raw, key)
+            if val is not None:
+                try:
+                    return int(val)
+                except (TypeError, ValueError):
+                    pass
+    rel = signature.get("trajectory_count_file")
+    if rel:
+        n = count_csv_data_rows(run_path / rel)
+        if n is not None:
+            return n
+    return None
+
+
+def compute_primary_score_stats(
+    df: Optional[pd.DataFrame], signature: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    if df is None or df.empty:
+        return None
+    primary_cols = signature.get("primary_score_columns", [])
+    col: Optional[str] = None
+    for c in primary_cols:
+        if c in df.columns:
+            col = c
+            break
+    if col is None:
+        numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+        if not numeric_cols:
+            return None
+        col = numeric_cols[0]
+    series = pd.to_numeric(df[col], errors="coerce").dropna()
+    if series.empty:
+        return None
+    arr = series.to_numpy(dtype=float)
+    return {
+        "column": col,
+        "count": int(len(arr)),
+        "min": float(np.min(arr)),
+        "max": float(np.max(arr)),
+        "mean": float(np.mean(arr)),
+        "median": float(np.median(arr)),
+        "stddev": float(np.std(arr, ddof=0)),
+    }
 
 
 def guess_project_id(path: Path) -> str:
     run_name = guess_run_name(path)
-    disallowed_patterns = [
-        r"^runs$",
-        r"^results.*$",
-        r"^batch.*$",
-        r"^bindcraft$",
-        r"^rfd$",
-        r"^boltzgen$",
-        r"^rfd3$",
-        r"^\d+$",
-    ]
-
     current_path = path
     found_run_name = False
     while current_path != current_path.parent:
@@ -275,30 +207,17 @@ def guess_project_id(path: Path) -> str:
             current_path = current_path.parent
             continue
         if found_run_name:
-            is_disallowed = any(
-                re.match(pattern, name) for pattern in disallowed_patterns
-            )
-            if not is_disallowed:
+            if not is_disallowed_project_id_segment(name):
                 return name
         current_path = current_path.parent
     return ""
 
 
 def guess_run_name(path: Path) -> str:
-    disallowed_patterns = [
-        r"^results.*$",
-        r"^bindcraft$",
-        r"^rfd$",
-        r"^boltzgen$",
-        r"^rfd3$",
-        r"^batches$",
-        r"^\d+$",
-    ]
     current_path = path
     while current_path != current_path.parent:
         name = current_path.name
-        is_disallowed = any(re.match(pattern, name) for pattern in disallowed_patterns)
-        if not is_disallowed:
+        if not is_disallowed_run_name_segment(name):
             return name
         current_path = current_path.parent
     return path.name
@@ -468,19 +387,9 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
             dirnames[:] = []
             continue
 
-        path_parts = current_dir.parts
-        if "batches" in path_parts:
-            try:
-                batches_index = path_parts.index("batches")
-                if (
-                    batches_index >= 2
-                    and path_parts[batches_index - 1] == "bindcraft"
-                    and path_parts[batches_index - 2] == "results"
-                ):
-                    dirnames[:] = []
-                    continue
-            except ValueError:
-                pass
+        if should_prune_walk_bindcraft_batches(current_dir.parts):
+            dirnames[:] = []
+            continue
 
         _det_t = Timer(logger, "detect_run_type", path=str(current_dir)).start()
         detected_run = detect_run_type(current_dir)
@@ -511,6 +420,16 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
 
             is_nf_binder_design = detected_run["submethod"] == "nf-binder-design"
 
+            trajectory_count = resolve_trajectory_count(current_dir, detected_run)
+            meta: Dict[str, Any] = {
+                "name": run_name,
+                "original_name": current_dir.name,
+                "parent_path": str(current_dir.parent),
+                "pdb_count": len(pdb_files),
+            }
+            if trajectory_count is not None:
+                meta["trajectory_count"] = trajectory_count
+
             runs.append(
                 {
                     "run_id": run_id,
@@ -522,12 +441,7 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
                     "pdb_files": pdb_files,
                     "is_nf_binder_design": is_nf_binder_design,
                     "signature": detected_run,
-                    "metadata": {
-                        "name": run_name,
-                        "original_name": current_dir.name,
-                        "parent_path": str(current_dir.parent),
-                        "pdb_count": len(pdb_files),
-                    },
+                    "metadata": meta,
                 }
             )
 
