@@ -1859,6 +1859,19 @@ const referenceStructureTooltipOptions = {
 
 const referenceViewerUrl = ref('')
 const referenceBlobUrlToRevoke = ref<string | null>(null)
+
+/** Mol* may still be fetching a blob URL when we swap designs; revoking immediately yields status 0 (esp. Firefox). */
+const REFERENCE_BLOB_REVOKE_DELAY_MS = 15_000
+const scheduleRevokeReferenceBlobUrl = (url: string | null | undefined) => {
+  if (!url) return
+  window.setTimeout(() => {
+    try {
+      URL.revokeObjectURL(url)
+    } catch {
+      /* ignore */
+    }
+  }, REFERENCE_BLOB_REVOKE_DELAY_MS)
+}
 const referenceOverlayActive = ref(false)
 const referenceManualSource = ref('')
 const referenceManualSourceKind = ref<ReferenceManualSourceKind>('rcsb')
@@ -2426,7 +2439,7 @@ const loadGlobalAdvRef = async () => {
 
 const revokeReferenceBlob = () => {
   if (referenceBlobUrlToRevoke.value) {
-    URL.revokeObjectURL(referenceBlobUrlToRevoke.value)
+    scheduleRevokeReferenceBlobUrl(referenceBlobUrlToRevoke.value)
     referenceBlobUrlToRevoke.value = null
   }
   referenceViewerUrl.value = ''
@@ -2540,7 +2553,7 @@ const loadReferenceOverlay = async (silent = false) => {
     const blob = await res.blob()
     const objectUrl = URL.createObjectURL(blob)
     if (previousBlobUrl) {
-      URL.revokeObjectURL(previousBlobUrl)
+      scheduleRevokeReferenceBlobUrl(previousBlobUrl)
     }
     referenceBlobUrlToRevoke.value = objectUrl
     referenceViewerUrl.value = objectUrl
@@ -2898,6 +2911,14 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (tagMetricsDebounceTimer) clearTimeout(tagMetricsDebounceTimer)
+  if (referenceBlobUrlToRevoke.value) {
+    try {
+      URL.revokeObjectURL(referenceBlobUrlToRevoke.value)
+    } catch {
+      /* ignore */
+    }
+    referenceBlobUrlToRevoke.value = null
+  }
   window.removeEventListener('resize', onViewerControlsResize)
   window.removeEventListener('pointermove', onViewerControlsPointerMove)
   window.removeEventListener('pointerup', onViewerControlsPointerUp)

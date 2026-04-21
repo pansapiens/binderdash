@@ -507,29 +507,11 @@ const runLoadStructure = async (): Promise<void> => {
 
     const ref = hasReferenceUrl()
 
-    if (viewerInstance.value && !ref) {
-      clearMembraneOverlayOnly()
-      const updateOptions = {
-        customData: {
-          url: props.pdbUrl,
-          format: getFormatFromUrl(props.pdbUrl),
-          binary: false
-        },
-        ...pdbeInterfaceParamsForVisualUpdate(),
-        ...sharedVisualOptions(),
-      }
-      const success = await viewerInstance.value.visual.update(updateOptions, true)
-      if (!viewerAlive.value) return
-      if (success) {
-        await ensurePrimaryHetCoarseVisible()
-        if (props.autoFocus !== false) {
-          await focusOnStructure()
-        }
-        await applyBinderTagOverlay({ awaitLoad: false })
-        await subscribeOverlayPaint()
-        lastCompletedStructureLoadKey = requestedLoadKey
-        return
-      }
+    // Do not use `visual.update` to swap the primary structure URL. Overlapping
+    // internal downloads can abort the previous request on Firefox (status 0)
+    // and Mol* then throws "Invalid data cell". Always remount the viewer for a
+    // new primary URL when there is no reference overlay.
+    if (!ref) {
       await fullReload()
       if (!viewerAlive.value) return
       await applyBinderTagOverlay({ awaitLoad: false })
