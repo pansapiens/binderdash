@@ -75,6 +75,40 @@ interface Design {
 
 interface DesignsResponse {
     designs: Design[];
+    total?: number;
+    page?: number | null;
+    page_size?: number | null;
+}
+
+export interface DesignsListQueryDTO {
+    runIds?: string[];
+    page?: number;
+    pageSize?: number;
+    sortField?: string | null;
+    sortOrder?: number | null;
+    global?: string | null;
+    globalScoreFields?: string[];
+    filterColumns?: {
+        design_id?: { value: unknown; matchMode?: string };
+        project_id?: { value: unknown; matchMode?: string };
+        run_name?: { value: unknown; matchMode?: string };
+        method?: { value: unknown; matchMode?: string };
+    };
+    customFilters?: Array<{
+        id: string;
+        column: string;
+        operator: string;
+        value: unknown;
+        enabled?: boolean;
+    }>;
+    range?: {
+        score_min?: number | null;
+        score_max?: number | null;
+        length_min?: number | null;
+        length_max?: number | null;
+        target_sequence?: string | null;
+    };
+    bestMpnnOnly?: boolean;
 }
 
 export interface TagPlacementItem {
@@ -436,19 +470,85 @@ export const runsApi = {
 /**
  * Designs Management APIs
  */
+function designsQueryToSearchParams(q: DesignsListQueryDTO): URLSearchParams {
+    const p = new URLSearchParams()
+    if (q.runIds && q.runIds.length > 0) {
+        p.set('run_ids', q.runIds.join(','))
+    }
+    if (q.page !== undefined && q.pageSize !== undefined) {
+        p.set('page', String(q.page))
+        p.set('page_size', String(q.pageSize))
+    }
+    if (q.sortField != null && String(q.sortField).length > 0 && q.sortOrder != null && q.sortOrder !== 0) {
+        p.set('sort_field', String(q.sortField))
+        p.set('sort_order', String(q.sortOrder))
+    }
+    if (q.global != null && String(q.global).trim() !== '') {
+        p.set('global', String(q.global).trim())
+    }
+    if (q.globalScoreFields && q.globalScoreFields.length > 0) {
+        p.set('global_score_fields', q.globalScoreFields.join(','))
+    }
+    if (q.filterColumns) {
+        p.set('filters', JSON.stringify(q.filterColumns))
+    }
+    if (q.customFilters && q.customFilters.length > 0) {
+        p.set(
+            'custom_filters',
+            JSON.stringify(
+                q.customFilters.map(({ id, column, operator, value, enabled }) => ({
+                    id,
+                    column,
+                    operator,
+                    value,
+                    enabled
+                }))
+            )
+        )
+    }
+    if (q.range) {
+        const r = q.range
+        const payload: Record<string, unknown> = {}
+        if (r.score_min != null) payload.score_min = r.score_min
+        if (r.score_max != null) payload.score_max = r.score_max
+        if (r.length_min != null) payload.length_min = r.length_min
+        if (r.length_max != null) payload.length_max = r.length_max
+        if (r.target_sequence != null && String(r.target_sequence).trim() !== '') {
+            payload.target_sequence = r.target_sequence
+        }
+        if (Object.keys(payload).length > 0) {
+            p.set('range', JSON.stringify(payload))
+        }
+    }
+    if (q.bestMpnnOnly) {
+        p.set('best_mpnn_only', 'true')
+    }
+    return p
+}
+
 export const designsApi = {
     /**
-     * List all designs from all cached runs
-     * @returns Promise with all designs
+     * List designs with optional server-side paging, sort, and filters.
+     * Omit page/pageSize to fetch all rows matching the query.
      */
-    async listDesigns(runIds?: string[]): Promise<DesignsResponse> {
+    async listDesigns(q: DesignsListQueryDTO = {}): Promise<DesignsResponse> {
+        const p = designsQueryToSearchParams(q)
+        const qs = p.toString()
+        const url = qs ? `${API_BASE}/api/designs?${qs}` : `${API_BASE}/api/designs`
+        return await apiRequest<DesignsResponse>(url, {
+            requireAuth: true
+        })
+    },
+
+    async listDesignColumns(runIds?: string[]): Promise<{ columns: import('./types/store').ColumnConfig[] }> {
         const qs =
             runIds && runIds.length > 0
                 ? `?run_ids=${encodeURIComponent(runIds.join(','))}`
                 : ''
-        return await apiRequest<DesignsResponse>(`${API_BASE}/api/designs${qs}`, {
-            requireAuth: true
-        })
+        return await apiRequest<{ columns: any[] }>(
+            `${API_BASE}/api/designs/columns${qs}`,
+            { requireAuth: true }
+        )
     },
 
     /**

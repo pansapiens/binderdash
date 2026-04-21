@@ -5,60 +5,39 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import { localeComparator, resolveFieldData, sort } from '@primeuix/utils/object'
+import type { DesignsListQueryDTO } from '../webapi'
 import { designsApi } from '../webapi'
 import { PERSISTENCE_KEYS } from '../persistence/keys'
 import { kvGet, kvSet } from '../persistence/store'
 import type { Design, FilterState, ColumnConfig, StructureInfo, CustomFilter } from '../types/store'
 import {
-    scoreFieldsForRangeFilter,
     scoreFieldsForGlobalFilter,
-    scoreColumnConfigsForTable,
-    DESIGN_BUILD_COLUMN_STATIC_KEYS,
-    METHOD_BEST_SCORE,
     getStructureFilenameFromDesign,
     designHasStructureFile,
     defaultVisibleScoreColumnFields,
 } from '../config/pipelineDisplay'
 
-const SCORE_RANGE_FILTER_FIELDS = scoreFieldsForRangeFilter() as readonly string[]
 const GLOBAL_FILTER_SCORE_FIELDS = new Set(scoreFieldsForGlobalFilter())
-
-function designHasAnyScoreForRangeFilter(design: Design): boolean {
-    const d = design as Record<string, unknown>
-    for (const field of SCORE_RANGE_FILTER_FIELDS) {
-        const value = d[field]
-        if (value !== null && value !== undefined) return true
-    }
-    return false
-}
 
 export const useDesignsStore = defineStore('designs', () => {
     // State
-    const designs = ref<Design[]>([])
-    /** Designs grouped by run_id (mirrors `designs` after each load/patch). */
-    const designsByRun = ref<Map<string, Design[]>>(new Map())
+    const pageRows = ref<Design[]>([])
+    const totalRows = ref(0)
+    const pageIndex = ref(0)
+    const pageSize = ref(10)
+    const allMatching = ref<Design[] | null>(null)
+    const allMatchingLoading = ref(false)
     const selectedDesigns = ref<Design[]>([])
-    const selectedRunIds = ref<string[]>([]) // Track selected run IDs for filtering
-    /** Sorted join of run ids last successfully loaded into `designs`. */
+    const selectedRunIds = ref<string[]>([])
     const loadedRunIdsSignature = ref<string>('')
     let fetchSeq = 0
     let selectionDebounceTimer: ReturnType<typeof setTimeout> | null = null
+    let queryDebounceTimer: ReturnType<typeof setTimeout> | null = null
     const SELECTION_DEBOUNCE_MS = 200
+    const QUERY_DEBOUNCE_MS = 250
 
     function runIdsSignature(runIds: string[]): string {
         return [...runIds].sort().join('|')
-    }
-
-    function rebuildDesignsByRun(rows: Design[]): void {
-        const m = new Map<string, Design[]>()
-        for (const d of rows) {
-            const rid = String(d.run_id)
-            const arr = m.get(rid) ?? []
-            arr.push(d)
-            m.set(rid, arr)
-        }
-        designsByRun.value = m
     }
     const pendingSelectedDesignKeys = ref<Array<{ run_id: string; design_id: string }>>([])
     const pendingCurrentNavDesignId = ref<string | null>(null)
@@ -84,6 +63,12 @@ export const useDesignsStore = defineStore('designs', () => {
     }
 
     watch(customFilters, () => persistCustomFiltersToStorage(), { deep: true })
+
+    watch(
+        [filters, customFilters, bestMpnnOnly],
+        () => scheduleQueryRefresh(),
+        { deep: true }
+    )
 
     const isFieldReferencedByCustomFilter = (field: string): boolean => {
         const t = field.trim()
@@ -115,125 +100,9 @@ export const useDesignsStore = defineStore('designs', () => {
     const tableSortField = ref<string | undefined>(undefined)
     const tableSortOrder = ref<number | undefined>(undefined)
 
-    function buildColumnsFromData(designs: Design[]): ColumnConfig[] {
-        if (!designs || designs.length === 0) return []
-
-        const baseColumns: ColumnConfig[] = [
-            { field: 'design_id', header: 'Design ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 150px' },
-            { field: 'project_id', header: 'Project ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
-            { field: 'run_name', header: 'Run Name', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 120px' },
-            { field: 'method', header: 'Method', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 100px' }
-        ]
-
-        if (designs.some(d => Object.prototype.hasOwnProperty.call(d, 'good'))) {
-            baseColumns.push({
-                field: 'good',
-                header: 'Good',
-                sortable: true,
-                filter: true,
-                filterType: 'boolean',
-                showFilterMenu: false,
-                style: 'min-width: 90px'
-            })
-        }
-
-        if (designs.some(d => Object.prototype.hasOwnProperty.call(d, 'tag'))) {
-            baseColumns.push({
-                field: 'tag',
-                header: 'Tag',
-                sortable: true,
-                filter: true,
-                filterType: 'text',
-                showFilterMenu: false,
-                style: 'min-width: 72px'
-            })
-        }
-
-        const scoreColumns: ColumnConfig[] = []
-        const knownScoreFields = scoreColumnConfigsForTable()
-
-        knownScoreFields.forEach(scoreField => {
-            if (designs.some(d => scoreField.field in d && d[scoreField.field] != null)) {
-                scoreColumns.push({
-                    field: scoreField.field,
-                    header: scoreField.header,
-                    sortable: true,
-                    filter: true,
-                    filterType: 'numeric',
-                    showFilterMenu: false,
-                    style: 'min-width: 120px'
-                })
-            }
-        })
-
-        const metadataColumns: ColumnConfig[] = [
-            { field: 'target_sequence', header: 'Target Sequence', sortable: false, filter: false, style: 'min-width: 200px' },
-            { field: 'pdb_file', header: 'PDB File', sortable: false, filter: false, style: 'min-width: 200px' },
-            { field: 'run_path', header: 'Run Path', sortable: false, filter: false, style: 'min-width: 200px' }
-        ]
-
-        const existingFields = DESIGN_BUILD_COLUMN_STATIC_KEYS
-
-        const dynamicKeys = new Set<string>()
-        for (const design of designs) {
-            for (const key of Object.keys(design)) {
-                if (!existingFields.has(key)) dynamicKeys.add(key)
-            }
-        }
-
-        const otherColumns: ColumnConfig[] = []
-        for (const key of dynamicKeys) {
-            let sample: unknown
-            for (const design of designs) {
-                const v = design[key]
-                if (v != null && v !== '') {
-                    sample = v
-                    break
-                }
-            }
-
-            let filterType = 'text'
-            let sortable = false
-            if (sample === undefined) {
-                filterType = 'text'
-            } else if (typeof sample === 'boolean') {
-                filterType = 'boolean'
-                sortable = true
-            } else if (typeof sample === 'number' && !Number.isNaN(sample)) {
-                filterType = 'numeric'
-                sortable = true
-            } else if (sample instanceof Date) {
-                filterType = 'date'
-                sortable = true
-            } else if (typeof sample === 'string' && sample.trim() !== '' && !Number.isNaN(Number(sample))) {
-                filterType = 'numeric'
-                sortable = true
-            }
-
-            otherColumns.push({
-                field: key,
-                header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-                sortable,
-                filter: true,
-                filterType,
-                showFilterMenu: false,
-                style: 'min-width: 120px'
-            })
-        }
-
-        return [...baseColumns, ...scoreColumns, ...metadataColumns, ...otherColumns]
-    }
-
-    const columnsForSelectedRuns = computed((): ColumnConfig[] => {
-        if (selectedRunIds.value.length === 0) return []
-        const parts: Design[] = []
-        for (const id of selectedRunIds.value) {
-            const rows = designsByRun.value.get(id)
-            if (rows?.length) parts.push(...rows)
-        }
-        if (parts.length === 0) return []
-        return buildColumnsFromData(parts)
-    })
+    const columnsForSelectedRuns = computed((): ColumnConfig[] =>
+        selectedRunIds.value.length === 0 ? [] : columns.value
+    )
 
     watch(
         columnsForSelectedRuns,
@@ -460,148 +329,11 @@ export const useDesignsStore = defineStore('designs', () => {
         customFilters.value[idx] = { ...customFilters.value[idx], ...patch }
     }
 
-    // Getters — `designs` holds only rows for the current selected runs after fetch
-    const filteredDesigns = computed(() => {
-        let filtered = designs.value
+    /** Current table page (server-filtered). Kept as `filteredDesigns` for template compatibility. */
+    const filteredDesigns = computed(() => pageRows.value)
 
-        // Apply global filter
-        if (filters.value.global.value) {
-            const globalValue = filters.value.global.value.toLowerCase()
-            filtered = filtered.filter(design => {
-                return getGlobalFilterFields().some(field => {
-                    const value = design[field]
-                    return value && value.toString().toLowerCase().includes(globalValue)
-                })
-            })
-        }
-
-        // Apply individual column filters
-        if (filters.value.design_id.value) {
-            filtered = filtered.filter(design =>
-                design.design_id && design.design_id.toLowerCase().includes(filters.value.design_id.value.toLowerCase())
-            )
-        }
-
-        if (filters.value.project_id.value) {
-            filtered = filtered.filter(design =>
-                design.project_id && design.project_id.toLowerCase().includes(filters.value.project_id.value.toLowerCase())
-            )
-        }
-
-        if (filters.value.run_name.value) {
-            filtered = filtered.filter(design =>
-                design.run_name && design.run_name.toLowerCase().includes(filters.value.run_name.value.toLowerCase())
-            )
-        }
-
-        if (filters.value.method.value) {
-            filtered = filtered.filter(design =>
-                (design as any).method === filters.value.method.value
-            )
-        }
-
-        // Apply score range filters (rows with none of these fields pass — avoids hiding other methods after switching runs)
-        if (filters.value.score_min.value != null) {
-            const min = filters.value.score_min.value
-            filtered = filtered.filter(design => {
-                if (!designHasAnyScoreForRangeFilter(design)) return true
-                return SCORE_RANGE_FILTER_FIELDS.some(field => {
-                    const value = (design as Record<string, unknown>)[field]
-                    return value !== null && value !== undefined && Number(value) >= min
-                })
-            })
-        }
-
-        if (filters.value.score_max.value != null) {
-            const max = filters.value.score_max.value
-            filtered = filtered.filter(design => {
-                if (!designHasAnyScoreForRangeFilter(design)) return true
-                return SCORE_RANGE_FILTER_FIELDS.some(field => {
-                    const value = (design as Record<string, unknown>)[field]
-                    return value !== null && value !== undefined && Number(value) <= max
-                })
-            })
-        }
-
-        // Apply length range filters (missing length passes — e.g. boltzgen rows without Length while bounds were set from another run)
-        if (filters.value.length_min.value != null) {
-            const min = filters.value.length_min.value
-            filtered = filtered.filter(design => {
-                const length = design.Length ?? design.length
-                if (length === null || length === undefined) return true
-                return Number(length) >= min
-            })
-        }
-
-        if (filters.value.length_max.value != null) {
-            const max = filters.value.length_max.value
-            filtered = filtered.filter(design => {
-                const length = design.Length ?? design.length
-                if (length === null || length === undefined) return true
-                return Number(length) <= max
-            })
-        }
-
-        // Apply target sequence filter (regex pattern matching)
-        if (filters.value.target_sequence.value) {
-            const targetSequencePattern = filters.value.target_sequence.value
-            filtered = filtered.filter(design => {
-                const targetSequence = (design as any).target_sequence
-                if (!targetSequence) return false
-
-                try {
-                    // Create regex from the pattern, case-insensitive
-                    const regex = new RegExp(targetSequencePattern, 'i')
-                    return regex.test(targetSequence)
-                } catch (error) {
-                    // If regex is invalid, fall back to simple string contains
-                    return targetSequence.toLowerCase().includes(targetSequencePattern.toLowerCase())
-                }
-            })
-        }
-
-        const activeCustomFilters = customFilters.value.filter(f => f.enabled !== false)
-        if (activeCustomFilters.length > 0) {
-            filtered = filtered.filter(design =>
-                activeCustomFilters.every(f => passesCustomFilter(design, f))
-            )
-        }
-
-        // Filter by selected run IDs (defensive; payload is usually already scoped)
-        if (selectedRunIds.value.length > 0) {
-            const idSet = new Set(selectedRunIds.value.map(String))
-            filtered = filtered.filter(design => idSet.has(String(design.run_id)))
-        } else {
-            filtered = []
-        }
-
-        // Apply best MPNN filtering if enabled
-        if (bestMpnnOnly.value) {
-            filtered = _filterBestMpnnDesigns(filtered)
-        }
-
-        return filtered
-    })
-
-    const orderedFilteredDesigns = computed(() => {
-        const data = [...filteredDesigns.value]
-        const field = tableSortField.value
-        const order = tableSortOrder.value
-        if (field == null || order == null || order === 0) {
-            return data
-        }
-        const resolvedFieldData = new Map<Design, unknown>()
-        for (const item of data) {
-            resolvedFieldData.set(item, resolveFieldData(item, field))
-        }
-        const comparer = localeComparator()
-        data.sort((a, b) => {
-            const v1 = resolvedFieldData.get(a)
-            const v2 = resolvedFieldData.get(b)
-            return sort(v1 as any, v2 as any, order, comparer as any, 1)
-        })
-        return data
-    })
+    /** Full matching row set when loaded; else current page. Sorting is applied server-side. */
+    const orderedFilteredDesigns = computed(() => allMatching.value ?? pageRows.value)
 
     const extractFilename = (pdbFile: string | undefined): string => {
         if (!pdbFile) return ''
@@ -612,150 +344,10 @@ export const useDesignsStore = defineStore('designs', () => {
 
     const hasStructureFile = (d: Design): boolean => designHasStructureFile(d)
 
-    const totalDesigns = computed(() => designs.value.length)
-
-    // Helper function to select the best design from a group using primary and secondary scores
-    const _selectBestDesign = (designs: Design[]): Design => {
-        if (designs.length === 0) return designs[0]
-        if (designs.length === 1) return designs[0]
-
-        let bestDesign = designs[0]
-        let bestScore: number | null = null
-
-        for (const design of designs) {
-            const method = (design as any).method || ''
-            const config = METHOD_BEST_SCORE[method]
-
-            if (!config) {
-                // Unknown method, keep the first design
-                continue
-            }
-
-            // Get primary score
-            const primaryScore = design[config.primary as keyof Design] as number | null
-            if (primaryScore === null || primaryScore === undefined) {
-                continue
-            }
-
-            // Compare with current best
-            let isBetter = false
-            if (bestScore === null) {
-                isBetter = true
-            } else if (config.higherIsBetter) {
-                if (primaryScore > bestScore) {
-                    isBetter = true
-                } else if (primaryScore === bestScore) {
-                    // Primary scores are equal, check secondary scores
-                    isBetter = _compareSecondaryScores(design, bestDesign, config.secondary, true)
-                }
-            } else {
-                if (primaryScore < bestScore) {
-                    isBetter = true
-                } else if (primaryScore === bestScore) {
-                    // Primary scores are equal, check secondary scores
-                    isBetter = _compareSecondaryScores(design, bestDesign, config.secondary, false)
-                }
-            }
-
-            if (isBetter) {
-                bestDesign = design
-                bestScore = primaryScore
-            }
-        }
-
-        return bestDesign
-    }
-
-    // Helper function to compare secondary scores when primary scores are equal
-    const _compareSecondaryScores = (
-        design1: Design,
-        design2: Design,
-        secondaryFields: string[],
-        higherIsBetter: boolean
-    ): boolean => {
-        for (const field of secondaryFields) {
-            const score1 = design1[field as keyof Design] as number | null
-            const score2 = design2[field as keyof Design] as number | null
-
-            // Skip if either score is null/undefined
-            if (score1 === null || score1 === undefined || score2 === null || score2 === undefined) {
-                continue
-            }
-
-            // Compare scores
-            if (higherIsBetter) {
-                if (score1 > score2) return true
-                if (score1 < score2) return false
-            } else {
-                if (score1 < score2) return true
-                if (score1 > score2) return false
-            }
-        }
-
-        // If all secondary scores are equal or missing, return false (keep current best)
-        return false
-    }
-
-    // Helper function to filter best MPNN designs
-    const _filterBestMpnnDesigns = (designs: Design[]): Design[] => {
-        if (!designs || designs.length === 0) return designs
-
-        // Group designs by backbone_id
-        const backboneGroups: Record<string, Design[]> = {}
-        for (const design of designs) {
-            const backboneId = (design as any).backbone_id
-            if (!backboneId) {
-                // If no backbone_id, keep the design as-is
-                backboneGroups['no_backbone'] = backboneGroups['no_backbone'] || []
-                backboneGroups['no_backbone'].push(design)
-                continue
-            }
-
-            backboneGroups[backboneId] = backboneGroups[backboneId] || []
-            backboneGroups[backboneId].push(design)
-        }
-
-        // For each backbone group, select the best design
-        const filteredDesigns: Design[] = []
-        for (const [backboneId, groupDesigns] of Object.entries(backboneGroups)) {
-            if (backboneId === 'no_backbone') {
-                // Keep all designs without backbone_id
-                filteredDesigns.push(...groupDesigns)
-                continue
-            }
-
-            if (groupDesigns.length === 1) {
-                // Only one design for this backbone, keep it
-                filteredDesigns.push(groupDesigns[0])
-                continue
-            }
-
-            // Find the best design using primary and secondary scores
-            const bestDesign = _selectBestDesign(groupDesigns)
-            filteredDesigns.push(bestDesign)
-        }
-
-        return filteredDesigns
-    }
-
-    // Helper function for global filtering
-    const getGlobalFilterFields = () => {
-        // Base fields that are always present
-        const baseFields = ['design_id', 'project_id', 'run_name', 'method', 'Length']
-
-        // Add score columns that are currently visible
-        const scoreFields = visibleColumns.value.filter((col: string) => GLOBAL_FILTER_SCORE_FIELDS.has(col))
-
-        return [...baseFields, ...scoreFields]
-    }
+    const totalDesigns = computed(() => totalRows.value)
 
     const designsWithPdbOrdered = (): Design[] =>
         orderedFilteredDesigns.value.filter(d => hasStructureFile(d))
-
-    watch(() => filters.value, () => {
-        const withPdb = designsWithPdbOrdered()
-        currentNavDesignId.value = withPdb[0]?.design_id ?? null
-    }, { deep: true })
 
     watch(orderedFilteredDesigns, () => {
         const withPdb = designsWithPdbOrdered()
@@ -814,12 +406,161 @@ export const useDesignsStore = defineStore('designs', () => {
         return designsWithPdbOrdered().length
     })
 
+    function buildListQuery(extra: Partial<DesignsListQueryDTO> = {}): DesignsListQueryDTO {
+        const f = filters.value
+        const runIds = selectedRunIds.value
+        const filterColumns = {
+            design_id: f.design_id,
+            project_id: f.project_id,
+            run_name: f.run_name,
+            method: f.method
+        }
+        const range = {
+            score_min: f.score_min.value ?? undefined,
+            score_max: f.score_max.value ?? undefined,
+            length_min: f.length_min.value ?? undefined,
+            length_max: f.length_max.value ?? undefined,
+            target_sequence: f.target_sequence.value ?? undefined
+        }
+        const globalScoreFields = visibleColumns.value.filter((c) => GLOBAL_FILTER_SCORE_FIELDS.has(c))
+        const g = f.global.value
+        return {
+            runIds,
+            sortField: tableSortField.value ?? undefined,
+            sortOrder: tableSortOrder.value ?? undefined,
+            global: g != null && g !== '' ? String(g) : null,
+            globalScoreFields,
+            filterColumns,
+            customFilters: customFilters.value,
+            range,
+            bestMpnnOnly: bestMpnnOnly.value,
+            ...extra
+        }
+    }
+
+    function defaultVisibleFromColumns(cols: ColumnConfig[]): string[] {
+        const fields = new Set(cols.map((c) => c.field))
+        const out = ['design_id', 'project_id', 'run_name', 'method']
+        if (fields.has('good')) out.push('good')
+        if (fields.has('Length')) out.push('Length')
+        for (const sc of defaultVisibleScoreColumnFields()) {
+            if (fields.has(sc)) out.push(sc)
+        }
+        return out
+    }
+
+    async function syncAllMatchingRows(seq: number): Promise<void> {
+        if (selectedRunIds.value.length === 0) {
+            allMatching.value = null
+            return
+        }
+        if (totalRows.value <= pageSize.value && pageIndex.value === 0) {
+            allMatching.value = [...pageRows.value]
+            return
+        }
+        allMatchingLoading.value = true
+        try {
+            const data = await designsApi.listDesigns(buildListQuery())
+            if (seq !== fetchSeq) return
+            allMatching.value = data.designs
+        } finally {
+            if (seq === fetchSeq) {
+                allMatchingLoading.value = false
+            }
+        }
+    }
+
+    const ensureAllMatching = async (): Promise<Design[]> => {
+        if (selectedRunIds.value.length === 0) return []
+        if (allMatching.value && totalRows.value <= pageSize.value && pageIndex.value === 0) {
+            return allMatching.value
+        }
+        allMatchingLoading.value = true
+        try {
+            const data = await designsApi.listDesigns(buildListQuery())
+            allMatching.value = data.designs
+            return allMatching.value
+        } finally {
+            allMatchingLoading.value = false
+        }
+    }
+
+    async function runFetchPage(): Promise<void> {
+        const seq = ++fetchSeq
+        if (selectedRunIds.value.length === 0) return
+        loading.value = true
+        try {
+            const data = await designsApi.listDesigns({
+                ...buildListQuery(),
+                page: pageIndex.value,
+                pageSize: pageSize.value
+            })
+            if (seq !== fetchSeq) return
+            pageRows.value = data.designs
+            totalRows.value = data.total ?? data.designs.length
+            allMatching.value = null
+            await syncAllMatchingRows(seq)
+
+            if (pendingSelectedDesignKeys.value.length > 0) {
+                const keySet = new Set(pendingSelectedDesignKeys.value.map((k) => `${k.run_id}::${k.design_id}`))
+                selectedDesigns.value = (allMatching.value ?? pageRows.value).filter((d) =>
+                    keySet.has(`${d.run_id}::${d.design_id}`)
+                )
+                pendingSelectedDesignKeys.value = []
+            } else {
+                const keySet = new Set(selectedDesigns.value.map((d) => `${d.run_id}::${d.design_id}`))
+                selectedDesigns.value = (allMatching.value ?? pageRows.value).filter((d) =>
+                    keySet.has(`${d.run_id}::${d.design_id}`)
+                )
+            }
+
+            if (pendingCurrentNavDesignId.value != null) {
+                currentNavDesignId.value = pendingCurrentNavDesignId.value
+                pendingCurrentNavDesignId.value = null
+            }
+            const withPdb = designsWithPdbOrdered()
+            if (!withPdb.some((d) => d.design_id === currentNavDesignId.value)) {
+                currentNavDesignId.value = withPdb[0]?.design_id ?? null
+            }
+        } catch (err) {
+            console.error('Error loading designs page:', err)
+            throw err
+        } finally {
+            if (seq === fetchSeq) {
+                loading.value = false
+            }
+        }
+    }
+
+    function scheduleQueryRefresh(): void {
+        if (selectedRunIds.value.length === 0) return
+        if (queryDebounceTimer) clearTimeout(queryDebounceTimer)
+        queryDebounceTimer = setTimeout(() => {
+            queryDebounceTimer = null
+            pageIndex.value = 0
+            void runFetchPage()
+        }, QUERY_DEBOUNCE_MS)
+    }
+
+    const onDataTablePage = (event: { page: number; first: number; rows: number }): void => {
+        pageIndex.value = event.page
+        pageSize.value = event.rows
+        void runFetchPage()
+    }
+
+    const onDataTableSort = (): void => {
+        pageIndex.value = 0
+        void runFetchPage()
+    }
+
     // Actions
     const fetchDesignsForRuns = async (runIds: string[]) => {
         const seq = ++fetchSeq
         if (runIds.length === 0) {
-            designs.value = []
-            rebuildDesignsByRun([])
+            pageRows.value = []
+            totalRows.value = 0
+            allMatching.value = null
+            columns.value = []
             loadedRunIdsSignature.value = ''
             selectedDesigns.value = []
             currentNavDesignId.value = null
@@ -829,48 +570,42 @@ export const useDesignsStore = defineStore('designs', () => {
 
         loading.value = true
         try {
-            const hadDesigns = designs.value.length > 0
             const prevVisible = [...visibleColumns.value]
-            const data = await designsApi.listDesigns(runIds)
+            const colRes = await designsApi.listDesignColumns(runIds)
             if (seq !== fetchSeq) return
+            columns.value = colRes.columns as ColumnConfig[]
 
-            designs.value = data.designs
-            rebuildDesignsByRun(data.designs)
-            loadedRunIdsSignature.value = runIdsSignature(runIds)
-
-            columns.value = buildColumnsFromData(data.designs)
-
-            const newDefaultColumns = ['design_id', 'project_id', 'run_name', 'method']
-
-            if (data.designs.some(d => Object.prototype.hasOwnProperty.call(d, 'good'))) {
-                newDefaultColumns.push('good')
-            }
-
-            if (data.designs.some(d => 'Length' in d && d['Length'] != null)) {
-                newDefaultColumns.push('Length')
-            }
-
-            const scoreColumns = defaultVisibleScoreColumnFields()
-            scoreColumns.forEach(scoreCol => {
-                if (data.designs.some(d => scoreCol in d && d[scoreCol] != null)) {
-                    newDefaultColumns.push(scoreCol)
-                }
-            })
-
-            if (!hadDesigns) {
-                visibleColumns.value = newDefaultColumns
+            if (prevVisible.length === 0 || !loadedRunIdsSignature.value) {
+                visibleColumns.value = defaultVisibleFromColumns(columns.value)
             } else {
-                const fieldSet = new Set(columns.value.map(c => c.field))
-                visibleColumns.value = prevVisible.filter(f => fieldSet.has(f))
+                const fieldSet = new Set(columns.value.map((c) => c.field))
+                visibleColumns.value = prevVisible.filter((f) => fieldSet.has(f))
             }
+
+            loadedRunIdsSignature.value = runIdsSignature(runIds)
+            pageIndex.value = 0
+            const data = await designsApi.listDesigns({
+                ...buildListQuery(),
+                page: 0,
+                pageSize: pageSize.value
+            })
+            if (seq !== fetchSeq) return
+            pageRows.value = data.designs
+            totalRows.value = data.total ?? data.designs.length
+            allMatching.value = null
+            await syncAllMatchingRows(seq)
 
             if (pendingSelectedDesignKeys.value.length > 0) {
                 const keySet = new Set(pendingSelectedDesignKeys.value.map((k) => `${k.run_id}::${k.design_id}`))
-                selectedDesigns.value = designs.value.filter((d) => keySet.has(`${d.run_id}::${d.design_id}`))
+                selectedDesigns.value = (allMatching.value ?? pageRows.value).filter((d) =>
+                    keySet.has(`${d.run_id}::${d.design_id}`)
+                )
                 pendingSelectedDesignKeys.value = []
             } else {
                 const keySet = new Set(selectedDesigns.value.map((d) => `${d.run_id}::${d.design_id}`))
-                selectedDesigns.value = designs.value.filter((d) => keySet.has(`${d.run_id}::${d.design_id}`))
+                selectedDesigns.value = (allMatching.value ?? pageRows.value).filter((d) =>
+                    keySet.has(`${d.run_id}::${d.design_id}`)
+                )
             }
 
             if (pendingCurrentNavDesignId.value != null) {
@@ -907,7 +642,7 @@ export const useDesignsStore = defineStore('designs', () => {
     const ensureDesignsForCurrentSelection = async (): Promise<void> => {
         if (selectedRunIds.value.length === 0) return
         const sig = runIdsSignature(selectedRunIds.value)
-        if (sig === loadedRunIdsSignature.value && designs.value.length > 0) return
+        if (sig === loadedRunIdsSignature.value && (totalRows.value > 0 || pageRows.value.length > 0)) return
         await fetchDesignsForRuns(selectedRunIds.value)
     }
 
@@ -933,7 +668,6 @@ export const useDesignsStore = defineStore('designs', () => {
 
     const toggleBestMpnnOnly = () => {
         bestMpnnOnly.value = !bestMpnnOnly.value
-        // No need to reload designs - filtering is done in computed property
     }
 
     const selectDesigns = (designsToSelect: Design[]) => {
@@ -949,9 +683,11 @@ export const useDesignsStore = defineStore('designs', () => {
         } else {
             visibleColumns.value.push(field)
         }
+        scheduleQueryRefresh()
     }
 
-    const navigateStructure = (direction: 'next' | 'previous') => {
+    const navigateStructure = async (direction: 'next' | 'previous') => {
+        await ensureAllMatching()
         const withPdb = designsWithPdbOrdered()
         const idx = withPdb.findIndex(d => d.design_id === currentNavDesignId.value)
         if (idx < 0) return
@@ -962,11 +698,19 @@ export const useDesignsStore = defineStore('designs', () => {
         }
     }
 
+    const patchDesignRows = (sync: (d: Design) => Design) => {
+        pageRows.value = pageRows.value.map(sync)
+        if (allMatching.value) {
+            allMatching.value = allMatching.value.map(sync)
+        }
+    }
+
     const clearDesigns = async () => {
         try {
             await designsApi.clearDesigns()
-            designs.value = []
-            rebuildDesignsByRun([])
+            pageRows.value = []
+            totalRows.value = 0
+            allMatching.value = null
             loadedRunIdsSignature.value = ''
             selectedDesigns.value = []
             currentNavDesignId.value = null
@@ -1029,8 +773,7 @@ export const useDesignsStore = defineStore('designs', () => {
             }
             return { ...d, good }
         }
-        designs.value = designs.value.map(sync)
-        rebuildDesignsByRun(designs.value)
+        patchDesignRows(sync)
         selectedDesigns.value = selectedDesigns.value.map(sync)
 
         if (!columns.value.some(c => c.field === 'good')) {
@@ -1111,8 +854,7 @@ export const useDesignsStore = defineStore('designs', () => {
             }
             return { ...d, tag }
         }
-        designs.value = designs.value.map(sync)
-        rebuildDesignsByRun(designs.value)
+        patchDesignRows(sync)
         selectedDesigns.value = selectedDesigns.value.map(sync)
         ensureTagColumnVisible()
     }
@@ -1135,8 +877,7 @@ export const useDesignsStore = defineStore('designs', () => {
             }
             return { ...d, tag: row.tag }
         }
-        designs.value = designs.value.map(sync)
-        rebuildDesignsByRun(designs.value)
+        patchDesignRows(sync)
         selectedDesigns.value = selectedDesigns.value.map(sync)
         ensureTagColumnVisible()
     }
@@ -1157,9 +898,12 @@ export const useDesignsStore = defineStore('designs', () => {
     watch([selectedRunIds, selectedDesignKeysSignature, currentNavDesignId], () => persistViewStateToStorage())
 
     return {
-        // State
-        designs,
-        designsByRun,
+        pageRows,
+        totalRows,
+        pageIndex,
+        pageSize,
+        allMatching,
+        allMatchingLoading,
         selectedDesigns,
         selectedRunIds,
         filters,
@@ -1176,7 +920,6 @@ export const useDesignsStore = defineStore('designs', () => {
         tableSortField,
         tableSortOrder,
 
-        // Getters
         filteredDesigns,
         orderedFilteredDesigns,
         totalDesigns,
@@ -1185,11 +928,13 @@ export const useDesignsStore = defineStore('designs', () => {
         canNavigateNext,
         totalStructures,
 
-        // Actions
         fetchDesigns,
         fetchDesignsForRuns,
         flushSelectedRunIds,
         ensureDesignsForCurrentSelection,
+        ensureAllMatching,
+        onDataTablePage,
+        onDataTableSort,
         setFilters,
         clearFilters,
         addCustomFilter,

@@ -739,7 +739,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         const ds = useDesignsStore()
         const sel = ds.selectedDesigns
         let rows: Design[] =
-            sel.length > 0 ? [...sel] : [...ds.filteredDesigns]
+            sel.length > 0 ? [...sel] : [...ds.orderedFilteredDesigns]
         if (goodOnly.value) {
             rows = rows.filter(d => d.good === true)
         }

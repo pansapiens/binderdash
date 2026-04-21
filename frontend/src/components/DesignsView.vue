@@ -269,7 +269,8 @@
 
         <div class="designs-table-section">
           <DataTable 
-          :value="designsStore.filteredDesigns" 
+          :value="designsStore.pageRows" 
+          :lazy="true"
           :loading="designsStore.loading"
           v-model:sortField="designsStore.tableSortField"
           v-model:sortOrder="designsStore.tableSortOrder"
@@ -277,8 +278,10 @@
           dataKey="design_id"
           stripedRows
           paginator
-          :rows="10"
+          :rows="designsStore.pageSize"
+          :totalRecords="designsStore.totalRows"
           :rowsPerPageOptions="[10, 20, 50, 100]"
+          :first="designsStore.pageIndex * designsStore.pageSize"
           paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
           currentPageReportTemplate="Showing {first} to {last} of {totalRecords} designs"
           showGridlines
@@ -290,6 +293,8 @@
           :scrollable="true"
           scrollHeight="800px"
           :selectOnClick="false"
+          @page="designsStore.onDataTablePage"
+          @sort="designsStore.onDataTableSort"
           @row-click="onRowClick"
         >
           <template #header>
@@ -340,7 +345,7 @@
                     <InputNumber 
                       v-model="selectTopCount"
                       :min="1"
-                      :max="Math.max(1, designsStore.filteredDesigns.length)"
+                      :max="Math.max(1, designsStore.totalRows)"
                       placeholder="N"
                       size="small"
                       inputId="select-top-count"
@@ -2011,11 +2016,11 @@ const openParamsDialog = (design: any): void => {
 }
 
 const navigateToNextRow = () => {
-  designsStore.navigateStructure('next')
+  void designsStore.navigateStructure('next')
 }
 
 const navigateToPreviousRow = () => {
-  designsStore.navigateStructure('previous')
+  void designsStore.navigateStructure('previous')
 }
 
 const getCurrentRowPosition = () => {
@@ -2137,18 +2142,13 @@ const applyFilters = () => {
   console.log('Filters applied:', designsStore.filters)
 }
 
-const selectTopRows = () => {
+const selectTopRows = async () => {
   if (!selectTopCount.value || selectTopCount.value < 1) {
     return
   }
-  
-  const sortedDesigns = designsStore.orderedFilteredDesigns
-
+  const sortedDesigns = await designsStore.ensureAllMatching()
   const topRows = sortedDesigns.slice(0, selectTopCount.value)
-  
-  // Update the store's selected designs
   designsStore.selectedDesigns = topRows
-  
   toast.add({
     severity: 'success',
     summary: 'Selection Updated',
@@ -2157,22 +2157,20 @@ const selectTopRows = () => {
   })
 }
 
-// Export helpers
-const getRowsToExport = () => {
+const getRowsToExport = async () => {
   const selected = designsStore.selectedDesigns
-  return (selected && selected.length > 0) ? selected : designsStore.filteredDesigns
+  if (selected && selected.length > 0) return selected
+  return await designsStore.ensureAllMatching()
 }
 
-const getColumnsToExport = () => {
+const getColumnsToExport = (rowsForKeys: any[]) => {
   const replaceRunId = (cols: string[]) => {
     return cols.map(c => (c === 'run_id' ? 'binderdash_run_id' : c)).filter((v, i, a) => a.indexOf(v) === i)
   }
 
   if (exportIncludeAllColumns.value) {
-    // All distinct keys across rows
-    const rows = getRowsToExport()
     const keySet = new Set<string>()
-    rows.forEach((r: any) => Object.keys(r).forEach(k => keySet.add(k)))
+    rowsForKeys.forEach((r: any) => Object.keys(r).forEach(k => keySet.add(k)))
     return replaceRunId(Array.from(keySet))
   }
   return replaceRunId(designsStore.visibleColumns)
@@ -2211,23 +2209,23 @@ const downloadBlob = (blob: Blob, filename: string) => {
   URL.revokeObjectURL(url)
 }
 
-const onDownloadCsv = () => {
-  const rows = getRowsToExport()
-  const cols = getColumnsToExport()
+const onDownloadCsv = async () => {
+  const rows = await getRowsToExport()
+  const cols = getColumnsToExport(rows)
   const content = toSeparatedValues(rows as any[], cols as string[], ',')
   downloadBlob(new Blob([content], { type: 'text/csv;charset=utf-8' }), 'designs.csv')
 }
 
-const onDownloadTsv = () => {
-  const rows = getRowsToExport()
-  const cols = getColumnsToExport()
+const onDownloadTsv = async () => {
+  const rows = await getRowsToExport()
+  const cols = getColumnsToExport(rows)
   const content = toSeparatedValues(rows as any[], cols as string[], '\t')
   downloadBlob(new Blob([content], { type: 'text/tab-separated-values;charset=utf-8' }), 'designs.tsv')
 }
 
 const onDownloadPdbs = async () => {
   try {
-    const rows = getRowsToExport().filter((d: any) => designsStore.getStructureFilename(d))
+    const rows = (await getRowsToExport()).filter((d: any) => designsStore.getStructureFilename(d))
     if (rows.length === 0) {
       toast.add({ severity: 'warn', summary: 'No PDBs', detail: 'No structure files to download', life: 2500 })
       return
@@ -2241,9 +2239,9 @@ const onDownloadPdbs = async () => {
   }
 }
 
-const onDownloadFasta = () => {
+const onDownloadFasta = async () => {
   try {
-    const rows = getRowsToExport()
+    const rows = await getRowsToExport()
     if (rows.length === 0) {
       toast.add({ severity: 'warn', summary: 'No Designs', detail: 'No designs to export', life: 2500 })
       return
@@ -2297,10 +2295,10 @@ const updateLengthFromInputs = () => {
   designsStore.filters.length_max.value = lengthMax.value
 }
 
-const updateLengthRange = () => {
-  // Update the length range based on available data
-  if (designsStore.designs.length > 0) {
-    const lengths = designsStore.designs
+const updateLengthRange = async () => {
+  const allRows = await designsStore.ensureAllMatching()
+  if (allRows.length > 0) {
+    const lengths = allRows
       .map(design => design.Length || design.length)
       .filter(length => length != null && !isNaN(Number(length)))
       .map(length => Number(length))
@@ -2771,10 +2769,13 @@ watch(
   { immediate: true, deep: true }
 )
 
-// Update length range when designs are loaded
-watch(() => designsStore.designs, () => {
-  updateLengthRange()
-}, { deep: true, immediate: true })
+watch(
+  () => [designsStore.totalRows, designsStore.selectedRunIds] as const,
+  () => {
+    void updateLengthRange()
+  },
+  { deep: true, immediate: true }
+)
 
 watch(
   () => designsStore.currentStructure?.design.run_id,

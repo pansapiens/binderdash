@@ -582,14 +582,15 @@ watch(() => authStore.canLoadData, (canLoad) => {
 // Keep plots data in sync with the designs table filtered rows (scoped fetch may still be loading)
 watch(
   () => [
-    designsStore.filteredDesigns,
     designsStore.selectedRunIds,
     designsStore.loading,
+    designsStore.pageRows,
+    designsStore.totalRows,
     plotsStore.selectedRunIds,
     plotsStore.scatterXCol,
     plotsStore.scatterYCol
   ],
-  () => {
+  async () => {
     if (designsStore.selectedRunIds.length === 0) {
       void updateAllPlots()
       return
@@ -598,9 +599,8 @@ watch(
       void updateAllPlots()
       return
     }
-    const rows = designsStore.filteredDesigns.filter((d: any) =>
-      plotsStore.selectedRunIds.includes(d.run_id)
-    )
+    const all = await designsStore.ensureAllMatching()
+    const rows = all.filter((d: any) => plotsStore.selectedRunIds.includes(d.run_id))
     plotsStore.setDataFromDesigns(rows as any[])
     void updateAllPlots()
   },

@@ -1,7 +1,8 @@
 import asyncio
 import logging
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -34,35 +35,110 @@ from ..schemas import (
 from ..persistence.factory import get_designs_repository
 from ..auth_providers.base import AuthUser
 from ..tag_placement import compute_tag_metrics_for_structure_file
+from ..util.designs_columns import build_columns_from_data
+from ..util.designs_query import DesignsQuery, apply_query, build_designs_query_from_params
 
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/designs", tags=["designs"])
 
 
-@router.get("")
-async def list_designs(
+def _ensure_designs_cache() -> None:
+    if not designs_cache:
+        refresh_designs_cache()
+
+
+def _scoped_source_rows(run_ids: Optional[str]) -> List[Dict[str, Any]]:
+    _ensure_designs_cache()
+    if not run_ids or not str(run_ids).strip():
+        return list(designs_cache)
+    allowed = {rid.strip() for rid in str(run_ids).split(",") if rid.strip()}
+    if not allowed:
+        return list(designs_cache)
+    return [d for d in designs_cache if str(d.get("run_id")) in allowed]
+
+
+@router.get("/columns")
+async def list_design_columns(
     run_ids: Optional[str] = Query(
         None,
-        description="Comma-separated run_id values to filter designs; omit for all designs.",
+        description="Comma-separated run_id values; omit for all designs in cache.",
     ),
     current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
-        if not designs_cache:
-            refresh_designs_cache()
-        if not run_ids or not run_ids.strip():
-            return {"designs": designs_cache}
-        allowed = {rid.strip() for rid in run_ids.split(",") if rid.strip()}
-        if not allowed:
-            return {"designs": designs_cache}
-        filtered = [
-            d for d in designs_cache if str(d.get("run_id")) in allowed
-        ]
-        return {"designs": filtered}
+        rows = _scoped_source_rows(run_ids)
+        return {"columns": build_columns_from_data(rows)}
     except Exception as e:
-        logger.error(f"Error in list_designs: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error in list_design_columns: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("")
+async def list_designs(
+    run_ids: Optional[str] = Query(
+        None,
+        description="Comma-separated run_id values; omit for all designs.",
+    ),
+    page: Optional[int] = Query(None, ge=0),
+    page_size: Optional[int] = Query(None, ge=1, le=10_000),
+    sort_field: Optional[str] = Query(None),
+    sort_order: int = Query(0, description="-1 desc, 1 asc, 0 none"),
+    global_: Optional[str] = Query(None, alias="global"),
+    global_score_fields: Optional[str] = Query(
+        None,
+        description="Comma-separated score field names for global search (visible columns).",
+    ),
+    filters: Optional[str] = Query(
+        None,
+        description="JSON object: design_id, project_id, run_name, method column filters.",
+    ),
+    custom_filters: Optional[str] = Query(None, description="JSON array of custom filter rows."),
+    range_: Optional[str] = Query(None, alias="range", description="JSON range filters."),
+    best_mpnn_only: bool = Query(False),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
+    try:
+        _ensure_designs_cache()
+        source = list(designs_cache)
+        gs = global_.strip() if global_ and str(global_).strip() else None
+        base = build_designs_query_from_params(
+            global_search=gs,
+            global_score_fields_raw=global_score_fields,
+            filters_json=filters,
+            custom_filters_json=custom_filters,
+            range_json=range_,
+            sort_field=sort_field,
+            sort_order=sort_order,
+            best_mpnn_only=best_mpnn_only,
+        )
+        parsed_run_ids: Optional[tuple[str, ...]] = None
+        if run_ids and str(run_ids).strip():
+            allowed = tuple(
+                sorted({rid.strip() for rid in str(run_ids).split(",") if rid.strip()})
+            )
+            if allowed:
+                parsed_run_ids = allowed
+        dq = replace(base, run_ids=parsed_run_ids)
+        filtered = apply_query(source, dq)
+        total = len(filtered)
+        out_rows = filtered
+        out_page: Optional[int] = None
+        out_ps: Optional[int] = None
+        if page is not None and page_size is not None:
+            out_page = page
+            out_ps = page_size
+            start = page * page_size
+            out_rows = filtered[start : start + page_size]
+        return {
+            "designs": out_rows,
+            "total": total,
+            "page": out_page,
+            "page_size": out_ps,
+        }
+    except Exception as e:
+        logger.error("Error in list_designs: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.delete("")

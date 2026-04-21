@@ -13,7 +13,9 @@ def test_list_designs_no_param_returns_all(api_client) -> None:
     )
     r = api_client.get("/api/designs")
     assert r.status_code == 200
-    assert len(r.json()["designs"]) == 2
+    body = r.json()
+    assert len(body["designs"]) == 2
+    assert body["total"] == 2
 
 
 def test_list_designs_run_ids_filters_single(api_client) -> None:
