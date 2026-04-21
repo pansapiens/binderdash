@@ -977,10 +977,20 @@ export const useDesignsStore = defineStore('designs', () => {
     }
 
     const setSelectedRunIds = (runIds: string[]) => {
+        const previousRunIdsSignature = runIdsSignature(selectedRunIds.value)
+        const nextRunIdsSignature = runIdsSignature(runIds)
         selectedRunIds.value = runIds
         selectedDesigns.value = selectedDesigns.value.filter(design =>
             runIds.length === 0 || runIds.includes(design.run_id)
         )
+
+        if (
+            nextRunIdsSignature === previousRunIdsSignature &&
+            nextRunIdsSignature === loadedRunIdsSignature.value &&
+            designs.value.length > 0
+        ) {
+            return
+        }
 
         if (selectionDebounceTimer) {
             clearTimeout(selectionDebounceTimer)

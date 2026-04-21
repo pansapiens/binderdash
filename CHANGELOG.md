@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fixed (Designs)**: Skip redundant `GET /api/designs` when selected run IDs are unchanged.
+- **Fixed (Mol\*)**: Fewer duplicate structure fetches — identical loads skipped, membrane overlay repaints without reloading CIF, binder-tag marker reads terminal CA from Mol*’s loaded model (no second CIF request).
 - **API / Designs**: `GET /api/designs` accepts optional `run_ids` (comma-separated) to return only designs for those runs; omit for all designs (unchanged).
 - **Designs / Select Runs**: The client loads designs only for the selected runs (`run_ids` query), debounces selection changes, indexes by `run_id` for column metadata, removes forced DataTable remounts, and loads scoped data when the **Designs** or **Plots** tab is active (with deduplication when selection is unchanged). Ingest completion refreshes runs and reloads designs only for the current selection.
 - **Backend**: Pipeline/method/score config lives under `backend/config/` (signatures consumed by `run_discovery`/`cache`; IDs, path heuristics, params keys, basename rules in `method_paths.py`).

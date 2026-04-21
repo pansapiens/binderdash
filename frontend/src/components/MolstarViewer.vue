@@ -41,7 +41,7 @@ import { PDBeMolstarPlugin } from 'pdbe-molstar/lib/viewer'
 import 'pdbe-molstar/lib/styles/pdbe-molstar-light.scss'
 import type { MembraneData } from '../membraneOverlay'
 import { paintMembraneScreenOverlay } from '../membraneScreenOverlay'
-import { parseStructureTextTerminalCA } from '../pdbTerminalCa'
+import { extractTerminalCaFromMolstarPlugin } from '../molstarTerminalCa'
 import { paintTagMarkerScreenOverlay } from '../tagMarkerScreenOverlay'
 
 if (typeof window !== 'undefined') {
@@ -105,6 +105,7 @@ onBeforeUnmount(() => {
 })
 
 let loadStructureTail: Promise<void> = Promise.resolve()
+let lastCompletedStructureLoadKey: string | null = null
 
 // Methods
 const loadMolstarResources = () => Promise.resolve()
@@ -132,19 +133,31 @@ const hasReferenceUrl = (): boolean => {
   return typeof r === 'string' && r.trim().length > 0
 }
 
-const applyBinderTagOverlay = async () => {
-  if (!viewerAlive.value || !viewerInstance.value) return
+/**
+ * Set `awaitLoad: false` when called from inside the load flow itself;
+ * awaiting `loadStructureTail` from `runLoadStructure` would deadlock.
+ */
+const applyBinderTagOverlay = async (options: { awaitLoad?: boolean } = {}) => {
+  if (!viewerAlive.value) return
   if (props.tagOverlay === 'none' || !props.pdbUrl) {
     tagMarkerWorldPos.value = null
     paintTagMarkerIfActive()
     return
   }
+  if (options.awaitLoad !== false) {
+    // Wait for any in-flight structure load so Mol*'s state tree is populated
+    // before we read atoms — this is what lets us avoid a second CIF fetch.
+    try {
+      await loadStructureTail
+    } catch {
+      /* fall through — we'll try with whatever state is available */
+    }
+  }
+  if (!viewerAlive.value || !viewerInstance.value) return
+  const chain = (props.tagBinderChain && props.tagBinderChain.trim()) || 'B'
   try {
-    const res = await fetch(props.pdbUrl, { credentials: 'include' })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const text = await res.text()
-    const chain = (props.tagBinderChain && props.tagBinderChain.trim()) || 'B'
-    const coords = parseStructureTextTerminalCA(text, chain)
+    const plugin = (viewerInstance.value as any)?.plugin
+    const coords = extractTerminalCaFromMolstarPlugin(plugin, chain)
     if (!coords) {
       console.warn(
         'MolstarViewer: could not find terminal CA atoms for binder chain',
@@ -468,6 +481,16 @@ const runLoadStructure = async (): Promise<void> => {
     }
     loading.value = false
     error.value = null
+    lastCompletedStructureLoadKey = null
+    return
+  }
+
+  const requestedLoadKey = JSON.stringify({
+    pdbUrl: props.pdbUrl,
+    referenceUrl: props.referenceUrl ?? '',
+    referenceDataFormat: props.referenceDataFormat ?? ''
+  })
+  if (viewerInstance.value && requestedLoadKey === lastCompletedStructureLoadKey) {
     return
   }
 
@@ -502,13 +525,15 @@ const runLoadStructure = async (): Promise<void> => {
         if (props.autoFocus !== false) {
           await focusOnStructure()
         }
-        await applyBinderTagOverlay()
+        await applyBinderTagOverlay({ awaitLoad: false })
         await subscribeOverlayPaint()
+        lastCompletedStructureLoadKey = requestedLoadKey
         return
       }
       await fullReload()
       if (!viewerAlive.value) return
-      await applyBinderTagOverlay()
+      await applyBinderTagOverlay({ awaitLoad: false })
+      lastCompletedStructureLoadKey = requestedLoadKey
       return
     }
 
@@ -527,11 +552,13 @@ const runLoadStructure = async (): Promise<void> => {
         await focusOnStructure()
       }
     }
-    await applyBinderTagOverlay()
+    await applyBinderTagOverlay({ awaitLoad: false })
+    lastCompletedStructureLoadKey = requestedLoadKey
   } catch (err) {
     if (!viewerAlive.value) return
     console.error('Error loading Molstar viewer:', err)
     error.value = (err as Error).message || 'Failed to load structure'
+    lastCompletedStructureLoadKey = null
   } finally {
     loading.value = false
   }
@@ -620,13 +647,26 @@ const fullReload = async () => {
 // Watchers
 watch(
   () =>
-    [props.pdbUrl, props.referenceUrl ?? '', props.referenceDataFormat ?? '', props.membraneData] as const,
+    [props.pdbUrl, props.referenceUrl ?? '', props.referenceDataFormat ?? ''] as const,
   () => {
     nextTick(() => {
       loadStructure()
     })
   },
   { immediate: false }
+)
+
+watch(
+  () => props.membraneData,
+  async () => {
+    await nextTick()
+    if (!viewerInstance.value) return
+    if (!hasReferenceUrl()) {
+      clearMembraneCanvasPixels()
+      return
+    }
+    await syncMembraneAfterReference()
+  }
 )
 
 watch(
