@@ -2343,45 +2343,12 @@ const getPdbUrl = () => {
 
 /**
  * When the reference overlay is on, `referenceViewerUrl` updates after `loadReferenceOverlay` finishes.
- * Passing `getPdbUrl()` + `referenceViewerUrl` directly makes Mol* load the new PDB twice (paired with stale then fresh blob).
- * Keep prior PDB/ref on the viewer until `referenceLoading` is false so Mol* sees one atomic update.
+ * The watch that updates these refs MUST be registered after the `currentStructure?.filename` and `run_id`
+ * watchers below so that `loadReferenceOverlay()` runs first and sets `referenceLoading` before we evaluate.
+ * Otherwise the first flush pushes (new PDB, stale blob) and Mol* loads twice (double flash).
  */
 const molstarPdbUrlForViewer = ref('')
 const molstarReferenceUrlForViewer = ref('')
-watch(
-  [
-    () => designsStore.currentStructure?.design?.run_id,
-    () => designsStore.currentStructure?.filename,
-    referenceOverlayActive,
-    referenceLoading,
-    referenceViewerUrl,
-  ],
-  () => {
-    const cs = designsStore.currentStructure
-    if (!cs) {
-      molstarPdbUrlForViewer.value = ''
-      molstarReferenceUrlForViewer.value = ''
-      return
-    }
-    const pdb = runsApi.getPdbFileUrl(cs.design.run_id, cs.filename)
-    if (!referenceOverlayActive.value) {
-      molstarPdbUrlForViewer.value = pdb
-      molstarReferenceUrlForViewer.value = ''
-      return
-    }
-    if (referenceLoading.value) {
-      if (molstarPdbUrlForViewer.value !== '') {
-        return
-      }
-      molstarPdbUrlForViewer.value = pdb
-      molstarReferenceUrlForViewer.value = ''
-      return
-    }
-    molstarPdbUrlForViewer.value = pdb
-    molstarReferenceUrlForViewer.value = referenceViewerUrl.value
-  },
-  { flush: 'pre', immediate: true }
-)
 
 const inputTargetDropdownOptions = computed(() =>
   inputTargetsList.value.map((t) => ({ label: t.label, value: t.id }))
@@ -2895,6 +2862,41 @@ watch(
       await loadReferenceOverlay(true)
     }
   }
+)
+
+watch(
+  [
+    () => designsStore.currentStructure?.design?.run_id,
+    () => designsStore.currentStructure?.filename,
+    referenceOverlayActive,
+    referenceLoading,
+    referenceViewerUrl,
+  ],
+  () => {
+    const cs = designsStore.currentStructure
+    if (!cs) {
+      molstarPdbUrlForViewer.value = ''
+      molstarReferenceUrlForViewer.value = ''
+      return
+    }
+    const pdb = runsApi.getPdbFileUrl(cs.design.run_id, cs.filename)
+    if (!referenceOverlayActive.value) {
+      molstarPdbUrlForViewer.value = pdb
+      molstarReferenceUrlForViewer.value = ''
+      return
+    }
+    if (referenceLoading.value) {
+      if (molstarPdbUrlForViewer.value !== '') {
+        return
+      }
+      molstarPdbUrlForViewer.value = pdb
+      molstarReferenceUrlForViewer.value = ''
+      return
+    }
+    molstarPdbUrlForViewer.value = pdb
+    molstarReferenceUrlForViewer.value = referenceViewerUrl.value
+  },
+  { flush: 'pre', immediate: true }
 )
 
 watch(
