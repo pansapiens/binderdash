@@ -12,7 +12,15 @@ const BASE52_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 export type ShortNameStrategy =
     | { kind: 'none' }
     | { kind: 'regex'; pattern: string; replacement: string; flags: string }
-    | { kind: 'splitTake'; delimiter: string; indices: number[]; addHash: boolean; hashLen: number }
+    | {
+          kind: 'splitTake'
+          delimiter: string
+          indices: number[]
+          addPrefix: string
+          addSuffix: string
+          addHash: boolean
+          hashLen: number
+      }
     | { kind: 'pattern'; prefix: string; uidLength: number; numberPad: number }
     | {
           kind: 'smartStemHash'
@@ -184,6 +192,10 @@ function rawNameForRow(
             }
         }
         let stem = out.length > 0 ? out.join(delim) : id
+        const ap = sanitizeShortNameSegment((strategy.addPrefix ?? '').trim())
+        const as = sanitizeShortNameSegment((strategy.addSuffix ?? '').trim())
+        if (ap) stem = stem ? `${ap}_${stem}` : ap
+        if (as) stem = stem ? `${stem}_${as}` : as
         if (!strategy.addHash) return stem
         const hl = clampHashLen(strategy.hashLen)
         const h = hashBase52(hashInput, hl)

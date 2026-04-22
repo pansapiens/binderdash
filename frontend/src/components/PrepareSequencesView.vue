@@ -225,6 +225,14 @@
             <InputText v-model="seqPrep.shortNameSplitIndices" placeholder="e.g. 1,2,3" class="flex-1" />
           </div>
         </div>
+        <div v-if="seqPrep.shortNameKind === 'splitTake'" class="ps-field">
+          <label for="ps-sn-split-add-pre">Add prefix</label>
+          <InputText id="ps-sn-split-add-pre" v-model="seqPrep.shortNameSplitAddPrefix" class="w-full" placeholder="Optional" />
+        </div>
+        <div v-if="seqPrep.shortNameKind === 'splitTake'" class="ps-field">
+          <label for="ps-sn-split-add-suf">Add suffix</label>
+          <InputText id="ps-sn-split-add-suf" v-model="seqPrep.shortNameSplitAddSuffix" class="w-full" placeholder="Optional" />
+        </div>
         <div v-if="seqPrep.shortNameKind === 'splitTake'" class="ps-field ps-field-span-2">
           <div class="ps-short-name-row">
             <Checkbox v-model="seqPrep.shortNameSplitAddHash" input-id="ps-sn-split-hash" binary />
