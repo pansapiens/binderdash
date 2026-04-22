@@ -15,6 +15,7 @@
         upper and lowercase (eg <code>atgGS</code> translates to <code>MGS</code>).
       </p>
       <p class="ps-case-help">
+        <br>
         <strong>Short names:</strong> Optional strategies shorten <code>design_id</code> to ≤32 characters for synthesis orders.
       </p>
     </div>
@@ -683,6 +684,28 @@
     </Message>
 
     <Message
+      v-if="rowsWithInvalidTagEnd.length > 0"
+      severity="warn"
+      class="ps-warnings-banner"
+      :closable="false"
+    >
+      <div class="ps-warnings-banner-inner">
+        <i class="pi pi-exclamation-triangle ps-warn-banner-icon" aria-hidden="true" />
+        <div class="ps-warnings-banner-body">
+          <p class="ps-warnings-banner-lead">
+            <strong>Warning:</strong> Some designs have no value in the <strong>Tag End</strong> column.
+            Terminii-specific tags will only be applied to sequences where the tag column is <code>N</code> or <code>C</code>.
+          </p>
+          <p v-if="invalidTagDesignSummary" class="ps-invalid-tag-summary">{{ invalidTagDesignSummary }}</p>
+          <div class="ps-warnings-ack">
+            <Checkbox v-model="tagColumnAcknowledged" input-id="ps-tag-col-ack" binary />
+            <label for="ps-tag-col-ack">Acknowledged, continue anyway</label>
+          </div>
+        </div>
+      </div>
+    </Message>
+
+    <Message
       v-if="dnaWarningActive"
       severity="warn"
       class="ps-warnings-banner"
@@ -839,13 +862,15 @@ const tableFilters = ref({
 })
 
 const warningsAcknowledged = ref(false)
+const tagColumnAcknowledged = ref(false)
 
 const preparedRowsFingerprint = computed(() =>
-  seqPrep.preparedRows.map((r) => `${r.row_key}:${r.prepared_aa}`).join('|')
+  seqPrep.preparedRows.map((r) => `${r.row_key}:${r.prepared_aa}:${r.tag}`).join('|')
 )
 
 watch(preparedRowsFingerprint, () => {
   warningsAcknowledged.value = false
+  tagColumnAcknowledged.value = false
 })
 
 const dnaStalenessAcknowledged = ref(false)
@@ -859,6 +884,20 @@ watch(
 )
 
 const rowsWithWarnings = computed(() => seqPrep.preparedRows.filter((r) => r.warnings.length > 0))
+
+const rowsWithInvalidTagEnd = computed(() =>
+  seqPrep.preparedRows.filter((r) => r.tag !== 'N' && r.tag !== 'C')
+)
+
+const invalidTagDesignSummary = computed(() => {
+  const rows = rowsWithInvalidTagEnd.value
+  if (rows.length === 0) return ''
+  const ids = rows.map((r) => r.design_id)
+  const maxShow = 5
+  const shown = ids.slice(0, maxShow)
+  const more = ids.length > maxShow ? ` … (${ids.length} total)` : ''
+  return `Affected design_id: ${shown.join(', ')}${more}.`
+})
 
 const enabledOptimizationConstraintCount = computed(
   () => seqPrep.optimizationConstraints.filter((c) => c.enabled).length
@@ -891,6 +930,7 @@ const warningsSummaryLines = computed(() => {
 const downloadAllowed = computed(() => {
   if (!seqPrep.canDownload) return false
   if (rowsWithWarnings.value.length > 0 && !warningsAcknowledged.value) return false
+  if (rowsWithInvalidTagEnd.value.length > 0 && !tagColumnAcknowledged.value) return false
   if (dnaWarningActive.value && !dnaStalenessAcknowledged.value) return false
   return true
 })
@@ -1010,6 +1050,15 @@ function guardDownload(): boolean {
       severity: 'warn',
       summary: 'Acknowledge warnings',
       detail: 'Check the warning box above or adjust sequences before downloading.',
+      life: 5000
+    })
+    return false
+  }
+  if (rowsWithInvalidTagEnd.value.length > 0 && !tagColumnAcknowledged.value) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Acknowledge tag column',
+      detail: 'Set the tag column to N or C where needed, or tick the tag acknowledgement before downloading.',
       life: 5000
     })
     return false
@@ -1792,6 +1841,12 @@ const downloadMenuItems = [
 
 .ps-warnings-banner-lead {
   margin: 0 0 0.35rem 0;
+}
+
+.ps-invalid-tag-summary {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
+  color: var(--p-text-muted-color, #6c757d);
 }
 
 .ps-warnings-summary-list {
