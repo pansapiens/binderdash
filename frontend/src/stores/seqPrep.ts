@@ -50,7 +50,7 @@ export type OptimizationConstraintType = (typeof OPTIMIZATION_CONSTRAINT_TYPES)[
 
 export const DEFAULT_TWIST_CONSTRAINTS: DnaOptConstraintSpecDto[] = [
     { type: 'EnforceGCContent', enabled: true, params: { mini: 0.25, maxi: 0.64 } },
-    { type: 'EnforceGCContent', enabled: true, params: { mini: 0.25, maxi: 0.75, window: 50 } },
+    { type: 'EnforceGCContent', enabled: true, params: { mini: 0.35, maxi: 0.75, window: 50 } },
     { type: 'AvoidHairpins', enabled: true, params: { stem_size: 20, hairpin_window: 48 } },
     { type: 'AvoidPattern', enabled: true, params: { pattern: 'AAAAAAAAA' } },
     { type: 'AvoidPattern', enabled: true, params: { pattern: 'TTTTTTTTT' } },
@@ -758,6 +758,8 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
     const shortNameRegexFlags = ref('g')
     const shortNameSplitDelimiter = ref('_')
     const shortNameSplitIndices = ref('1,2,3')
+    const shortNameSplitAddPrefix = ref('')
+    const shortNameSplitAddSuffix = ref('')
     const shortNameSplitAddHash = ref(false)
     const shortNamePatternPrefix = ref('design')
     const shortNamePatternUidLength = ref(5)
@@ -792,6 +794,8 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                 kind: 'splitTake',
                 delimiter: shortNameSplitDelimiter.value || '_',
                 indices: parts.length > 0 ? parts : [1, 2, 3],
+                addPrefix: shortNameSplitAddPrefix.value,
+                addSuffix: shortNameSplitAddSuffix.value,
                 addHash: shortNameSplitAddHash.value,
                 hashLen: shortNameSmartHashLen.value
             }
@@ -1549,6 +1553,8 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         shortNameRegexFlags,
         shortNameSplitDelimiter,
         shortNameSplitIndices,
+        shortNameSplitAddPrefix,
+        shortNameSplitAddSuffix,
         shortNameSplitAddHash,
         shortNamePatternPrefix,
         shortNamePatternUidLength,
