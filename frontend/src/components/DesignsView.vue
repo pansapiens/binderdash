@@ -612,8 +612,8 @@
 
         <div class="viewer-container" ref="viewerContainerRef" v-if="designsStore.currentStructure">
           <MolstarViewer 
-            :pdb-url="getPdbUrl()"
-            :reference-url="referenceViewerUrl"
+            :pdb-url="molstarPdbUrlForViewer"
+            :reference-url="molstarReferenceUrlForViewer"
             reference-data-format="mmcif"
             :membrane-data="referenceMembraneData"
             :structure-info="designsStore.currentStructure"
@@ -2340,6 +2340,48 @@ const getPdbUrl = () => {
   if (!designsStore.currentStructure) return ''
   return runsApi.getPdbFileUrl(designsStore.currentStructure.design.run_id, designsStore.currentStructure.filename)
 }
+
+/**
+ * When the reference overlay is on, `referenceViewerUrl` updates after `loadReferenceOverlay` finishes.
+ * Passing `getPdbUrl()` + `referenceViewerUrl` directly makes Mol* load the new PDB twice (paired with stale then fresh blob).
+ * Keep prior PDB/ref on the viewer until `referenceLoading` is false so Mol* sees one atomic update.
+ */
+const molstarPdbUrlForViewer = ref('')
+const molstarReferenceUrlForViewer = ref('')
+watch(
+  [
+    () => designsStore.currentStructure?.design?.run_id,
+    () => designsStore.currentStructure?.filename,
+    referenceOverlayActive,
+    referenceLoading,
+    referenceViewerUrl,
+  ],
+  () => {
+    const cs = designsStore.currentStructure
+    if (!cs) {
+      molstarPdbUrlForViewer.value = ''
+      molstarReferenceUrlForViewer.value = ''
+      return
+    }
+    const pdb = runsApi.getPdbFileUrl(cs.design.run_id, cs.filename)
+    if (!referenceOverlayActive.value) {
+      molstarPdbUrlForViewer.value = pdb
+      molstarReferenceUrlForViewer.value = ''
+      return
+    }
+    if (referenceLoading.value) {
+      if (molstarPdbUrlForViewer.value !== '') {
+        return
+      }
+      molstarPdbUrlForViewer.value = pdb
+      molstarReferenceUrlForViewer.value = ''
+      return
+    }
+    molstarPdbUrlForViewer.value = pdb
+    molstarReferenceUrlForViewer.value = referenceViewerUrl.value
+  },
+  { flush: 'pre', immediate: true }
+)
 
 const inputTargetDropdownOptions = computed(() =>
   inputTargetsList.value.map((t) => ({ label: t.label, value: t.id }))

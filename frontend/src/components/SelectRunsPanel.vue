@@ -319,6 +319,8 @@ onMounted(() => {
 
 .protocol-icon {
   color: #6c757d;
+  /* PrimeVue row-click skips targets it treats as “clickable”; the icon would otherwise block run selection. */
+  pointer-events: none;
 }
 
 .muted-cell {
