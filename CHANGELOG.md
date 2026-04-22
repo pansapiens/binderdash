@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Added (Prepare sequences / DNA Optimization)**: New `ExcludeRestrictionSite` constraint with a searchable dropdown of common Type II / Golden Gate / 8-cutter restriction enzymes (serialised as `AvoidPattern` with `"<enzyme>_site"` so dnachisel resolves the site via Biopython's restriction table on both strands).
 - **Added (Prepare sequences)**: Warn (with acknowledge-before-download) when any in-scope design has a blank or non‑N/C **tag** column so N/C terminal presets are not applied to those rows.
 - **Changed (Prepare sequences)**: **Short name** settings live in a collapsible **Panel** (like DNA optimisation); the whole header (title/bar) toggles expand/collapse, not only the chevron.
 - **Added (Prepare sequences / Twist)**: **Short names** (≤32 chars) with strategies (regex replace; split + indices + optional hash; prefix + **DNA-set uid** + index; **smart** stem+hash with optional common prefix/suffix strip, regex strip, and extra prefix/suffix). Row hashes use pre-tag amino acid. **`short_name`** stored in SQLite ( **`design_id`** unchanged); **`POST /api/designs/short-names`** bulk-updates. Default Twist download **`name,sequence,original_name`** (values from computed short name); TSV/CSV keep prior columns and append **`short_name`**; **Design** column shows short name on line one. Strategy defaults to **None** if all `design_id`s fit ≤32 chars, else **Smart: stem + hash**, until the user picks a strategy.

@@ -30,6 +30,24 @@ export type TagZone = 'n' | 'c'
 
 export type PresetTagKind = 'hisN' | 'hisC' | 'flag' | 'cmyc' | 'ha' | 'linker' | 'custom'
 
+/**
+ * UI-level constraint types shown in the DNA Optimization panel. Most map
+ * 1:1 to dnachisel specifications; `ExcludeRestrictionSite` is a convenience
+ * wrapper that is serialised to `AvoidPattern` with `pattern: "<enzyme>_site"`
+ * just before being sent to the backend (dnachisel recognises the `_site`
+ * suffix and resolves it via Biopython's restriction table).
+ */
+export const OPTIMIZATION_CONSTRAINT_TYPES = [
+    'ExcludeRestrictionSite',
+    'EnforceGCContent',
+    'AvoidHairpins',
+    'AvoidPattern',
+    'AvoidRareCodons',
+    'UniquifyAllKmers'
+] as const
+
+export type OptimizationConstraintType = (typeof OPTIMIZATION_CONSTRAINT_TYPES)[number]
+
 export const DEFAULT_TWIST_CONSTRAINTS: DnaOptConstraintSpecDto[] = [
     { type: 'EnforceGCContent', enabled: true, params: { mini: 0.25, maxi: 0.64 } },
     { type: 'EnforceGCContent', enabled: true, params: { mini: 0.25, maxi: 0.75, window: 50 } },
@@ -44,6 +62,25 @@ export const DEFAULT_TWIST_CONSTRAINTS: DnaOptConstraintSpecDto[] = [
     { type: 'AvoidPattern', enabled: true, params: { pattern: 'GGAGG' } },
     { type: 'AvoidPattern', enabled: true, params: { pattern: 'TAAGGAG' } }
 ]
+
+/**
+ * Translate UI-only constraint types (e.g. `ExcludeRestrictionSite`) into the
+ * shape understood by the backend / dnachisel. Unknown types pass through so
+ * future additions degrade gracefully.
+ */
+export function serializeConstraintForBackend(
+    c: DnaOptConstraintSpecDto
+): DnaOptConstraintSpecDto {
+    if (c.type === 'ExcludeRestrictionSite') {
+        const enzyme = typeof c.params?.enzyme === 'string' ? c.params.enzyme.trim() : ''
+        return {
+            type: 'AvoidPattern',
+            enabled: c.enabled,
+            params: enzyme ? { pattern: `${enzyme}_site` } : { pattern: '' }
+        }
+    }
+    return c
+}
 
 export interface PlacedTag {
     id: string
@@ -1418,7 +1455,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                 sequences: seqs,
                 codon_table_id: selectedCodonTable.value || FALLBACK_ECOLLI_CODON_TABLE.label,
                 method: optimizationMethod.value,
-                constraints: optimizationConstraints.value
+                constraints: optimizationConstraints.value.map(serializeConstraintForBackend)
             }
             const res = await sequencesApi.optimizeDna(req)
             const optMap: Record<string, string> = {}
@@ -1447,7 +1484,11 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
     }
 
     function addConstraint() {
-        optimizationConstraints.value.push({ type: 'EnforceGCContent', enabled: true, params: {} })
+        optimizationConstraints.value.push({
+            type: 'ExcludeRestrictionSite',
+            enabled: true,
+            params: { enzyme: 'NdeI' }
+        })
     }
 
     function removeConstraint(idx: number) {

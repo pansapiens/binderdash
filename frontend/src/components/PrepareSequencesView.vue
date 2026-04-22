@@ -387,13 +387,6 @@
             size="small"
             @click="seqPrep.resetConstraintsToDefaults()"
           />
-          <Button
-            label="Add Constraint"
-            icon="pi pi-plus"
-            severity="secondary"
-            size="small"
-            @click="seqPrep.addConstraint()"
-          />
         </div>
 
         <DataTable :value="seqPrep.optimizationConstraints" class="p-datatable-sm" responsiveLayout="scroll">
@@ -402,14 +395,44 @@
               <Checkbox v-model="data.enabled" :binary="true" />
             </template>
           </Column>
-          <Column field="type" header="Constraint Type">
+          <Column field="type" header="Constraint Type" style="width: 14rem">
             <template #body="{ data }">
-              <Select v-model="data.type" :options="['EnforceGCContent', 'AvoidHairpins', 'AvoidPattern', 'AvoidRareCodons', 'UniquifyAllKmers']" class="w-full" />
+              <Select
+                :model-value="data.type"
+                :options="constraintTypeOptions"
+                class="w-full"
+                @update:model-value="(v: string) => onConstraintTypeChange(data, v)"
+              />
             </template>
           </Column>
-          <Column field="params" header="Parameters (JSON)">
+          <Column field="params" header="Parameters">
             <template #body="{ data }">
-               <InputText :value="JSON.stringify(data.params)" @change="updateConstraintParams(data, $event.target.value)" class="w-full" placeholder='{"mini": 0.25}' />
+              <Select
+                v-if="data.type === 'ExcludeRestrictionSite'"
+                :model-value="data.params?.enzyme"
+                :options="restrictionEnzymeOptions"
+                option-label="label"
+                option-value="value"
+                option-group-label="label"
+                option-group-children="items"
+                :filter="true"
+                filter-placeholder="Search enzyme or site"
+                :filter-fields="['value', 'site', 'label']"
+                placeholder="Select a restriction enzyme"
+                class="w-full"
+                @update:model-value="(v: string) => (data.params = { enzyme: v })"
+              >
+                <template #optiongroup="{ option }">
+                  <strong class="ps-restriction-group-label">{{ option.label }}</strong>
+                </template>
+              </Select>
+              <InputText
+                v-else
+                :value="JSON.stringify(data.params)"
+                @change="updateConstraintParams(data, ($event.target as HTMLInputElement).value)"
+                class="w-full"
+                placeholder='{"mini": 0.25}'
+              />
             </template>
           </Column>
           <Column headerStyle="width: 4rem">
@@ -418,6 +441,16 @@
             </template>
           </Column>
         </DataTable>
+
+        <div class="ps-opt-table-footer-actions">
+          <Button
+            label="Add Constraint"
+            icon="pi pi-plus"
+            severity="secondary"
+            size="small"
+            @click="seqPrep.addConstraint()"
+          />
+        </div>
       </div>
     </Panel>
 
@@ -759,9 +792,14 @@ import {
   tagPresetChipCssVars,
   tagPresetChromeStyle,
   useSeqPrepStore,
+  OPTIMIZATION_CONSTRAINT_TYPES,
   type PreparedRow
 } from '../stores/seqPrep'
 import type { ShortNameStrategy } from '../stores/shortName'
+import {
+  RESTRICTION_ENZYMES,
+  type RestrictionEnzyme
+} from '../utils/restrictionEnzymes'
 
 const seqPrep = useSeqPrepStore()
 const toast = useToast()
@@ -795,6 +833,56 @@ const updateConstraintParams = (data: any, val: string) => {
     data.params = JSON.parse(val)
   } catch (e) {
     // Ignore invalid JSON format on change
+  }
+}
+
+const constraintTypeOptions = [...OPTIMIZATION_CONSTRAINT_TYPES]
+
+interface RestrictionEnzymeOptionGroup {
+  label: RestrictionEnzyme['category']
+  items: Array<{ label: string; value: string; site: string }>
+}
+
+const restrictionEnzymeOptions = computed<RestrictionEnzymeOptionGroup[]>(() => {
+  const groups = new Map<RestrictionEnzyme['category'], RestrictionEnzymeOptionGroup>()
+  for (const e of RESTRICTION_ENZYMES) {
+    if (!groups.has(e.category)) {
+      groups.set(e.category, { label: e.category, items: [] })
+    }
+    groups.get(e.category)!.items.push({
+      label: `${e.name} — ${e.site}`,
+      value: e.name,
+      site: e.site
+    })
+  }
+  return [...groups.values()]
+})
+
+/** Reset params to a sensible default whenever the constraint type changes. */
+function onConstraintTypeChange(data: any, newType: string) {
+  if (data.type === newType) return
+  data.type = newType
+  switch (newType) {
+    case 'EnforceGCContent':
+      data.params = { mini: 0.25, maxi: 0.7 }
+      break
+    case 'AvoidHairpins':
+      data.params = { stem_size: 20, hairpin_window: 48 }
+      break
+    case 'AvoidPattern':
+      data.params = { pattern: '' }
+      break
+    case 'ExcludeRestrictionSite':
+      data.params = { enzyme: 'BsaI' }
+      break
+    case 'AvoidRareCodons':
+      data.params = { min_frequency: 0.09 }
+      break
+    case 'UniquifyAllKmers':
+      data.params = { k: 12 }
+      break
+    default:
+      data.params = {}
   }
 }
 
@@ -1441,6 +1529,13 @@ const downloadMenuItems = [
   margin-bottom: 1rem;
 }
 
+.ps-opt-table-footer-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+}
+
 .ps-builder-row {
   display: flex;
   flex-wrap: wrap;
@@ -1885,5 +1980,10 @@ const downloadMenuItems = [
 
 :deep(.seq-seg-dna-body) {
   color: #1565c0;
+}
+
+.ps-restriction-group-label {
+  font-weight: 700;
+  color: var(--p-text-color);
 }
 </style>
