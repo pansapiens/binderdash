@@ -100,6 +100,25 @@ class SequenceExtractResponse(BaseModel):
     results: List[SequenceExtractResultRow]
 
 
+class ShortNameUpdate(BaseModel):
+    run_id: str
+    design_id: str
+    short_name: Optional[str] = None
+    source_path: Optional[str] = None
+
+
+class ShortNameBulkRequest(BaseModel):
+    updates: List[ShortNameUpdate]
+    refresh_cache_after: bool = Field(
+        default=True,
+        description="When true, reload designs cache from the database after persisting.",
+    )
+
+
+class ShortNameBulkResponse(BaseModel):
+    updated: int
+
+
 class TagPlacementItem(BaseModel):
     run_id: str
     design_id: str

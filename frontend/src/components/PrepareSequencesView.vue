@@ -14,6 +14,9 @@
         <strong>Entering amino acid and nucleotides:</strong> Sequences entered in uppercase are interpreted as amino acids, lowercase are nucleotides. You can mix and match
         upper and lowercase (eg <code>atgGS</code> translates to <code>MGS</code>).
       </p>
+      <p class="ps-case-help">
+        <strong>Short names:</strong> Optional strategies shorten <code>design_id</code> to ≤32 characters for synthesis orders.
+      </p>
     </div>
 
     <div class="ps-order-name">
@@ -173,6 +176,170 @@
       </div>
     </div>
 
+    <Panel
+      header="Short name"
+      :toggleable="true"
+      v-model:collapsed="shortNamePanelCollapsed"
+      class="ps-short-name-panel card-like mb-4"
+      :pt="shortNamePanelPt"
+    >
+      <p class="ps-short-name-lead">
+        Strategies to shorten <code>design_id</code> to ≤32 characters for synthesis orders.
+        <br>
+      </p>
+      <div class="ps-short-name-grid">
+        <div class="ps-field">
+          <label for="ps-sn-strategy">Strategy</label>
+          <Select
+            id="ps-sn-strategy"
+            v-model="seqPrep.shortNameKind"
+            :options="shortNameStrategyOptions"
+            option-label="label"
+            option-value="value"
+            class="w-full"
+          />
+        </div>
+        <div class="ps-field">
+          <label for="ps-sn-max">Max length</label>
+          <InputNumber
+            id="ps-sn-max"
+            v-model="seqPrep.shortNameMaxLen"
+            class="w-full"
+            :min="8"
+            :max="64"
+          />
+        </div>
+        <div v-if="seqPrep.shortNameKind === 'regex'" class="ps-field ps-field-span-2">
+          <label>Regex replace on design_id</label>
+          <div class="ps-short-name-row">
+            <InputText v-model="seqPrep.shortNameRegexPattern" placeholder="Pattern" class="flex-1" />
+            <InputText v-model="seqPrep.shortNameRegexReplacement" placeholder="Replacement" class="flex-1" />
+            <InputText v-model="seqPrep.shortNameRegexFlags" placeholder="Flags (e.g. g)" class="w-6rem" />
+          </div>
+        </div>
+        <div v-if="seqPrep.shortNameKind === 'splitTake'" class="ps-field ps-field-span-2">
+          <label>Split + 1-based indices (comma-separated)</label>
+          <div class="ps-short-name-row">
+            <InputText v-model="seqPrep.shortNameSplitDelimiter" placeholder="Delimiter" class="w-8rem" />
+            <InputText v-model="seqPrep.shortNameSplitIndices" placeholder="e.g. 1,2,3" class="flex-1" />
+          </div>
+        </div>
+        <div v-if="seqPrep.shortNameKind === 'splitTake'" class="ps-field ps-field-span-2">
+          <div class="ps-short-name-row">
+            <Checkbox v-model="seqPrep.shortNameSplitAddHash" input-id="ps-sn-split-hash" binary />
+            <label
+              for="ps-sn-split-hash"
+              title="Appends _{hash} after the joined segments (hash from design_id). Stem is shortened if needed for max length."
+              >Add hash</label
+            >
+          </div>
+        </div>
+        <template v-if="seqPrep.shortNameKind === 'pattern'">
+          <div class="ps-field">
+            <label>Prefix</label>
+            <InputText v-model="seqPrep.shortNamePatternPrefix" class="w-full" />
+          </div>
+          <div class="ps-field">
+            <label>UID length / number pad</label>
+            <div class="ps-short-name-row">
+              <InputNumber v-model="seqPrep.shortNamePatternUidLength" :min="3" :max="10" class="w-full" />
+              <InputNumber v-model="seqPrep.shortNamePatternNumberPad" :min="0" :max="6" class="w-full" />
+            </div>
+          </div>
+        </template>
+        <div v-if="seqPrep.shortNameKind === 'smartStemHash'" class="ps-field ps-field-span-2">
+          <div class="ps-short-name-row">
+            <Checkbox v-model="seqPrep.shortNameSmartStemIncludeHash" input-id="ps-sn-stem-hash" binary />
+            <label for="ps-sn-stem-hash" title="Append base52 hash of the original AA sequence after the stem.">Include hash</label>
+          </div>
+        </div>
+        <div
+          v-if="
+            seqPrep.shortNameKind === 'smartStemHash' ||
+            seqPrep.shortNameKind === 'smartRegexStrip' ||
+            (seqPrep.shortNameKind === 'splitTake' && seqPrep.shortNameSplitAddHash)
+          "
+          class="ps-field"
+        >
+          <label>Hash length (base52)</label>
+          <InputNumber
+            v-model="seqPrep.shortNameSmartHashLen"
+            :min="3"
+            :max="10"
+            class="w-full"
+            :disabled="seqPrep.shortNameKind === 'smartStemHash' && !seqPrep.shortNameSmartStemIncludeHash"
+          />
+        </div>
+        <div v-if="seqPrep.shortNameKind === 'smartStemHash'" class="ps-field ps-field-span-2">
+          <div class="ps-short-name-row">
+            <Checkbox v-model="seqPrep.shortNameSmartStemIncludeIndex" input-id="ps-sn-stem-idx" binary />
+            <label
+              for="ps-sn-stem-idx"
+              title="Append 1-based row index after the hash when hash is on, or after the stem when hash is off (stem shortened to fit max length)."
+              >Include index</label
+            >
+          </div>
+        </div>
+        <div v-if="seqPrep.shortNameKind === 'smartStemHash'" class="ps-field ps-field-span-2">
+          <div class="ps-short-name-row">
+            <Checkbox v-model="seqPrep.shortNameSmartStemRemoveCommonPrefix" input-id="ps-sn-stem-lcp" binary />
+            <label
+              for="ps-sn-stem-lcp"
+              title="Strip the longest prefix shared by every design_id in the current table (no effect with a single row)."
+              >Remove common prefix</label
+            >
+          </div>
+          <div class="ps-short-name-row">
+            <Checkbox v-model="seqPrep.shortNameSmartStemRemoveCommonSuffix" input-id="ps-sn-stem-lcs" binary />
+            <label
+              for="ps-sn-stem-lcs"
+              title="Strip the longest suffix shared by every design_id in the current table (no effect with a single row)."
+              >Remove common suffix</label
+            >
+          </div>
+        </div>
+        <div v-if="seqPrep.shortNameKind === 'smartStemHash'" class="ps-field">
+          <label for="ps-sn-stem-add-pre">Add prefix</label>
+          <InputText id="ps-sn-stem-add-pre" v-model="seqPrep.shortNameSmartStemAddPrefix" class="w-full" placeholder="Optional" />
+        </div>
+        <div v-if="seqPrep.shortNameKind === 'smartStemHash'" class="ps-field">
+          <label for="ps-sn-stem-add-suf">Add suffix</label>
+          <InputText id="ps-sn-stem-add-suf" v-model="seqPrep.shortNameSmartStemAddSuffix" class="w-full" placeholder="Optional" />
+        </div>
+        <div v-if="seqPrep.shortNameKind === 'smartRegexStrip'" class="ps-field ps-field-span-2">
+          <label>Drop prefix (regex)</label>
+          <InputText v-model="seqPrep.shortNameStripPrefixRegex" class="w-full" placeholder="^batch-\d+_" />
+        </div>
+        <div v-if="seqPrep.shortNameKind === 'smartRegexStrip'" class="ps-field ps-field-span-2">
+          <label>Drop suffix (regex)</label>
+          <InputText v-model="seqPrep.shortNameStripSuffixRegex" class="w-full" placeholder="_suffix$" />
+        </div>
+        <div v-if="seqPrep.shortNameKind === 'smartRegexStrip'" class="ps-field">
+          <label>New prefix</label>
+          <InputText v-model="seqPrep.shortNameStripNewPrefix" class="w-full" placeholder="Optional replacement prefix" />
+        </div>
+      </div>
+      <div class="ps-short-name-footer">
+        <Button
+          size="small"
+          severity="secondary"
+          outlined
+          label="Clear short names (DB)"
+          :disabled="seqPrep.preparedRows.length === 0"
+          @click="onClearShortNames"
+        />
+        <span v-if="seqPrep.shortNameDedupeCount > 0" class="ps-sn-dedupe">
+          Auto-deduped: {{ seqPrep.shortNameDedupeCount }} name(s) needed a suffix
+        </span>
+      </div>
+      <div v-if="shortNamePreviewLines.length > 0" class="ps-sn-preview">
+        <strong>Preview:</strong>
+        <ul class="ps-sn-preview-list">
+          <li v-for="(line, i) in shortNamePreviewLines" :key="i">{{ line }}</li>
+        </ul>
+      </div>
+    </Panel>
+
     <div class="ps-optimization-toolbar card-like mt-3">
       <div class="ps-opt-header">
         <div class="ps-codon-field">
@@ -203,8 +370,9 @@
     <Panel
       header="DNA Optimization Constraints"
       :toggleable="true"
-      :collapsed="true"
+      v-model:collapsed="optimizationPanelCollapsed"
       class="ps-optimization-panel card-like mb-4"
+      :pt="optimizationPanelPt"
     >
       <div class="ps-opt-content">
         <Message v-if="seqPrep.optimizationGlobalError" severity="error" :closable="false" class="ps-opt-msg mb-4">{{ seqPrep.optimizationGlobalError }}</Message>
@@ -335,10 +503,14 @@
         header="Design"
         sortable
         :show-filter-menu="false"
-        style="min-width: 11rem"
+        style="min-width: 13rem"
+        body-class="ps-design-cell"
       >
         <template #body="{ data }">
           <span class="ps-design-meta">
+            <span class="ps-design-meta-label">Short name:</span>
+            <code class="ps-short-name-code">{{ data.short_name }}</code>
+            <br />
             <span class="ps-design-meta-label">Design ID:</span> {{ data.design_id }}<br />
             <span class="ps-design-meta-label">Project:</span> {{ data.project_id }}<br />
             <span class="ps-design-meta-label">Run:</span> {{ data.run_name }}
@@ -532,11 +704,11 @@
 
     <div class="ps-download">
       <SplitButton
-        label="Download FASTA"
+        label="Download CSV (Twist-ready)"
         icon="pi pi-download"
         severity="secondary"
         :disabled="!downloadAllowed"
-        @click="downloadFasta"
+        @click="toCsvTwist"
         :model="downloadMenuItems"
       />
     </div>
@@ -544,7 +716,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch, type Ref } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
@@ -566,9 +738,34 @@ import {
   useSeqPrepStore,
   type PreparedRow
 } from '../stores/seqPrep'
+import type { ShortNameStrategy } from '../stores/shortName'
 
 const seqPrep = useSeqPrepStore()
 const toast = useToast()
+
+const shortNamePanelCollapsed = ref(true)
+const optimizationPanelCollapsed = ref(true)
+
+function togglePanelFromHeaderClick(e: MouseEvent, collapsed: Ref<boolean>) {
+  const t = e.target as HTMLElement | null
+  if (!t || typeof t.closest !== 'function') return
+  if (t.closest('.p-panel-header-actions')) return
+  collapsed.value = !collapsed.value
+}
+
+const shortNamePanelPt = {
+  header: {
+    class: 'ps-panel-header-click-toggle',
+    onClick: (e: MouseEvent) => togglePanelFromHeaderClick(e, shortNamePanelCollapsed)
+  }
+}
+
+const optimizationPanelPt = {
+  header: {
+    class: 'ps-panel-header-click-toggle',
+    onClick: (e: MouseEvent) => togglePanelFromHeaderClick(e, optimizationPanelCollapsed)
+  }
+}
 
 const updateConstraintParams = (data: any, val: string) => {
   try {
@@ -579,6 +776,15 @@ const updateConstraintParams = (data: any, val: string) => {
 }
 
 const chainOptions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+
+const shortNameStrategyOptions: Array<{ label: string; value: ShortNameStrategy['kind'] }> = [
+  { label: 'None (sanitised design_id)', value: 'none' },
+  { label: 'Regex replace', value: 'regex' },
+  { label: 'Split + take indices (1-based)', value: 'splitTake' },
+  { label: 'Prefix + sorted DNA-set uid + index', value: 'pattern' },
+  { label: 'Smart: stem + hash', value: 'smartStemHash' },
+  { label: 'Smart: Regex drop prefix / suffix', value: 'smartRegexStrip' }
+]
 
 const columnOptions: Array<{ key: string; label: string }> = [
   { key: 'design', label: 'Design' },
@@ -595,6 +801,18 @@ const selectedColumnKeys = ref<string[]>(
     .map((o) => o.key)
     .filter((key) => key !== 'extinction' && key !== 'pi')
 )
+
+const shortNamePreviewLines = computed(() => {
+  const rows = seqPrep.preparedRows.slice(0, 3)
+  return rows.map((r) => `${r.design_id} → ${r.short_name}`)
+})
+
+function onClearShortNames() {
+  void (async () => {
+    await seqPrep.clearShortNames()
+    toast.add({ severity: 'success', summary: 'Short names cleared', detail: 'Persisted null short_name for rows in scope.', life: 3000 })
+  })()
+}
 
 const lengthColumnHeader = computed(() =>
   seqPrep.dnaMode ? 'Length (nt)' : 'Length (aa)'
@@ -843,7 +1061,8 @@ function toTsv(): void {
         'extinction_coeff_reduced',
         'extinction_coeff_oxidized',
         'isoelectric_point',
-        'warnings'
+        'warnings',
+        'short_name'
       ]
     : [
         'design_id',
@@ -856,7 +1075,8 @@ function toTsv(): void {
         'extinction_coeff_reduced',
         'extinction_coeff_oxidized',
         'isoelectric_point',
-        'warnings'
+        'warnings',
+        'short_name'
       ]
   const esc = (v: string | number) => {
     const s = String(v ?? '')
@@ -879,7 +1099,8 @@ function toTsv(): void {
           esc(r.extinction_coeff_reduced),
           esc(r.extinction_coeff_oxidized),
           esc(exportPiRaw(r.isoelectric_point)),
-          esc(r.warnings.join('; '))
+          esc(r.warnings.join('; ')),
+          esc(r.short_name)
         ].join('\t')
       )
     } else {
@@ -896,7 +1117,8 @@ function toTsv(): void {
           esc(r.extinction_coeff_reduced),
           esc(r.extinction_coeff_oxidized),
           esc(exportPiRaw(r.isoelectric_point)),
-          esc(r.warnings.join('; '))
+          esc(r.warnings.join('; ')),
+          esc(r.short_name)
         ].join('\t')
       )
     }
@@ -926,7 +1148,8 @@ function toCsv(): void {
         'extinction_coeff_reduced',
         'extinction_coeff_oxidized',
         'isoelectric_point',
-        'warnings'
+        'warnings',
+        'short_name'
       ]
     : [
         'design_id',
@@ -939,7 +1162,8 @@ function toCsv(): void {
         'extinction_coeff_reduced',
         'extinction_coeff_oxidized',
         'isoelectric_point',
-        'warnings'
+        'warnings',
+        'short_name'
       ]
   const esc = (v: string | number) => {
     const s = String(v ?? '')
@@ -962,7 +1186,8 @@ function toCsv(): void {
           esc(r.extinction_coeff_reduced),
           esc(r.extinction_coeff_oxidized),
           esc(exportPiRaw(r.isoelectric_point)),
-          esc(r.warnings.join('; '))
+          esc(r.warnings.join('; ')),
+          esc(r.short_name)
         ].join(',')
       )
     } else {
@@ -979,7 +1204,8 @@ function toCsv(): void {
           esc(r.extinction_coeff_reduced),
           esc(r.extinction_coeff_oxidized),
           esc(exportPiRaw(r.isoelectric_point)),
-          esc(r.warnings.join('; '))
+          esc(r.warnings.join('; ')),
+          esc(r.short_name)
         ].join(',')
       )
     }
@@ -995,8 +1221,7 @@ function toCsvTwist(): void {
     toast.add({ severity: 'warn', summary: 'No data', detail: 'No sequences to export', life: 2500 })
     return
   }
-  const dna = seqPrep.dnaMode
-  const cols = ['design_id', 'sequence'] as const
+  const cols = ['name', 'sequence', 'original_name'] as const
   const esc = (v: string | number) => {
     const s = String(v ?? '')
     if (s.includes(',') || s.includes('\n') || s.includes('"')) return `"${s.replace(/"/g, '""')}"`
@@ -1005,19 +1230,19 @@ function toCsvTwist(): void {
   const lines = [cols.join(',')]
   for (const r of rows) {
     const sequence = aaSequenceForExport(r)
-    lines.push([esc(r.design_id), esc(sequence)].join(','))
+    lines.push([esc(r.short_name), esc(sequence), esc(r.design_id)].join(','))
   }
   downloadBlob(
     new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' }),
     `${exportDownloadStem()}_twist.csv`
   )
-  toast.add({ severity: 'success', summary: 'CSV (Twist)', detail: `${rows.length} row(s)`, life: 2500 })
+  toast.add({ severity: 'success', summary: 'Twist CSV', detail: `${rows.length} row(s)`, life: 2500 })
 }
 
 const downloadMenuItems = [
+  { label: 'Download FASTA', icon: 'pi pi-download', command: () => downloadFasta() },
   { label: 'Download TSV', icon: 'pi pi-download', command: () => toTsv() },
-  { label: 'Download CSV', icon: 'pi pi-download', command: () => toCsv() },
-  { label: 'CSV (Twist)', icon: 'pi pi-download', command: () => toCsvTwist() }
+  { label: 'Download CSV', icon: 'pi pi-download', command: () => toCsv() }
 ]
 </script>
 
@@ -1073,6 +1298,67 @@ const downloadMenuItems = [
   padding: 1rem 1.25rem;
   margin-bottom: 1.25rem;
   background: var(--p-content-background, #fff);
+}
+
+.ps-short-name-lead {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.prepare-sequences-view :deep(.ps-panel-header.ps-panel-header-click-toggle) {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ps-short-name-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.ps-field-span-2 {
+  grid-column: 1 / -1;
+}
+
+.ps-short-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.ps-short-name-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.ps-sn-dedupe {
+  font-size: 0.85rem;
+  color: var(--p-orange-500, #c2410c);
+}
+
+.ps-sn-preview {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.ps-sn-preview-list {
+  margin: 0.25rem 0 0 1.1rem;
+  padding: 0;
+}
+
+.ps-design-cell .ps-short-name-code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+}
+
+.ps-short-name-code {
+  font-family: inherit;
+  font-size: inherit;
 }
 
 .ps-optimization-toolbar.card-like {

@@ -96,7 +96,7 @@ def patch_design_in_cache(
         if dsp != sp:
             continue
         for k, v in updates.items():
-            if v is None and k in ("tag", "good", "binder_chain"):
+            if v is None and k in ("tag", "good", "binder_chain", "short_name"):
                 d.pop(k, None)
             else:
                 d[k] = v

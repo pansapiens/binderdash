@@ -55,6 +55,12 @@ class NoopDesignsRepository:
     ) -> bool:
         return False
 
+    def update_design_short_names_bulk(
+        self,
+        items: List[Dict[str, Any]],
+    ) -> int:
+        return 0
+
     def delete_run(self, run_id: str) -> bool:
         return False
 

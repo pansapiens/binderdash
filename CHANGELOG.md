@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Changed (Prepare sequences)**: **Short name** settings live in a collapsible **Panel** (like DNA optimisation); the whole header (title/bar) toggles expand/collapse, not only the chevron.
+- **Added (Prepare sequences / Twist)**: **Short names** (≤32 chars) with strategies (regex replace; split + indices + optional hash; prefix + **DNA-set uid** + index; **smart** stem+hash with optional common prefix/suffix strip, regex strip, and extra prefix/suffix). Row hashes use pre-tag amino acid. **`short_name`** stored in SQLite ( **`design_id`** unchanged); **`POST /api/designs/short-names`** bulk-updates. Default Twist download **`short_name,sequence,original_name`**; TSV/CSV include **`short_name`**; **Design** column shows short name on line one. Strategy defaults to **None** if all `design_id`s fit ≤32 chars, else **Smart: stem + hash**, until the user picks a strategy.
+- **Changed (Prepare sequences)**: **Pattern** short-name uid is one set-wide base52 hash of sorted per-row **`prepared_dna`** (missing → `""`), `\x1e`-joined — same for all rows; no longer mixes original AA with `computeSetFingerprint`.
 - **Fixed (Designs)**: Skip redundant `GET /api/designs` when selected run IDs are unchanged.
 - **Fixed (Mol\*)**: Fewer duplicate structure fetches — identical loads skipped, membrane overlay repaints without reloading CIF, binder-tag marker reads terminal CA from Mol*’s loaded model (no second CIF request).
 - **Fixed (Mol\*)**: Primary-only structure navigation remounts the viewer instead of `visual.update`, avoiding Firefox aborted downloads (status 0) and Mol* “Invalid data cell” on next/prev.

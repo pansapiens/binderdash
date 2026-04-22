@@ -17,6 +17,14 @@ import {
     molarExtinctionCoefficient,
     sequenceWarnings
 } from '../utils/protParam'
+import {
+    computeShortNames,
+    sanitizeShortNameSegment,
+    validateShortNameRegexStrip,
+    validateShortNameRegex,
+    type ShortNameRowInput,
+    type ShortNameStrategy
+} from './shortName'
 
 export type TagZone = 'n' | 'c'
 
@@ -58,6 +66,8 @@ export interface PreparedRow {
     run_id: string
     run_name: string
     project_id: string
+    /** For API/cache updates (dedupe with design_id). */
+    source_path: string
     tag: string
     original_sequence: string
     prepared_aa: string
@@ -72,6 +82,8 @@ export interface PreparedRow {
     extinction_coeff_oxidized: number
     isoelectric_point: number
     warnings: string[]
+    /** Twist / vendor short name (≤32 chars after strategy + dedupe). */
+    short_name: string
 }
 
 /** Preset row for palette chips and prepared-sequence styling. */
@@ -696,8 +708,96 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         void fetchCodonTableDetail(id)
     })
 
+    /** Twist-style cap: auto short-name strategy when prepare set design_ids are all within this length. */
+    const SHORT_NAME_AUTO_DESIGN_ID_LEN = 32
+
+    let applyingAutoShortNameStrategy = false
+    const shortNameStrategyAutoManaged = ref(true)
+
+    const shortNameKind = ref<ShortNameStrategy['kind']>('none')
+    const shortNameMaxLen = ref(32)
+    const shortNameRegexPattern = ref('^batch-[0-9]')
+    const shortNameRegexReplacement = ref('')
+    const shortNameRegexFlags = ref('g')
+    const shortNameSplitDelimiter = ref('_')
+    const shortNameSplitIndices = ref('1,2,3')
+    const shortNameSplitAddHash = ref(false)
+    const shortNamePatternPrefix = ref('design')
+    const shortNamePatternUidLength = ref(5)
+    const shortNamePatternNumberPad = ref(0)
+    const shortNameSmartHashLen = ref(5)
+    const shortNameSmartStemIncludeHash = ref(true)
+    const shortNameSmartStemIncludeIndex = ref(false)
+    const shortNameSmartStemRemoveCommonPrefix = ref(false)
+    const shortNameSmartStemRemoveCommonSuffix = ref(true)
+    const shortNameSmartStemAddPrefix = ref('')
+    const shortNameSmartStemAddSuffix = ref('')
+    const shortNameStripPrefixRegex = ref('^batch-\\d+_')
+    const shortNameStripSuffixRegex = ref('')
+    const shortNameStripNewPrefix = ref('')
+
+    const effectiveShortNameStrategy = computed((): ShortNameStrategy => {
+        const k = shortNameKind.value
+        if (k === 'regex') {
+            return {
+                kind: 'regex',
+                pattern: shortNameRegexPattern.value,
+                replacement: shortNameRegexReplacement.value,
+                flags: shortNameRegexFlags.value
+            }
+        }
+        if (k === 'splitTake') {
+            const parts = shortNameSplitIndices.value
+                .split(/[,\s]+/)
+                .map(s => parseInt(s.trim(), 10))
+                .filter(n => Number.isFinite(n) && n > 0)
+            return {
+                kind: 'splitTake',
+                delimiter: shortNameSplitDelimiter.value || '_',
+                indices: parts.length > 0 ? parts : [1, 2, 3],
+                addHash: shortNameSplitAddHash.value,
+                hashLen: shortNameSmartHashLen.value
+            }
+        }
+        if (k === 'pattern') {
+            return {
+                kind: 'pattern',
+                prefix: shortNamePatternPrefix.value,
+                uidLength: shortNamePatternUidLength.value,
+                numberPad: shortNamePatternNumberPad.value
+            }
+        }
+        if (k === 'smartStemHash') {
+            return {
+                kind: 'smartStemHash',
+                includeHash: shortNameSmartStemIncludeHash.value,
+                hashLen: shortNameSmartHashLen.value,
+                includeIndex: shortNameSmartStemIncludeIndex.value,
+                removeCommonPrefix: shortNameSmartStemRemoveCommonPrefix.value,
+                removeCommonSuffix: shortNameSmartStemRemoveCommonSuffix.value,
+                addPrefix: shortNameSmartStemAddPrefix.value,
+                addSuffix: shortNameSmartStemAddSuffix.value
+            }
+        }
+        if (k === 'smartRegexStrip') {
+            return {
+                kind: 'smartRegexStrip',
+                prefixPattern: shortNameStripPrefixRegex.value,
+                suffixPattern: shortNameStripSuffixRegex.value,
+                newPrefix: shortNameStripNewPrefix.value,
+                hashLen: shortNameSmartHashLen.value
+            }
+        }
+        return { kind: 'none' }
+    })
+
     const validationErrors = computed((): string[] => {
         const errs: string[] = []
+        const strat = effectiveShortNameStrategy.value
+        const reErr = validateShortNameRegex(strat)
+        if (reErr) errs.push(reErr)
+        const stripErr = validateShortNameRegexStrip(strat)
+        if (stripErr) errs.push(stripErr)
         for (const t of [...nTags.value, ...cTags.value]) {
             if (t.kind === 'custom') {
                 const e = validateMixedSequence(t.sequence, `Tag "${t.label}"`)
@@ -744,6 +844,43 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             rows = rows.filter(d => d.good === true)
         }
         return rows
+    })
+
+    const prepareSetShortNameFingerprint = computed(() =>
+        [...inputDesigns.value]
+            .map(d => {
+                const sp = String((d as Record<string, unknown>).source_path ?? '')
+                return `${d.run_id}\x1f${d.design_id}\x1f${sp}`
+            })
+            .sort((a, b) => a.localeCompare(b))
+            .join('\x1e')
+    )
+
+    function applyAutoShortNameStrategyIfManaged(): void {
+        if (!shortNameStrategyAutoManaged.value) return
+        const rows = inputDesigns.value
+        if (rows.length === 0) return
+        const allWithin = rows.every(
+            d => String(d.design_id ?? '').length <= SHORT_NAME_AUTO_DESIGN_ID_LEN
+        )
+        const next: ShortNameStrategy['kind'] = allWithin ? 'none' : 'smartStemHash'
+        if (shortNameKind.value === next) return
+        applyingAutoShortNameStrategy = true
+        shortNameKind.value = next
+        applyingAutoShortNameStrategy = false
+    }
+
+    watch(
+        prepareSetShortNameFingerprint,
+        () => {
+            applyAutoShortNameStrategyIfManaged()
+        },
+        { immediate: true }
+    )
+
+    watch(shortNameKind, () => {
+        if (applyingAutoShortNameStrategy) return
+        shortNameStrategyAutoManaged.value = false
     })
 
     function appendTagsAa(
@@ -847,7 +984,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         return { mainDna: mainDnaChunks.join(''), mainSegChunks }
     }
 
-    const preparedRows = computed((): PreparedRow[] => {
+    const preparedRowsInternal = computed((): Omit<PreparedRow, 'short_name'>[] => {
         const table = activeCodonTable.value
         const nFix = nTerminalPrefix.value.trim()
         const cFix = cTerminalSuffix.value.trim()
@@ -857,7 +994,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             padTargetVal != null && Number.isFinite(padTargetVal) && padTargetVal > 0
         const padTargetBp = usePostStopPadTarget ? Math.floor(Number(padTargetVal)) : 0
 
-        return inputDesigns.value.map((d): PreparedRow => {
+        return inputDesigns.value.map((d): Omit<PreparedRow, 'short_name'> => {
             const raw = getRawSequence(d)
             const core = raw.replace(/\*+$/g, '').trim()
             const tagCol = String((d as Record<string, unknown>).tag ?? '')
@@ -1057,6 +1194,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                 run_id: d.run_id,
                 run_name: d.run_name,
                 project_id: d.project_id,
+                source_path: String((d as Record<string, unknown>).source_path ?? ''),
                 tag: tagCol || '-',
                 original_sequence: raw || '(missing)',
                 prepared_aa,
@@ -1072,6 +1210,95 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             }
         })
     })
+
+    const shortNameComputation = computed(() => {
+        const rows = preparedRowsInternal.value
+        const inputs = rows.map(
+            (r): ShortNameRowInput => ({
+                row_key: r.row_key,
+                design_id: r.design_id,
+                original_aa: r.original_sequence,
+                prepared_aa: r.prepared_aa,
+                prepared_dna: r.prepared_dna,
+                tag: r.tag
+            })
+        )
+        return computeShortNames(inputs, effectiveShortNameStrategy.value, shortNameMaxLen.value)
+    })
+
+    const preparedRows = computed((): PreparedRow[] => {
+        const rows = preparedRowsInternal.value
+        const { map } = shortNameComputation.value
+        return rows.map(r => {
+            const sn =
+                map.get(r.row_key) ??
+                (sanitizeShortNameSegment(r.design_id) || r.design_id)
+            return { ...r, short_name: sn }
+        })
+    })
+
+    let shortNamePersistTimer: ReturnType<typeof setTimeout> | null = null
+    async function flushShortNamesToBackend(): Promise<void> {
+        const rows = preparedRowsInternal.value
+        if (rows.length === 0) return
+        const strat = effectiveShortNameStrategy.value
+        try {
+            if (strat.kind === 'none') {
+                return
+            }
+            const { map } = shortNameComputation.value
+            await designsApi.updateShortNames({
+                updates: rows.map(r => ({
+                    run_id: r.run_id,
+                    design_id: r.design_id,
+                    source_path: r.source_path || undefined,
+                    short_name: map.get(r.row_key) ?? null
+                })),
+                refresh_cache_after: false
+            })
+        } catch {
+            /* offline or auth; short names still work in-session */
+        }
+    }
+
+    watch(
+        () => [
+            shortNameKind.value,
+            shortNameMaxLen.value,
+            preparedRowsInternal.value,
+            effectiveShortNameStrategy.value
+        ],
+        () => {
+            if (shortNamePersistTimer) clearTimeout(shortNamePersistTimer)
+            shortNamePersistTimer = setTimeout(() => {
+                void flushShortNamesToBackend()
+            }, 450)
+        },
+        { deep: true }
+    )
+
+    async function clearShortNames(): Promise<void> {
+        applyingAutoShortNameStrategy = true
+        shortNameKind.value = 'none'
+        applyingAutoShortNameStrategy = false
+        const rows = preparedRowsInternal.value
+        if (rows.length === 0) return
+        try {
+            await designsApi.updateShortNames({
+                updates: rows.map(r => ({
+                    run_id: r.run_id,
+                    design_id: r.design_id,
+                    source_path: r.source_path || undefined,
+                    short_name: null
+                })),
+                refresh_cache_after: false
+            })
+            const ds = useDesignsStore()
+            await ds.fetchDesigns()
+        } catch {
+            /* ignore */
+        }
+    }
 
     function addPreset(zone: TagZone, preset: TagPresetDefinition) {
         if (!preset.zones.includes(zone)) return
@@ -1227,6 +1454,8 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         optimizationConstraints.value.splice(idx, 1)
     }
 
+    const shortNameDedupeCount = computed(() => shortNameComputation.value.dedupeCount)
+
     return {
         nTags,
         cTags,
@@ -1271,6 +1500,30 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         runOptimization,
         resetConstraintsToDefaults,
         addConstraint,
-        removeConstraint
+        removeConstraint,
+        shortNameKind,
+        shortNameMaxLen,
+        shortNameRegexPattern,
+        shortNameRegexReplacement,
+        shortNameRegexFlags,
+        shortNameSplitDelimiter,
+        shortNameSplitIndices,
+        shortNameSplitAddHash,
+        shortNamePatternPrefix,
+        shortNamePatternUidLength,
+        shortNamePatternNumberPad,
+        shortNameSmartHashLen,
+        shortNameSmartStemIncludeHash,
+        shortNameSmartStemIncludeIndex,
+        shortNameSmartStemRemoveCommonPrefix,
+        shortNameSmartStemRemoveCommonSuffix,
+        shortNameSmartStemAddPrefix,
+        shortNameSmartStemAddSuffix,
+        shortNameStripPrefixRegex,
+        shortNameStripSuffixRegex,
+        shortNameStripNewPrefix,
+        effectiveShortNameStrategy,
+        shortNameDedupeCount,
+        clearShortNames
     }
 })

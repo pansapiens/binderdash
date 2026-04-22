@@ -25,6 +25,8 @@ from ..schemas import (
     SequenceExtractRequest,
     SequenceExtractResponse,
     SequenceExtractResultRow,
+    ShortNameBulkRequest,
+    ShortNameBulkResponse,
     TagMetricsResponse,
     TagMetricsRow,
     TagPlacementRequest,
@@ -145,6 +147,38 @@ async def patch_design_tag(
     ):
         refresh_designs_cache()
     return {"ok": True, "run_id": body.run_id, "design_id": body.design_id, "tag": tag}
+
+
+@router.post("/short-names")
+async def post_short_names(
+    body: ShortNameBulkRequest,
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
+    """Bulk-persist Prepare Sequences short names (Twist) without changing design_id."""
+    repo = get_designs_repository()
+    items = [u.model_dump() for u in body.updates]
+    count = 0
+    if repo.is_enabled():
+        count = repo.update_design_short_names_bulk(items)
+        if body.refresh_cache_after:
+            refresh_designs_cache()
+        else:
+            for u in body.updates:
+                patch_design_in_cache(
+                    u.run_id,
+                    u.design_id,
+                    u.source_path,
+                    {"short_name": u.short_name},
+                )
+    else:
+        for u in body.updates:
+            patch_design_in_cache(
+                u.run_id,
+                u.design_id,
+                u.source_path,
+                {"short_name": u.short_name},
+            )
+    return ShortNameBulkResponse(updated=count)
 
 
 def _tag_placement_sync(body: TagPlacementRequest) -> TagPlacementResponse:

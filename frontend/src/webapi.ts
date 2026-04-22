@@ -521,6 +521,25 @@ export const designsApi = {
             body: JSON.stringify(payload),
             requireAuth: true
         })
+    },
+
+    async updateShortNames(payload: {
+        updates: {
+            run_id: string
+            design_id: string
+            short_name?: string | null
+            source_path?: string | null
+        }[]
+        refresh_cache_after?: boolean
+    }): Promise<{ updated: number }> {
+        return await apiRequest<{ updated: number }>(`${API_BASE}/api/designs/short-names`, {
+            method: 'POST',
+            body: JSON.stringify({
+                updates: payload.updates,
+                refresh_cache_after: payload.refresh_cache_after ?? false
+            }),
+            requireAuth: true
+        })
     }
 }
 
