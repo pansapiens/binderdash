@@ -173,7 +173,7 @@
       </Column>
       <Column field="metadata.pdb_count" sortable style="min-width: 110px">
         <template #header>
-          <span v-tooltip.top="'Accepted or filtered designs / pre-filter trajectories or designs'">Accepted / total</span>
+          <span v-tooltip.top="'Accepted or filtered designs / pre-filter trajectories or designs'">Accepted / Total</span>
         </template>
         <template #body="{ data }">
           {{ formatAcceptedTotalText(data) }}
