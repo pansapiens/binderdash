@@ -3,63 +3,51 @@
     <div class="panel-header">
       <h2>Select Runs</h2>
       <p class="hint">
-        Choose ingested runs to drive the Designs table and (by default) plots. Run name filter applies after you type at least three characters.
+        Choose ingested runs to drive the Designs table and (by default) plots. Use the filter row under the column headers to narrow by project, method, or name.
       </p>
-      <div class="filters">
-        <div class="filter-field">
-          <label for="sr-project">Project</label>
-          <Dropdown
-            id="sr-project"
-            v-model="projectFilter"
-            :options="projectOptions"
-            option-label="label"
-            option-value="value"
-            placeholder="All projects"
-            filter
-            filter-placeholder="Search projects..."
-            show-clear
-            class="filter-dropdown"
-          />
-        </div>
-        <div class="filter-field">
-          <label for="sr-method">Method</label>
-          <Dropdown
-            id="sr-method"
-            v-model="methodFilter"
-            :options="methodOptions"
-            option-label="label"
-            option-value="value"
-            placeholder="All methods"
-            filter
-            filter-placeholder="Search methods..."
-            show-clear
-            class="filter-dropdown"
-          />
-        </div>
-        <div class="filter-field grow">
-          <label for="sr-name">Run name</label>
-          <InputText
-            id="sr-name"
-            v-model="nameInput"
-            placeholder="Type 3+ characters to filter"
-            class="filter-input"
-          />
-        </div>
-        <Button
-          label="Refresh list"
-          icon="pi pi-refresh"
-          severity="secondary"
-          outlined
-          :loading="runsStore.loading"
-          @click="runsStore.fetchRuns()"
-        />
-      </div>
     </div>
+
+    <Toolbar class="select-runs-toolbar">
+      <template #start>
+        <div class="show-selected-field">
+          <InputSwitch
+            v-model="showSelectedOnly"
+            input-id="sr-show-selected"
+            :aria-label="'Show only selected runs in the table'"
+          />
+          <label for="sr-show-selected" class="show-selected-label">Show selected</label>
+        </div>
+      </template>
+      <template #end>
+        <div class="select-runs-toolbar-actions">
+          <Button
+            label="Refresh list"
+            icon="pi pi-refresh"
+            severity="secondary"
+            outlined
+            :loading="runsStore.loading"
+            :disabled="ingesting"
+            @click="runsStore.fetchRuns()"
+          />
+          <Button
+            label="Re-Ingest Selected"
+            icon="pi pi-download"
+            severity="secondary"
+            outlined
+            :loading="ingesting"
+            :disabled="tableSelection.length === 0"
+            @click="reIngestSelected"
+          />
+        </div>
+      </template>
+    </Toolbar>
 
     <DataTable
       v-model:selection="tableSelection"
-      :value="filteredRuns"
+      v-model:filters="filters"
+      :value="dataForTable"
       data-key="run_id"
+      filter-display="row"
       stripedRows
       paginator
       :rows="10"
@@ -77,32 +65,109 @@
         <div class="empty-msg">
           <i class="pi pi-inbox empty-icon" aria-hidden="true" />
           <p v-if="runsStore.loading">Loading runs…</p>
-          <template v-else>
+          <template v-else-if="!runsStore.runs.length">
             <h3>No ingested runs</h3>
             <p>Use <strong>Ingest Runs</strong> to add runs from disk.</p>
+          </template>
+          <template v-else-if="showSelectedOnly && tableSelection.length === 0">
+            <h3>No runs selected</h3>
+            <p>Select runs in the table, or turn off <strong>Show selected</strong>.</p>
+          </template>
+          <template
+            v-else-if="showSelectedOnly && tableSelection.length > 0 && dataForTable.length === 0"
+          >
+            <h3>No selected runs in view</h3>
+            <p>Change the column filters, or turn off <strong>Show selected</strong>.</p>
+          </template>
+          <template v-else>
+            <h3>No results</h3>
+            <p>Adjust the column filters or use <strong>Ingest Runs</strong> to add data.</p>
           </template>
         </div>
       </template>
       <Column selectionMode="multiple" headerStyle="width: 3rem" />
-      <Column field="metadata.name" header="Name" sortable style="min-width: 150px">
+      <Column
+        field="metadata.name"
+        filter-field="metadata.name"
+        header="Name"
+        sortable
+        :show-filter-menu="false"
+        filter-match-mode="contains"
+        style="min-width: 12rem"
+      >
         <template #body="{ data }">
           <div class="run-name">
             <i :class="getMethodIconClass(data.method)" class="protocol-icon" aria-hidden="true" />
             {{ data.metadata?.name ?? '—' }}
           </div>
         </template>
+        <template #filter="{ filterModel, filterCallback }">
+          <InputText
+            v-model="filterModel.value"
+            type="text"
+            placeholder="Search by name"
+            class="p-column-filter sr-col-filter"
+            @input="filterCallback()"
+          />
+        </template>
       </Column>
-      <Column field="project_id" header="Project ID" sortable style="min-width: 120px">
+      <Column
+        field="project_id"
+        header="Project ID"
+        sortable
+        :show-filter-menu="false"
+        filter-match-mode="in"
+        style="min-width: 12rem"
+      >
         <template #body="{ data }">
           <span class="project-id">{{ data.project_id || '—' }}</span>
         </template>
+        <template #filter="{ filterModel, filterCallback }">
+          <MultiSelect
+            v-model="filterModel.value"
+            :options="projectOptions"
+            option-label="label"
+            option-value="value"
+            placeholder="All projects"
+            filter
+            filter-placeholder="Search projects..."
+            show-clear
+            display="chip"
+            :max-selected-labels="2"
+            class="p-column-filter sr-col-filter"
+            @update:model-value="filterCallback()"
+          />
+        </template>
       </Column>
-      <Column field="method" header="Method" sortable style="min-width: 100px">
+      <Column
+        field="method"
+        header="Method"
+        sortable
+        :show-filter-menu="false"
+        filter-match-mode="in"
+        style="min-width: 10rem"
+      >
         <template #body="{ data }">
           <Tag
             :value="data.method"
             :style="getMethodTagStyle(data.method)"
             class="pipeline-palette-tag"
+          />
+        </template>
+        <template #filter="{ filterModel, filterCallback }">
+          <MultiSelect
+            v-model="filterModel.value"
+            :options="methodOptions"
+            option-label="label"
+            option-value="value"
+            placeholder="All methods"
+            filter
+            filter-placeholder="Search methods..."
+            show-clear
+            display="chip"
+            :max-selected-labels="2"
+            class="p-column-filter sr-col-filter"
+            @update:model-value="filterCallback()"
           />
         </template>
       </Column>
@@ -145,6 +210,39 @@
         </template>
       </Column>
     </DataTable>
+
+    <Dialog
+      v-model:visible="reingestDialogVisible"
+      modal
+      header="Re-ingest runs?"
+      :style="{ width: 'min(32rem, 95vw)' }"
+      :closable="true"
+      @hide="onReingestDialogHide"
+    >
+      <p class="reingest-lead">
+        These runs are already in the database. Ingesting again will replace stored designs and reset any <strong>tag</strong> and <strong>good</strong> values you set earlier:
+      </p>
+      <ul class="reingest-list">
+        <li v-for="item in pendingReingest" :key="item.run_group_key">
+          {{ item.display_name }}
+        </li>
+      </ul>
+      <template #footer>
+        <Button
+          label="Cancel"
+          severity="secondary"
+          outlined
+          @click="reingestDialogVisible = false"
+        />
+        <Button
+          label="Ingest anyway"
+          severity="warn"
+          icon="pi pi-exclamation-triangle"
+          :loading="ingesting"
+          @click="confirmReingestIngest"
+        />
+      </template>
+    </Dialog>
   </div>
 </template>
 
@@ -152,30 +250,39 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
-import Dropdown from 'primevue/dropdown'
 import InputText from 'primevue/inputtext'
+import MultiSelect from 'primevue/multiselect'
 import Button from 'primevue/button'
+import InputSwitch from 'primevue/inputswitch'
 import Tag from 'primevue/tag'
+import Toolbar from 'primevue/toolbar'
+import Dialog from 'primevue/dialog'
+import { useToast } from 'primevue/usetoast'
 import { useRunsStore, useDesignsStore, usePlotsStore } from '../stores'
 import type { Run } from '../types/store'
 import { formatAcceptedTotalText, primaryScoreDisplay } from '../utils/runDisplay'
 import { getMethodTagStyle, getMethodIconClass } from '../config/pipelineDisplay'
+import { runsApi } from '../webapi'
+import type { IngestPreviewReingestItem } from '../webapi'
+
+const emit = defineEmits<{
+  ingestComplete: []
+}>()
 
 const runsStore = useRunsStore()
 const designsStore = useDesignsStore()
 const plotsStore = usePlotsStore()
+const toast = useToast()
 
-const projectFilter = ref<string | null>(null)
-const methodFilter = ref<string | null>(null)
-const nameInput = ref('')
-const nameDebounced = ref('')
-let nameTimer: ReturnType<typeof setTimeout> | null = null
+const showSelectedOnly = ref(false)
+const ingesting = ref(false)
+const reingestDialogVisible = ref(false)
+const pendingReingest = ref<IngestPreviewReingestItem[]>([])
 
-watch(nameInput, (v) => {
-  if (nameTimer) clearTimeout(nameTimer)
-  nameTimer = setTimeout(() => {
-    nameDebounced.value = v
-  }, 300)
+const filters = ref({
+  project_id: { value: null as string[] | null, matchMode: 'in' as const },
+  method: { value: null as string[] | null, matchMode: 'in' as const },
+  'metadata.name': { value: null as string | null, matchMode: 'contains' as const }
 })
 
 const projectOptions = computed(() => {
@@ -194,19 +301,12 @@ const methodOptions = computed(() => {
   return [...set].sort().map((value) => ({ label: value, value }))
 })
 
-const filteredRuns = computed(() => {
-  let rows = [...runsStore.runs]
-  if (projectFilter.value) {
-    rows = rows.filter((r) => r.project_id === projectFilter.value)
+const dataForTable = computed((): Run[] => {
+  if (!showSelectedOnly.value) {
+    return runsStore.runs
   }
-  if (methodFilter.value) {
-    rows = rows.filter((r) => r.method === methodFilter.value)
-  }
-  const q = nameDebounced.value.trim().toLowerCase()
-  if (q.length >= 3) {
-    rows = rows.filter((r) => (r.metadata?.name || '').toLowerCase().includes(q))
-  }
-  return rows
+  const selectedIds = new Set(tableSelection.value.map((r) => r.run_id))
+  return runsStore.runs.filter((r) => selectedIds.has(r.run_id))
 })
 
 const tableSelection = ref<Run[]>([])
@@ -246,6 +346,72 @@ watch(
   { deep: true, immediate: true }
 )
 
+const doIngest = async (rows: Run[]) => {
+  ingesting.value = true
+  try {
+    for (const row of rows) {
+      await runsApi.ingestRuns([row as unknown as Record<string, unknown>])
+    }
+    toast.add({
+      severity: 'success',
+      summary: 'Ingest complete',
+      detail: `${rows.length} run(s) updated in the database.`,
+      life: 4000
+    })
+    reingestDialogVisible.value = false
+    pendingReingest.value = []
+    emit('ingestComplete')
+  } catch (error) {
+    console.error('Ingest failed:', error)
+    toast.add({
+      severity: 'error',
+      summary: 'Ingest failed',
+      detail: error instanceof Error ? error.message : 'Request failed',
+      life: 5000
+    })
+  } finally {
+    ingesting.value = false
+  }
+}
+
+const reIngestSelected = async () => {
+  const rows = tableSelection.value
+  if (rows.length === 0) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Nothing selected',
+      detail: 'Select one or more rows in the table before re-ingesting.',
+      life: 4000
+    })
+    return
+  }
+  try {
+    const preview = await runsApi.ingestPreview(rows as unknown as Record<string, unknown>[])
+    if (preview.reingest.length > 0) {
+      pendingReingest.value = preview.reingest
+      reingestDialogVisible.value = true
+      return
+    }
+    await doIngest(rows)
+  } catch (error) {
+    console.error('Ingest preview failed:', error)
+    toast.add({
+      severity: 'error',
+      summary: 'Ingest failed',
+      detail: error instanceof Error ? error.message : 'Request failed',
+      life: 5000
+    })
+  }
+}
+
+const confirmReingestIngest = async () => {
+  await doIngest(tableSelection.value)
+}
+
+const onReingestDialogHide = () => {
+  pendingReingest.value = []
+}
+
 onMounted(() => {
   runsStore.fetchRuns()
 })
@@ -269,35 +435,42 @@ onMounted(() => {
   font-size: 0.95rem;
 }
 
-.filters {
-  display: flex;
+.sr-col-filter {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.select-runs-toolbar {
+  width: 100%;
+}
+
+.select-runs-toolbar :deep(.p-toolbar) {
+  border-radius: 6px;
   flex-wrap: wrap;
-  gap: 1rem;
-  align-items: flex-end;
-  margin-bottom: 0.5rem;
+  gap: 0.75rem;
 }
 
-.filter-field {
+.select-runs-toolbar-actions {
   display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  min-width: 10rem;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.filter-field.grow {
-  flex: 1 1 14rem;
-  min-width: 14rem;
+.show-selected-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.filter-field label {
-  font-size: 0.85rem;
+.show-selected-label {
+  font-size: 0.9rem;
   font-weight: 600;
   color: #495057;
-}
-
-.filter-dropdown,
-.filter-input {
-  width: 100%;
+  cursor: pointer;
+  user-select: none;
 }
 
 .run-path {
@@ -375,5 +548,21 @@ onMounted(() => {
 .empty-icon {
   font-size: 3rem;
   color: #6c757d;
+}
+
+.reingest-lead {
+  margin: 0 0 0.75rem 0;
+  line-height: 1.5;
+  color: #495057;
+}
+
+.reingest-list {
+  margin: 0 0 0 1.25rem;
+  padding: 0;
+  color: #495057;
+}
+
+.reingest-list li {
+  margin: 0.25rem 0;
 }
 </style>

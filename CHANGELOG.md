@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fixed (Mol\*)**: Designs viewer passes stable PDB + reference URLs to Mol* only after the aligned reference finishes loading when the overlay is on, avoiding duplicate primary PDB fetches on next/prev.
 - **Fixed (Mol\*)**: Mol* PDB/reference URL watcher runs after the reference `filename` / `run_id` watchers so `referenceLoading` is set before props update (fixes double XHR + double flash when overlay is on).
 - **Fixed (Select Runs)**: Method protocol icon uses `pointer-events: none` so clicking the Name column still toggles row selection (PrimeVue’s row handler ignores clicks on “clickable” targets such as `<i>`).
+- **Added (Select Runs)**: Toolbar with "Show selected" toggle, "Refresh list", and "Re-Ingest Selected" actions; improved empty states.
+- **Changed (Select Runs)**: Moved filtering to the DataTable filter row with MultiSelect for project and method.
 - **API / Designs**: `GET /api/designs` accepts optional `run_ids` (comma-separated) to return only designs for those runs; omit for all designs (unchanged).
 - **Designs / Select Runs**: The client loads designs only for the selected runs (`run_ids` query), debounces selection changes, indexes by `run_id` for column metadata, removes forced DataTable remounts, and loads scoped data when the **Designs** or **Plots** tab is active (with deduplication when selection is unchanged). Ingest completion refreshes runs and reloads designs only for the current selection.
 - **Backend**: Pipeline/method/score config lives under `backend/config/` (signatures consumed by `run_discovery`/`cache`; IDs, path heuristics, params keys, basename rules in `method_paths.py`).

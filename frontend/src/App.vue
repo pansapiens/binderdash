@@ -189,7 +189,7 @@ const shouldShowLoading = computed(() => {
               <PrepareSequencesView />
             </TabPanel>
             <TabPanel value="select-runs">
-              <SelectRunsPanel />
+              <SelectRunsPanel @ingest-complete="onIngestComplete" />
             </TabPanel>
             <TabPanel value="ingest">
               <FolderBrowser @ingest-complete="onIngestComplete" />
