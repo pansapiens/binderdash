@@ -52,35 +52,83 @@
           <div class="filter-controls">
             <div class="filter-row">
               <label>Global Search:</label>
-              <InputText 
-                v-model="designsStore.filters.global.value" 
-                placeholder="Search all columns..."
-                class="filter-input"
-              />
+              <InputGroup class="filter-input bd-inputgroup-inline-clear">
+                <InputText
+                  v-model="designsStore.filters.global.value"
+                  placeholder="Search all columns..."
+                  class="filter-input-field"
+                />
+                <InputGroupAddon>
+                  <Button
+                    icon="pi pi-times"
+                    severity="secondary"
+                    variant="text"
+                    :disabled="!(designsStore.filters.global.value ?? '')"
+                    aria-label="Clear global search"
+                    @click="designsStore.filters.global.value = null"
+                  />
+                </InputGroupAddon>
+              </InputGroup>
             </div>
             <div class="filter-row">
               <label>Design ID:</label>
-              <InputText 
-                v-model="designsStore.filters.design_id.value" 
-                placeholder="Filter by design ID..."
-                class="filter-input"
-              />
+              <InputGroup class="filter-input bd-inputgroup-inline-clear">
+                <InputText
+                  v-model="designsStore.filters.design_id.value"
+                  placeholder="Filter by design ID..."
+                  class="filter-input-field"
+                />
+                <InputGroupAddon>
+                  <Button
+                    icon="pi pi-times"
+                    severity="secondary"
+                    variant="text"
+                    :disabled="!(designsStore.filters.design_id.value ?? '')"
+                    aria-label="Clear design ID filter"
+                    @click="designsStore.filters.design_id.value = null"
+                  />
+                </InputGroupAddon>
+              </InputGroup>
             </div>
             <div class="filter-row">
               <label>Project ID:</label>
-              <InputText 
-                v-model="designsStore.filters.project_id.value" 
-                placeholder="Filter by project ID..."
-                class="filter-input"
-              />
+              <InputGroup class="filter-input bd-inputgroup-inline-clear">
+                <InputText
+                  v-model="designsStore.filters.project_id.value"
+                  placeholder="Filter by project ID..."
+                  class="filter-input-field"
+                />
+                <InputGroupAddon>
+                  <Button
+                    icon="pi pi-times"
+                    severity="secondary"
+                    variant="text"
+                    :disabled="!(designsStore.filters.project_id.value ?? '')"
+                    aria-label="Clear project ID filter"
+                    @click="designsStore.filters.project_id.value = null"
+                  />
+                </InputGroupAddon>
+              </InputGroup>
             </div>
             <div class="filter-row">
               <label>Run Name:</label>
-              <InputText 
-                v-model="designsStore.filters.run_name.value" 
-                placeholder="Filter by run name..."
-                class="filter-input"
-              />
+              <InputGroup class="filter-input bd-inputgroup-inline-clear">
+                <InputText
+                  v-model="designsStore.filters.run_name.value"
+                  placeholder="Filter by run name..."
+                  class="filter-input-field"
+                />
+                <InputGroupAddon>
+                  <Button
+                    icon="pi pi-times"
+                    severity="secondary"
+                    variant="text"
+                    :disabled="!(designsStore.filters.run_name.value ?? '')"
+                    aria-label="Clear run name filter"
+                    @click="designsStore.filters.run_name.value = null"
+                  />
+                </InputGroupAddon>
+              </InputGroup>
             </div>
             <div class="filter-row">
               <label>Method:</label>
@@ -141,11 +189,23 @@
             </div>
             <div class="filter-row">
               <label>Target Sequence:</label>
-              <InputText 
-                v-model="designsStore.filters.target_sequence.value" 
-                placeholder="Search target sequences (regex)..."
-                class="filter-input"
-              />
+              <InputGroup class="filter-input bd-inputgroup-inline-clear">
+                <InputText
+                  v-model="designsStore.filters.target_sequence.value"
+                  placeholder="Search target sequences (regex)..."
+                  class="filter-input-field"
+                />
+                <InputGroupAddon>
+                  <Button
+                    icon="pi pi-times"
+                    severity="secondary"
+                    variant="text"
+                    :disabled="!(designsStore.filters.target_sequence.value ?? '')"
+                    aria-label="Clear target sequence filter"
+                    @click="designsStore.filters.target_sequence.value = null"
+                  />
+                </InputGroupAddon>
+              </InputGroup>
             </div>
             <div class="filter-row">
               <label>Best MPNN only:</label>
@@ -240,13 +300,36 @@
                       :disabled="!cf.column || cf.enabled === false"
                       @update:modelValue="designsStore.updateCustomFilter(cf.id, { value: $event })"
                     />
-                    <InputText
+                    <InputGroup
                       v-else-if="showCustomFilterValueInput(cf)"
-                      :modelValue="cf.value ?? ''"
-                      class="custom-filter-value"
-                      :disabled="!cf.column || cf.enabled === false"
-                      @update:modelValue="designsStore.updateCustomFilter(cf.id, { value: $event })"
-                    />
+                      class="custom-filter-value bd-inputgroup-inline-clear"
+                    >
+                      <InputText
+                        :modelValue="cf.value ?? ''"
+                        class="custom-filter-value-field"
+                        :disabled="!cf.column || cf.enabled === false"
+                        @update:modelValue="
+                          designsStore.updateCustomFilter(cf.id, { value: $event })
+                        "
+                      />
+                      <InputGroupAddon>
+                        <Button
+                          icon="pi pi-times"
+                          severity="secondary"
+                          variant="text"
+                          size="small"
+                          :disabled="
+                            !cf.column ||
+                              cf.enabled === false ||
+                              !(cf.value != null && String(cf.value).length > 0)
+                          "
+                          aria-label="Clear filter value"
+                          @click="
+                            designsStore.updateCustomFilter(cf.id, { value: null })
+                          "
+                        />
+                      </InputGroupAddon>
+                    </InputGroup>
                   </div>
                 </div>
               </div>
@@ -1127,6 +1210,8 @@ import Column from 'primevue/column'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import InputText from 'primevue/inputtext'
+import InputGroup from 'primevue/inputgroup'
+import InputGroupAddon from 'primevue/inputgroupaddon'
 import InputNumber from 'primevue/inputnumber'
 import InputSwitch from 'primevue/inputswitch'
 import Dropdown from 'primevue/dropdown'
@@ -3156,6 +3241,10 @@ defineExpose({
   min-width: 80px;
 }
 
+.custom-filter-value.p-inputgroup {
+  min-width: 0;
+}
+
 .filter-row {
   display: flex;
   align-items: center;
@@ -3171,6 +3260,17 @@ defineExpose({
 .filter-input {
   flex: 1;
   max-width: 300px;
+  min-width: 0;
+}
+
+.filter-input-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.custom-filter-value-field {
+  flex: 1;
+  min-width: 0;
 }
 
 .filter-input-small {

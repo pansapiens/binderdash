@@ -559,13 +559,28 @@
           </span>
         </template>
         <template #filter="{ filterModel, filterCallback }">
-          <InputText
-            v-model="filterModel.value"
-            type="text"
-            placeholder="Filter"
-            class="p-column-filter w-full"
-            @input="filterCallback()"
-          />
+          <InputGroup class="p-column-filter w-full bd-inputgroup-inline-clear">
+            <InputText
+              v-model="filterModel.value"
+              type="text"
+              placeholder="Filter"
+              class="ps-col-filter-input"
+              @input="filterCallback()"
+            />
+            <InputGroupAddon>
+              <Button
+                icon="pi pi-times"
+                severity="secondary"
+                variant="text"
+                :disabled="!filterModel.value"
+                aria-label="Clear design filter"
+                @click="
+                  filterModel.value = null;
+                  filterCallback();
+                "
+              />
+            </InputGroupAddon>
+          </InputGroup>
         </template>
       </Column>
       <Column
@@ -604,13 +619,28 @@
         style="width: 1%; white-space: nowrap"
       >
         <template #filter="{ filterModel, filterCallback }">
-          <InputText
-            v-model="filterModel.value"
-            type="text"
-            placeholder="N/C"
-            class="p-column-filter ps-tag-filter-input"
-            @input="filterCallback()"
-          />
+          <InputGroup class="p-column-filter ps-tag-filter-input-group bd-inputgroup-inline-clear">
+            <InputText
+              v-model="filterModel.value"
+              type="text"
+              placeholder="N/C"
+              class="ps-col-filter-input"
+              @input="filterCallback()"
+            />
+            <InputGroupAddon>
+              <Button
+                icon="pi pi-times"
+                severity="secondary"
+                variant="text"
+                :disabled="!filterModel.value"
+                aria-label="Clear tag filter"
+                @click="
+                  filterModel.value = null;
+                  filterCallback();
+                "
+              />
+            </InputGroupAddon>
+          </InputGroup>
         </template>
       </Column>
       <Column
@@ -788,6 +818,8 @@ import Button from 'primevue/button'
 import SplitButton from 'primevue/splitbutton'
 import Checkbox from 'primevue/checkbox'
 import InputText from 'primevue/inputtext'
+import InputGroup from 'primevue/inputgroup'
+import InputGroupAddon from 'primevue/inputgroupaddon'
 import InputNumber from 'primevue/inputnumber'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Select from 'primevue/select'
@@ -1873,9 +1905,15 @@ const downloadMenuItems = [
   max-width: min(100%, 36rem);
 }
 
-.prepare-sequences-view :deep(.ps-tag-filter-input.p-inputtext) {
+.prepare-sequences-view :deep(.ps-tag-filter-input-group .p-inputtext) {
   width: 7ch;
   min-width: 7ch;
+  flex: 0 0 auto;
+}
+
+.ps-col-filter-input {
+  flex: 1;
+  min-width: 0;
 }
 
 .ps-warn-icon {

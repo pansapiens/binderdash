@@ -1,5 +1,20 @@
 @import './base.css';
 
+/* Search field + clear: remove inner vertical edge so text and × read as one control */
+.bd-inputgroup-inline-clear.p-inputgroup > .p-inputtext {
+  border-inline-end-width: 0;
+  border-end-end-radius: 0;
+}
+
+.bd-inputgroup-inline-clear .p-inputgroupaddon {
+  border-inline-start-width: 0;
+  padding-inline: 0.25rem;
+  /* Match the text field surface (Aura maps addon to form field, but border removal can leave a hairline; align fill) */
+  background: var(--p-form-field-background, var(--p-surface-0, #fff));
+  border-color: var(--p-form-field-border-color, var(--p-content-border-color, #dee2e6));
+  color: var(--p-form-field-color, inherit);
+}
+
 /* PrimeVue tooltip directive: light text on dark panel (Aura tokens can yield low-contrast text on light UI) */
 .p-tooltip.p-component {
   background: rgba(33, 37, 41, 0.96);

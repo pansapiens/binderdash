@@ -102,13 +102,28 @@
           </div>
         </template>
         <template #filter="{ filterModel, filterCallback }">
-          <InputText
-            v-model="filterModel.value"
-            type="text"
-            placeholder="Search by name"
-            class="p-column-filter sr-col-filter"
-            @input="filterCallback()"
-          />
+          <InputGroup class="p-column-filter sr-col-filter bd-inputgroup-inline-clear">
+            <InputText
+              v-model="filterModel.value"
+              type="text"
+              placeholder="Search by name"
+              class="sr-col-filter-input"
+              @input="filterCallback()"
+            />
+            <InputGroupAddon>
+              <Button
+                icon="pi pi-times"
+                severity="secondary"
+                variant="text"
+                :disabled="!filterModel.value"
+                aria-label="Clear name filter"
+                @click="
+                  filterModel.value = null;
+                  filterCallback();
+                "
+              />
+            </InputGroupAddon>
+          </InputGroup>
         </template>
       </Column>
       <Column
@@ -251,6 +266,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import InputText from 'primevue/inputtext'
+import InputGroup from 'primevue/inputgroup'
+import InputGroupAddon from 'primevue/inputgroupaddon'
 import MultiSelect from 'primevue/multiselect'
 import Button from 'primevue/button'
 import InputSwitch from 'primevue/inputswitch'
@@ -439,6 +456,11 @@ onMounted(() => {
   width: 100%;
   min-width: 0;
   max-width: 100%;
+}
+
+.sr-col-filter-input {
+  flex: 1;
+  min-width: 0;
 }
 
 .select-runs-toolbar {

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Changed (UI)**: Add [X] buttons to clear text search fields.
 - **Added (Prepare sequences / DNA Optimization)**: New `ExcludeRestrictionSite` constraint with a searchable dropdown of common Type II / Golden Gate / 8-cutter restriction enzymes (serialised as `AvoidPattern` with `"<enzyme>_site"` so dnachisel resolves the site via Biopython's restriction table on both strands).
 - **Added (Prepare sequences)**: Warn (with acknowledge-before-download) when any in-scope design has a blank or non‑N/C **tag** column so N/C terminal presets are not applied to those rows.
 - **Changed (Prepare sequences)**: **Short name** settings live in a collapsible **Panel** (like DNA optimisation); the whole header (title/bar) toggles expand/collapse, not only the chevron.
