@@ -38,6 +38,15 @@
             :disabled="tableSelection.length === 0"
             @click="reIngestSelected"
           />
+          <Button
+            label="Delete selected"
+            icon="pi pi-trash"
+            severity="danger"
+            outlined
+            :loading="deleting"
+            :disabled="tableSelection.length === 0 || ingesting"
+            @click="confirmDeleteSelected"
+          />
         </div>
       </template>
     </Toolbar>
@@ -258,6 +267,40 @@
         />
       </template>
     </Dialog>
+
+    <Dialog
+      v-model:visible="deleteDialogVisible"
+      modal
+      header="Delete selected runs?"
+      :style="{ width: 'min(32rem, 95vw)' }"
+      :closable="true"
+      @hide="onDeleteDialogHide"
+    >
+      <p class="delete-dialog-lead">
+        This will remove the selected runs from the <strong>database</strong> (including their designs and tag metrics cache). Files on disk under your run folders are <strong>not</strong> deleted or modified.
+      </p>
+      <ul class="delete-dialog-list">
+        <li v-for="run in pendingDeleteRuns" :key="run.run_id">
+          {{ run.metadata?.name ?? run.run_id }}
+        </li>
+      </ul>
+      <template #footer>
+        <Button
+          label="Cancel"
+          severity="secondary"
+          outlined
+          :disabled="deleting"
+          @click="deleteDialogVisible = false"
+        />
+        <Button
+          label="Delete"
+          severity="danger"
+          icon="pi pi-trash"
+          :loading="deleting"
+          @click="deleteSelectedRuns"
+        />
+      </template>
+    </Dialog>
   </div>
 </template>
 
@@ -293,7 +336,10 @@ const toast = useToast()
 
 const showSelectedOnly = ref(false)
 const ingesting = ref(false)
+const deleting = ref(false)
 const reingestDialogVisible = ref(false)
+const deleteDialogVisible = ref(false)
+const pendingDeleteRuns = ref<Run[]>([])
 const pendingReingest = ref<IngestPreviewReingestItem[]>([])
 
 const filters = ref({
@@ -301,6 +347,12 @@ const filters = ref({
   method: { value: null as string[] | null, matchMode: 'in' as const },
   'metadata.name': { value: null as string | null, matchMode: 'contains' as const }
 })
+
+const resetProjectAndMethodFilters = () => {
+  filters.value.project_id.value = null
+  filters.value.method.value = null
+  filters.value['metadata.name'].value = null
+}
 
 const projectOptions = computed(() => {
   const set = new Set<string>()
@@ -427,6 +479,64 @@ const confirmReingestIngest = async () => {
 
 const onReingestDialogHide = () => {
   pendingReingest.value = []
+}
+
+const confirmDeleteSelected = () => {
+  if (tableSelection.value.length === 0) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Nothing selected',
+      detail: 'Select one or more rows in the table before deleting.',
+      life: 4000
+    })
+    return
+  }
+  pendingDeleteRuns.value = [...tableSelection.value]
+  deleteDialogVisible.value = true
+}
+
+const onDeleteDialogHide = () => {
+  pendingDeleteRuns.value = []
+}
+
+const deleteSelectedRuns = async () => {
+  const rows = [...pendingDeleteRuns.value]
+  if (rows.length === 0) {
+    deleteDialogVisible.value = false
+    return
+  }
+  deleting.value = true
+  try {
+    for (const run of rows) {
+      await runsStore.deleteRun(run.run_id)
+    }
+    tableSelection.value = []
+    pendingDeleteRuns.value = []
+    await runsStore.fetchRuns()
+    resetProjectAndMethodFilters()
+    await designsStore.fetchDesignsForRuns(designsStore.selectedRunIds)
+    toast.add({
+      severity: 'success',
+      summary: 'Runs removed',
+      detail: `${rows.length} run(s) deleted from the database (files on disk unchanged).`,
+      life: 4000
+    })
+    deleteDialogVisible.value = false
+  } catch (error) {
+    console.error('Delete runs failed:', error)
+    toast.add({
+      severity: 'error',
+      summary: 'Delete failed',
+      detail: error instanceof Error ? error.message : 'Request failed',
+      life: 5000
+    })
+    await runsStore.fetchRuns()
+    resetProjectAndMethodFilters()
+    pendingDeleteRuns.value = []
+    deleteDialogVisible.value = false
+  } finally {
+    deleting.value = false
+  }
 }
 
 onMounted(() => {
@@ -585,6 +695,22 @@ onMounted(() => {
 }
 
 .reingest-list li {
+  margin: 0.25rem 0;
+}
+
+.delete-dialog-lead {
+  margin: 0 0 0.75rem 0;
+  line-height: 1.5;
+  color: #495057;
+}
+
+.delete-dialog-list {
+  margin: 0 0 0 1.25rem;
+  padding: 0;
+  color: #495057;
+}
+
+.delete-dialog-list li {
   margin: 0.25rem 0;
 }
 </style>

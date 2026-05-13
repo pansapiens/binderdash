@@ -69,6 +69,7 @@ class SqliteDesignsRepository:
                     project_id TEXT NOT NULL,
                     method TEXT NOT NULL,
                     run_name TEXT NOT NULL,
+                    run_path TEXT NOT NULL DEFAULT '',
                     run_json TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS binderdash_designs (
@@ -130,6 +131,7 @@ class SqliteDesignsRepository:
             )
             self._migrate_binder_chain_column(c)
             self._migrate_short_name_column(c)
+            self._migrate_run_path_column(c)
             c.commit()
 
     def _migrate_binder_chain_column(self, c: sqlite3.Cursor) -> None:
@@ -154,10 +156,23 @@ class SqliteDesignsRepository:
             if "duplicate column" not in str(e).lower():
                 raise
 
+    def _migrate_run_path_column(self, c: sqlite3.Cursor) -> None:
+        info = c.execute("PRAGMA table_info(binderdash_runs)").fetchall()
+        names = {row[1] for row in info}
+        if "run_path" in names:
+            return
+        try:
+            c.execute(
+                "ALTER TABLE binderdash_runs ADD COLUMN run_path TEXT NOT NULL DEFAULT ''"
+            )
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+
     def get_run_by_group_key(self, run_group_key: str) -> Optional[Dict[str, Any]]:
         with self._lock:
             cur = self._get_conn().execute(
-                "SELECT run_id, run_group_key, project_id, method, run_name, run_json "
+                "SELECT run_id, run_group_key, project_id, method, run_name, run_path, run_json "
                 "FROM binderdash_runs WHERE run_group_key = ?",
                 (run_group_key,),
             )
@@ -170,6 +185,7 @@ class SqliteDesignsRepository:
                 "project_id": row["project_id"],
                 "method": row["method"],
                 "run_name": row["run_name"],
+                "run_path": row["run_path"],
                 "run_json": json.loads(row["run_json"]),
             }
 
@@ -183,6 +199,14 @@ class SqliteDesignsRepository:
         run_name = (run_dict.get("metadata") or {}).get("name", "unknown")
         project_id = str(run_dict.get("project_id", ""))
         method = str(run_dict.get("method", ""))
+        path_raw = run_dict.get("path", "")
+        if path_raw:
+            try:
+                run_path = str(Path(str(path_raw)).expanduser().resolve(strict=False))
+            except OSError:
+                run_path = str(path_raw)
+        else:
+            run_path = ""
         run_json_str = json.dumps(run_dict, default=str)
 
         with self._lock:
@@ -190,16 +214,27 @@ class SqliteDesignsRepository:
             conn.execute("DELETE FROM binderdash_designs WHERE run_id = ?", (run_id,))
             conn.execute(
                 """
-                INSERT INTO binderdash_runs (run_id, run_group_key, project_id, method, run_name, run_json)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO binderdash_runs (
+                    run_id, run_group_key, project_id, method, run_name, run_path, run_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(run_id) DO UPDATE SET
                     run_group_key = excluded.run_group_key,
                     project_id = excluded.project_id,
                     method = excluded.method,
                     run_name = excluded.run_name,
+                    run_path = excluded.run_path,
                     run_json = excluded.run_json
                 """,
-                (run_id, run_group_key, project_id, method, run_name, run_json_str),
+                (
+                    run_id,
+                    run_group_key,
+                    project_id,
+                    method,
+                    run_name,
+                    run_path,
+                    run_json_str,
+                ),
             )
             for d in designs:
                 did, pid, meth, sp, tag, good, binder_chain, short_name, payload = (
@@ -237,7 +272,7 @@ class SqliteDesignsRepository:
     def list_run_records(self) -> List[Dict[str, Any]]:
         with self._lock:
             cur = self._get_conn().execute(
-                "SELECT run_id, run_group_key, project_id, method, run_name, run_json "
+                "SELECT run_id, run_group_key, project_id, method, run_name, run_path, run_json "
                 "FROM binderdash_runs ORDER BY run_name"
             )
             return [dict(r) for r in cur.fetchall()]

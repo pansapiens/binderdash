@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Added (Select Runs)**: **Delete selected runs** — toolbar action with confirmation; removes ingested runs from the **database** only (designs cascade, tag metrics cache cleared); **does not** delete or change files on disk.
+- **Added (Ingest Runs)**: **Set project name (project ID)** before ingest — inline edit in the scan results table so the value used and shown after ingestion matches what you enter (replaces scan-time guess only for that ingest).
+- **Added (SQLite)**: **`run_path`** column on **`binderdash_runs`** stores the resolved absolute filesystem path of the run directory at ingest time.
+
 ## [0.2.0] - 2026-05-13
 
 - **Changed (UI)**: Add [X] buttons to clear text search fields.

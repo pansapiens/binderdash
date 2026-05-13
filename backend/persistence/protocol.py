@@ -29,7 +29,7 @@ class DesignsRepository(Protocol):
         ...
 
     def list_run_records(self) -> List[Dict[str, Any]]:
-        """Rows with run_id, run_group_key, project_id, method, run_name, run_json (str)."""
+        """Rows with run_id, run_group_key, project_id, method, run_name, run_path, run_json (str)."""
         ...
 
     def list_all_design_dicts(self) -> List[Dict[str, Any]]:

@@ -66,7 +66,7 @@
         currentPageReportTemplate="Showing {first} to {last} of {totalRecords} runs"
         :filters="filters"
         filterDisplay="menu"
-        :globalFilterFields="['metadata.name', 'method', 'path']"
+        :globalFilterFields="['metadata.name', 'method', 'path', 'project_id']"
         showGridlines
         :resizableColumns="true"
         columnResizeMode="fit"
@@ -107,9 +107,14 @@
             </div>
           </template>
         </Column>
-        <Column field="project_id" header="Project ID" sortable style="min-width: 120px">
+        <Column field="project_id" header="Project ID" sortable style="min-width: 160px">
           <template #body="{ data }">
-            <span class="project-id">{{ data.project_id || '-' }}</span>
+            <InputText
+              v-model="data.project_id"
+              class="project-id-input w-full"
+              placeholder="Project ID"
+              @click.stop
+            />
           </template>
         </Column>
         <Column field="method" header="Method" sortable style="min-width: 100px">
@@ -224,6 +229,7 @@ import Checkbox from 'primevue/checkbox'
 import DataTable from 'primevue/datatable'
 import Dialog from 'primevue/dialog'
 import Tag from 'primevue/tag'
+import InputText from 'primevue/inputtext'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import { useFolderStore } from '../stores'
