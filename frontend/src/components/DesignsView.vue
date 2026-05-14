@@ -357,6 +357,7 @@
           v-model:sortField="designsStore.tableSortField"
           v-model:sortOrder="designsStore.tableSortOrder"
           v-model:selection="designsStore.selectedDesigns"
+          sortMode="multiple"
           dataKey="design_id"
           stripedRows
           paginator
