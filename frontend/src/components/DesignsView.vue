@@ -361,8 +361,8 @@
           dataKey="design_id"
           stripedRows
           paginator
-          :rows="10"
-          :rowsPerPageOptions="[10, 20, 50, 100]"
+          :rows="12"
+          :rowsPerPageOptions="[12, 24, 48, 96]"
           paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
           currentPageReportTemplate="Showing {first} to {last} of {totalRecords} designs"
           showGridlines
