@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .auth import CSRF_COOKIE_NAME
+from .auth import CSRF_COOKIE_NAME, request_has_valid_api_key
 from .routers import auth as auth_routes
 from .routers import designs as designs_routes
 from .routers import files as files_routes
@@ -73,6 +73,8 @@ async def csrf_protection(request: Request, call_next):
     ]:
         return await call_next(request)
     if settings.auth_disabled:
+        return await call_next(request)
+    if request_has_valid_api_key(request):
         return await call_next(request)
     csrf_token = request.headers.get("X-CSRF-Token")
     if not csrf_token:

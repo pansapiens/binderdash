@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 ALGORITHM = "HS256"
 COOKIE_NAME = "binderdash_session"
 CSRF_COOKIE_NAME = "binderdash_csrf"
+API_KEY_HEADER = "X-Binderdash-Api-Key"
+API_KEY_USER = AuthUser(username="api", provider="api_key", email=None)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -49,6 +51,31 @@ def clear_auth_cookie(response: Response):
 
 def get_token_from_cookie(request: Request) -> Optional[str]:
     return request.cookies.get(COOKIE_NAME)
+
+
+def _api_key_from_request(request: Request) -> Optional[str]:
+    header_key = (request.headers.get(API_KEY_HEADER) or "").strip()
+    if header_key:
+        return header_key
+    auth = (request.headers.get("Authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return None
+
+
+def request_has_valid_api_key(request: Request) -> bool:
+    if not settings.api_key_enabled():
+        return False
+    provided = _api_key_from_request(request)
+    if not provided:
+        return False
+    return secrets.compare_digest(provided, settings.binderdash_api_key)
+
+
+def user_from_api_key(request: Request) -> Optional[AuthUser]:
+    if request_has_valid_api_key(request):
+        return API_KEY_USER
+    return None
 
 
 def generate_csrf_token() -> str:
@@ -146,6 +173,10 @@ async def get_current_user_optional(request: Request):
     if settings.auth_disabled:
         return None
 
+    api_user = user_from_api_key(request)
+    if api_user is not None:
+        return api_user
+
     token = get_token_from_cookie(request)
     if not token:
         raise HTTPException(
@@ -162,6 +193,10 @@ async def get_current_user_optional_with_query(
 ):
     if settings.auth_disabled:
         return None
+
+    api_user = user_from_api_key(request)
+    if api_user is not None:
+        return api_user
 
     cookie_token = get_token_from_cookie(request)
     if cookie_token:

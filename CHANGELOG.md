@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Added (Auth / API)**: Optional **`BINDERDASH_API_KEY`** — scripted access via `Authorization: Bearer <key>` or `X-Binderdash-Api-Key` without session cookies or CSRF; `GET /api/auth/status` reports `providers.api_key.enabled`.
 - **Changed (Designs)**: All Designs table pagination defaults to **12** rows per page; rows-per-page options are **12, 24, 48, 96**.
 - **Added (Select Runs)**: **Delete selected runs** — toolbar action with confirmation; removes ingested runs from the **database** only (designs cascade, tag metrics cache cleared); **does not** delete or change files on disk.
 - **Added (Ingest Runs)**: **Set project name (project ID)** before ingest — inline edit in the scan results table so the value used and shown after ingestion matches what you enter (replaces scan-time guess only for that ingest).

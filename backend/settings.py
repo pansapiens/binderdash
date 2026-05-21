@@ -27,6 +27,7 @@ class RawSettings(BaseSettings):
     google_auth_client_secret: str = ""
     google_auth_redirect_uri: str = ""
     google_auth_allowed_users: str = ""
+    binderdash_api_key: str = ""
 
 
 class LocalUser(BaseModel):
@@ -48,6 +49,10 @@ class AppSettings(BaseModel):
     google_auth_client_secret: str = ""
     google_auth_redirect_uri: str = ""
     google_auth_allowed_users: List[str] = []
+    binderdash_api_key: str = ""
+
+    def api_key_enabled(self) -> bool:
+        return bool(self.binderdash_api_key)
 
     def local_auth_enabled(self) -> bool:
         return len(self.local_users) > 0
@@ -112,6 +117,7 @@ settings = AppSettings(
     google_auth_client_secret=(raw_settings.google_auth_client_secret or "").strip(),
     google_auth_redirect_uri=(raw_settings.google_auth_redirect_uri or "").strip(),
     google_auth_allowed_users=_parse_csv_lower(raw_settings.google_auth_allowed_users),
+    binderdash_api_key=(raw_settings.binderdash_api_key or "").strip(),
 )
 
 SECRET_KEY = raw_settings.secret_key or secrets.token_urlsafe(32)

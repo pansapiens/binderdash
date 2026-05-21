@@ -30,6 +30,7 @@
 - Expected variables:
   - `RUN_BASE_DIRS="/data/runs,/data2/runs"` (comma-separated list of base directories)
   - `DISABLE_AUTHENTICATION="true|false"`
+  - `BINDERDASH_API_KEY` (optional; when set, API clients use `Authorization: Bearer <key>` or `X-Binderdash-Api-Key` instead of login + CSRF)
   - `LOCAL_USERS="user1:$2b$...,user2:$2b$..."` (optional; bcrypt hashes; enabled when non-empty)
   - `PAM_LOCAL_ENABLED` / `PAM_LOCAL_ALLOWED_USERS` / `PAM_LOCAL_SERVICE` (optional; PAM after `LOCAL_USERS`; default service `common-auth`; Docker: either `LOCAL_USERS`, add users in the image, or optional bind-mounts of host `/etc/passwd` + `/etc/group` + `/etc/shadow` — commented in `docker-compose.yml`, security-sensitive)
   - `GOOGLE_AUTH_ENABLED`, `GOOGLE_AUTH_CLIENT_ID`, `GOOGLE_AUTH_CLIENT_SECRET`, `GOOGLE_AUTH_REDIRECT_URI`, `GOOGLE_AUTH_ALLOWED_USERS` (optional; Google OAuth; emails case-insensitive)

@@ -88,6 +88,7 @@ async def auth_status():
                 "enabled": google_oauth_configured(),
                 "login_url": google_login_path,
             },
+            "api_key": {"enabled": settings.api_key_enabled()},
         },
     }
 
