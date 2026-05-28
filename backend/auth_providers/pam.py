@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import pwd
+from pathlib import Path
 from typing import Optional
 
 from ..settings import settings
@@ -15,7 +17,17 @@ def _pam_authenticate(username: str, password: str, service: str) -> bool:
         logger.error("python-pam is not installed")
         return False
     try:
-        return bool(pam.authenticate(username, password, service=service))
+        client = pam.pam()
+        ok = bool(client.authenticate(username, password, service=service))
+        if not ok:
+            logger.info(
+                "PAM authenticate returned false for user %r (service=%r, code=%r, reason=%r)",
+                username,
+                service,
+                getattr(client, "code", None),
+                getattr(client, "reason", None),
+            )
+        return ok
     except Exception:
         logger.exception(
             "PAM authentication error for user %r (service=%r)", username, service
@@ -25,10 +37,24 @@ def _pam_authenticate(username: str, password: str, service: str) -> bool:
 
 async def authenticate_pam(username: str, password: str) -> Optional[AuthUser]:
     if not settings.pam_local_enabled:
+        logger.debug("PAM auth skipped because PAM_LOCAL_ENABLED is false")
         return None
     if not settings.is_pam_user_allowed(username):
+        logger.info(
+            "PAM auth rejected before verify: user %r is not in PAM_LOCAL_ALLOWED_USERS=%r",
+            username,
+            settings.pam_local_allowed_users,
+        )
         return None
     svc = settings.pam_local_service
+    if not Path(f"/etc/pam.d/{svc}").exists():
+        logger.warning("PAM service file is missing: /etc/pam.d/%s", svc)
+    try:
+        pwd.getpwnam(username)
+    except KeyError:
+        logger.warning(
+            "PAM username %r not present in container /etc/passwd", username
+        )
     ok = await asyncio.to_thread(_pam_authenticate, username, password, svc)
     if not ok:
         logger.info(
