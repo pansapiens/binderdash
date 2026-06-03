@@ -61,6 +61,21 @@ class NoopDesignsRepository:
     ) -> int:
         return 0
 
+    def list_data_json_keys_for_runs(self, run_ids: List[str]) -> List[str]:
+        return []
+
+    def merge_design_extra_data_bulk(
+        self,
+        run_id: str,
+        items: List[Dict[str, Any]],
+    ) -> Dict[str, int]:
+        return {
+            "matched": 0,
+            "updated": 0,
+            "skipped_keys": 0,
+            "unknown_design_ids": 0,
+        }
+
     def delete_run(self, run_id: str) -> bool:
         return False
 

@@ -514,7 +514,7 @@ def update_design_sequence_and_binder_chain(
     sequence: Optional[str] = None,
     binder_chain: Optional[str] = None,
 ) -> None:
-    """Persist binder ``Sequence`` (in data_json) and/or ``binder_chain`` column."""
+    """Persist binder ``Sequence`` (in extra_data) and/or ``binder_chain`` column."""
     from .persistence.factory import get_designs_repository
 
     repo = get_designs_repository()

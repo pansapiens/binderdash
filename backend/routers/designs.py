@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
 from ..auth import get_current_user_optional
 from ..cache import (
@@ -19,9 +19,11 @@ from ..run_discovery import (
     update_design_tag,
 )
 from ..util.pdb_to_fasta import get_chain_sequences
+from ..design_merge import apply_merge_table_upload
 from ..schemas import (
     DesignGoodUpdate,
     DesignTagUpdate,
+    MergeTableResponse,
     SequenceExtractRequest,
     SequenceExtractResponse,
     SequenceExtractResultRow,
@@ -564,6 +566,45 @@ def _tag_metrics_sync(body: TagPlacementRequest) -> TagMetricsResponse:
                     mu,
                 )
     return TagMetricsResponse(results=results)
+
+
+@router.post("/merge-table", response_model=MergeTableResponse)
+async def post_merge_table(
+    file: UploadFile = File(...),
+    run_ids: str = Form(
+        ...,
+        description="Comma-separated run_id values for designs to update",
+    ),
+    preview: bool = Form(False),
+    design_id_column: Optional[str] = Form(None),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
+    allowed = [rid.strip() for rid in run_ids.split(",") if rid.strip()]
+    if not allowed:
+        raise HTTPException(status_code=400, detail="At least one run_id is required")
+    for rid in allowed:
+        if not get_run_metadata(rid):
+            raise HTTPException(status_code=404, detail=f"Run not found: {rid}")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    try:
+        result = await asyncio.to_thread(
+            apply_merge_table_upload,
+            content,
+            file.filename or "upload.tsv",
+            allowed,
+            design_id_column=design_id_column,
+            preview=preview,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.error("merge-table failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not preview:
+        refresh_designs_cache()
+    return MergeTableResponse(**result)
 
 
 @router.post("/refresh-cache")

@@ -7,8 +7,9 @@
 interface ApiRequestOptions {
     method?: string;
     headers?: Record<string, string>;
-    body?: string;
+    body?: string | FormData;
     requireAuth?: boolean;
+    jsonBody?: boolean;
 }
 
 interface Folder {
@@ -113,6 +114,22 @@ export interface TagPlacementResponse {
     results: TagPlacementResultRow[]
 }
 
+export interface MergeTableResponse {
+    preview: boolean
+    design_id_column: string
+    upload_row_count: number
+    new_columns: string[]
+    matched_design_count: number
+    unknown_design_id_count: number
+    skipped_columns: string[]
+    pipeline_collision_columns: string[]
+    would_update_rows?: number
+    matched?: number
+    updated?: number
+    skipped_keys?: number
+    unknown_design_ids?: number
+}
+
 export interface TagMetricsRow {
     run_id: string
     design_id: string
@@ -175,14 +192,37 @@ export const getCsrfToken = (): string | null => {
     return csrfToken
 }
 
+async function errorDetailFromResponse(response: Response): Promise<string> {
+    try {
+        const body = await response.json()
+        const detail = body?.detail
+        if (typeof detail === 'string' && detail.trim()) {
+            return detail
+        }
+        if (Array.isArray(detail)) {
+            const parts = detail.map((item: unknown) => {
+                if (item && typeof item === 'object' && 'msg' in item) {
+                    return String((item as { msg: string }).msg)
+                }
+                return String(item)
+            })
+            if (parts.length) return parts.join('; ')
+        }
+    } catch {
+        /* response may not be JSON */
+    }
+    return `Request failed (${response.status})`
+}
+
 /**
  * Generic fetch wrapper with error handling and CSRF protection
  */
 async function apiRequest<T = any>(url: string, options: ApiRequestOptions = {}): Promise<T> {
     try {
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-            ...options.headers
+        const useJson = options.jsonBody !== false && !(options.body instanceof FormData)
+        const headers: Record<string, string> = { ...options.headers }
+        if (useJson) {
+            headers['Content-Type'] = 'application/json'
         }
 
         // Add CSRF token for state-changing operations
@@ -231,7 +271,7 @@ async function apiRequest<T = any>(url: string, options: ApiRequestOptions = {})
                 throw new Error(`Access forbidden: ${response.status}`)
             }
 
-            throw new Error(`HTTP error! status: ${response.status}`)
+            throw new Error(await errorDetailFromResponse(response))
         }
 
         return await response.json()
@@ -538,6 +578,27 @@ export const designsApi = {
                 updates: payload.updates,
                 refresh_cache_after: payload.refresh_cache_after ?? false
             }),
+            requireAuth: true
+        })
+    },
+
+    async mergeTableUpload(payload: {
+        file: File
+        runIds: string[]
+        preview?: boolean
+        designIdColumn?: string
+    }): Promise<MergeTableResponse> {
+        const form = new FormData()
+        form.append('file', payload.file)
+        form.append('run_ids', payload.runIds.join(','))
+        form.append('preview', payload.preview ? 'true' : 'false')
+        if (payload.designIdColumn?.trim()) {
+            form.append('design_id_column', payload.designIdColumn.trim())
+        }
+        return await apiRequest<MergeTableResponse>(`${API_BASE}/api/designs/merge-table`, {
+            method: 'POST',
+            body: form,
+            jsonBody: false,
             requireAuth: true
         })
     }

@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import unquote
 
 from .protocol import (
+    RESERVED_TOP_LEVEL_KEYS,
     design_dedupe_key,
     merge_design_from_storage,
     split_design_for_storage,
@@ -85,6 +86,7 @@ class SqliteDesignsRepository:
                     binder_chain TEXT,
                     short_name TEXT,
                     data_json TEXT NOT NULL,
+                    extra_data TEXT NOT NULL DEFAULT '{}',
                     FOREIGN KEY(run_id) REFERENCES binderdash_runs(run_id) ON DELETE CASCADE,
                     UNIQUE(run_id, design_dedupe)
                 );
@@ -131,6 +133,7 @@ class SqliteDesignsRepository:
             )
             self._migrate_binder_chain_column(c)
             self._migrate_short_name_column(c)
+            self._migrate_extra_data_column(c)
             self._migrate_run_path_column(c)
             c.commit()
 
@@ -152,6 +155,19 @@ class SqliteDesignsRepository:
             return
         try:
             c.execute("ALTER TABLE binderdash_designs ADD COLUMN short_name TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+
+    def _migrate_extra_data_column(self, c: sqlite3.Cursor) -> None:
+        info = c.execute("PRAGMA table_info(binderdash_designs)").fetchall()
+        names = {row[1] for row in info}
+        if "extra_data" in names:
+            return
+        try:
+            c.execute(
+                "ALTER TABLE binderdash_designs ADD COLUMN extra_data TEXT NOT NULL DEFAULT '{}'"
+            )
         except sqlite3.OperationalError as e:
             if "duplicate column" not in str(e).lower():
                 raise
@@ -211,6 +227,27 @@ class SqliteDesignsRepository:
 
         with self._lock:
             conn = self._get_conn()
+            preserved_rows: Dict[str, Dict[str, Any]] = {}
+            cur_prev = conn.execute(
+                """
+                SELECT design_dedupe, extra_data, tag, good, binder_chain, short_name
+                FROM binderdash_designs WHERE run_id = ?
+                """,
+                (run_id,),
+            )
+            for prev in cur_prev.fetchall():
+                extra_raw = prev["extra_data"]
+                if extra_raw is None or not str(extra_raw).strip():
+                    extra_obj: Dict[str, Any] = {}
+                else:
+                    extra_obj = json.loads(extra_raw)
+                preserved_rows[prev["design_dedupe"]] = {
+                    "extra_data": extra_obj,
+                    "tag": prev["tag"],
+                    "good": prev["good"],
+                    "binder_chain": prev["binder_chain"],
+                    "short_name": prev["short_name"],
+                }
             conn.execute("DELETE FROM binderdash_designs WHERE run_id = ?", (run_id,))
             conn.execute(
                 """
@@ -241,6 +278,20 @@ class SqliteDesignsRepository:
                     split_design_for_storage(d)
                 )
                 dedupe = design_dedupe_key(did, sp or None)
+                prev = preserved_rows.get(dedupe)
+                if prev is not None:
+                    extra_obj = dict(prev["extra_data"])
+                    tag = prev["tag"]
+                    g_prev = prev["good"]
+                    good = None if g_prev is None else bool(g_prev)
+                    bc_prev = prev["binder_chain"]
+                    if bc_prev is not None and str(bc_prev).strip():
+                        binder_chain = str(bc_prev).strip()
+                    sn_prev = prev["short_name"]
+                    if sn_prev is not None and str(sn_prev).strip():
+                        short_name = str(sn_prev).strip()
+                else:
+                    extra_obj = {}
                 good_i: Optional[int]
                 if good is None:
                     good_i = None
@@ -250,8 +301,9 @@ class SqliteDesignsRepository:
                     """
                     INSERT INTO binderdash_designs (
                         run_id, design_dedupe, design_id, project_id, method,
-                        source_path, tag, good, binder_chain, short_name, data_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        source_path, tag, good, binder_chain, short_name,
+                        data_json, extra_data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         run_id,
@@ -265,6 +317,7 @@ class SqliteDesignsRepository:
                         binder_chain,
                         short_name,
                         json.dumps(payload, default=str),
+                        json.dumps(extra_obj, default=str),
                     ),
                 )
             conn.commit()
@@ -281,11 +334,16 @@ class SqliteDesignsRepository:
         with self._lock:
             cur = self._get_conn().execute(
                 "SELECT run_id, design_id, project_id, method, source_path, tag, good, "
-                "binder_chain, short_name, data_json FROM binderdash_designs"
+                "binder_chain, short_name, data_json, extra_data FROM binderdash_designs"
             )
             out: List[Dict[str, Any]] = []
             for row in cur.fetchall():
                 data = json.loads(row["data_json"])
+                extra_raw = row["extra_data"]
+                if extra_raw is None or not str(extra_raw).strip():
+                    extra: Dict[str, Any] = {}
+                else:
+                    extra = json.loads(extra_raw)
                 good_v: Optional[bool]
                 if row["good"] is None:
                     good_v = None
@@ -312,6 +370,7 @@ class SqliteDesignsRepository:
                         data,
                         binder_chain=binder_chain_out,
                         short_name=short_name_out,
+                        extra=extra,
                     )
                 )
             return out
@@ -368,36 +427,132 @@ class SqliteDesignsRepository:
         with self._lock:
             conn = self._get_conn()
             cur = conn.execute(
-                "SELECT data_json, binder_chain FROM binderdash_designs "
+                "SELECT extra_data, binder_chain FROM binderdash_designs "
                 "WHERE run_id = ? AND design_dedupe = ?",
                 (run_id, dedupe),
             )
             row = cur.fetchone()
             if row is None:
                 return False
-            data = json.loads(row["data_json"])
+            extra_raw = row["extra_data"]
+            if extra_raw is None or not str(extra_raw).strip():
+                extra: Dict[str, Any] = {}
+            else:
+                extra = json.loads(extra_raw)
             if sequence is not None:
-                data["Sequence"] = sequence
-            new_json = json.dumps(data, default=str)
+                extra["Sequence"] = sequence
+            new_extra = json.dumps(extra, default=str)
             if binder_chain is not None:
                 bc = binder_chain.strip() or None
                 conn.execute(
                     """
-                    UPDATE binderdash_designs SET data_json = ?, binder_chain = ?
+                    UPDATE binderdash_designs SET extra_data = ?, binder_chain = ?
                     WHERE run_id = ? AND design_dedupe = ?
                     """,
-                    (new_json, bc, run_id, dedupe),
+                    (new_extra, bc, run_id, dedupe),
                 )
             else:
                 conn.execute(
                     """
-                    UPDATE binderdash_designs SET data_json = ?
+                    UPDATE binderdash_designs SET extra_data = ?
                     WHERE run_id = ? AND design_dedupe = ?
                     """,
-                    (new_json, run_id, dedupe),
+                    (new_extra, run_id, dedupe),
                 )
             conn.commit()
             return True
+
+    def list_data_json_keys_for_runs(self, run_ids: List[str]) -> List[str]:
+        if not run_ids:
+            return []
+        keys: set[str] = set()
+        placeholders = ",".join("?" * len(run_ids))
+        with self._lock:
+            cur = self._get_conn().execute(
+                f"SELECT data_json FROM binderdash_designs WHERE run_id IN ({placeholders})",
+                tuple(run_ids),
+            )
+            for row in cur.fetchall():
+                data = json.loads(row["data_json"])
+                keys.update(str(k) for k in data.keys())
+        return sorted(keys)
+
+    def merge_design_extra_data_bulk(
+        self,
+        run_id: str,
+        items: List[Dict[str, Any]],
+    ) -> Dict[str, int]:
+        matched = 0
+        updated = 0
+        skipped_keys = 0
+        unknown = 0
+        if not items:
+            return {
+                "matched": 0,
+                "updated": 0,
+                "skipped_keys": 0,
+                "unknown_design_ids": 0,
+            }
+        with self._lock:
+            conn = self._get_conn()
+            for it in items:
+                design_id = str(it.get("design_id", ""))
+                sp_raw = it.get("source_path")
+                source_path = (
+                    str(sp_raw).strip()
+                    if sp_raw is not None and str(sp_raw).strip()
+                    else ""
+                )
+                fields = it.get("fields") or {}
+                if not design_id or not isinstance(fields, dict):
+                    unknown += 1
+                    continue
+                dedupe = design_dedupe_key(design_id, source_path or None)
+                cur = conn.execute(
+                    """
+                    SELECT data_json, extra_data FROM binderdash_designs
+                    WHERE run_id = ? AND design_dedupe = ?
+                    """,
+                    (run_id, dedupe),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    unknown += 1
+                    continue
+                matched += 1
+                data = json.loads(row["data_json"])
+                extra_raw = row["extra_data"]
+                if extra_raw is None or not str(extra_raw).strip():
+                    extra: Dict[str, Any] = {}
+                else:
+                    extra = json.loads(extra_raw)
+                changed = False
+                for key, value in fields.items():
+                    k = str(key).strip()
+                    if not k or k in RESERVED_TOP_LEVEL_KEYS:
+                        skipped_keys += 1
+                        continue
+                    if k in data or k in extra:
+                        skipped_keys += 1
+                        continue
+                    extra[k] = value
+                    changed = True
+                if changed:
+                    conn.execute(
+                        """
+                        UPDATE binderdash_designs SET extra_data = ?
+                        WHERE run_id = ? AND design_dedupe = ?
+                        """,
+                        (json.dumps(extra, default=str), run_id, dedupe),
+                    )
+                    updated += 1
+            conn.commit()
+        return {
+            "matched": matched,
+            "updated": updated,
+            "skipped_keys": skipped_keys,
+            "unknown_design_ids": unknown,
+        }
 
     def update_design_short_names_bulk(
         self,

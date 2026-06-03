@@ -64,7 +64,19 @@ class DesignsRepository(Protocol):
         sequence: Optional[str] = None,
         binder_chain: Optional[str] = None,
     ) -> bool:
-        """Merge Sequence into data_json; set binder_chain column when provided. At least one of sequence or binder_chain must be set."""
+        """Merge Sequence into extra_data; set binder_chain column when provided. At least one of sequence or binder_chain must be set."""
+        ...
+
+    def merge_design_extra_data_bulk(
+        self,
+        run_id: str,
+        items: List[Dict[str, Any]],
+    ) -> Dict[str, int]:
+        """Each item: design_id, source_path (optional), fields (dict). Adds keys only when absent from data_json and extra_data."""
+        ...
+
+    def list_data_json_keys_for_runs(self, run_ids: List[str]) -> List[str]:
+        """Distinct keys present in pipeline data_json for the given runs."""
         ...
 
     def update_design_short_names_bulk(
@@ -125,6 +137,29 @@ class DesignsRepository(Protocol):
 
 def design_dedupe_key(design_id: str, source_path: Optional[str]) -> str:
     return f"{design_id}\x1f{source_path or ''}"
+
+
+RESERVED_TOP_LEVEL_KEYS = frozenset(
+    {
+        "design_id",
+        "run_id",
+        "project_id",
+        "method",
+        "tag",
+        "good",
+        "source_path",
+        "binder_chain",
+        "short_name",
+        "run_name",
+        "run_path",
+        "backbone_id",
+        "pdb_file",
+        "target_sequence",
+        "params",
+    }
+)
+
+SEQUENCE_EXTRA_KEYS = frozenset({"Sequence", "sequence", "binder_sequence"})
 
 
 def split_design_for_storage(
@@ -226,8 +261,9 @@ def merge_design_from_storage(
     data: Dict[str, Any],
     binder_chain: Optional[str] = None,
     short_name: Optional[str] = None,
+    extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    out = dict(data)
+    out = {**data, **(extra or {})}
     out["design_id"] = design_id
     out["run_id"] = run_id
     out["project_id"] = project_id

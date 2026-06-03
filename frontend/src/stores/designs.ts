@@ -1070,6 +1070,17 @@ export const useDesignsStore = defineStore('designs', () => {
         }
     }
 
+    const ensureColumnsVisible = (fields: string[]) => {
+        const allowed = new Set(columns.value.map((c) => c.field))
+        for (const raw of fields) {
+            const field = raw.trim()
+            if (!field || !allowed.has(field)) continue
+            if (!visibleColumns.value.includes(field)) {
+                visibleColumns.value.push(field)
+            }
+        }
+    }
+
     const ensureTagColumnVisible = () => {
         if (!columns.value.some(c => c.field === 'tag')) {
             const goodIdx = columns.value.findIndex(c => c.field === 'good')
@@ -1209,6 +1220,7 @@ export const useDesignsStore = defineStore('designs', () => {
         toggleBestMpnnOnly,
         selectDesigns,
         toggleColumn,
+        ensureColumnsVisible,
         navigateStructure,
         clearDesigns,
         setSelectedRunIds,

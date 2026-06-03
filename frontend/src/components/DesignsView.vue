@@ -377,11 +377,12 @@
           @row-click="onRowClick"
         >
           <template #header>
-            <div class="flex justify-content-between align-items-center">
-              <span class="text-xl font-bold">All Designs</span>
+            <div class="flex justify-content-end align-items-center">
               <div class="flex gap-2 align-items-center">
                 <Button 
                   icon="pi pi-table" 
+                  v-tooltip.bottom="'Choose which columns appear in the table'"
+                  aria-label="Toggle columns"
                   @click="toggleColumnSelector"
                   text
                   rounded
@@ -391,6 +392,8 @@
                 />
                 <Button 
                   icon="pi pi-filter" 
+                  v-tooltip.bottom="'Filter designs by score, length, method, and custom rules'"
+                  aria-label="Toggle filters"
                   @click="toggleFilterPanel"
                   text
                   rounded
@@ -400,15 +403,27 @@
                 />
                 <div class="flex align-items-start gap-3">
                   <div class="flex flex-column gap-2">
-                    <SplitButton 
-                      :model="exportMenuItems"
-                      label="Download TSV"
-                      icon="pi pi-download"
-                      severity="secondary"
-                      dropdownIcon="pi pi-chevron-down"
-                      @click="onDownloadTsv"
-                      size="small"
-                    />
+                    <div class="designs-download-upload-row flex align-items-center">
+                      <SplitButton 
+                        :model="exportMenuItems"
+                        label="Download TSV"
+                        icon="pi pi-download"
+                        severity="secondary"
+                        dropdownIcon="pi pi-chevron-down"
+                        @click="onDownloadTsv"
+                        size="small"
+                      />
+                      <SplitButton
+                        :model="mergeUploadMenuItems"
+                        label="Upload extra data (TSV)"
+                        icon="pi pi-upload"
+                        severity="secondary"
+                        dropdownIcon="pi pi-chevron-down"
+                        size="small"
+                        :disabled="designsStore.selectedRunIds.length === 0"
+                        @click="openMergeTableDialog('tsv')"
+                      />
+                    </div>
                     <div class="flex align-items-center gap-1">
                       <Checkbox 
                         :modelValue="exportIncludeAllColumns"
@@ -1201,6 +1216,87 @@
     </div>
     <div v-else class="text-center p-3">No params available for this design</div>
   </Dialog>
+
+  <Dialog
+    v-model:visible="showMergeTableDialog"
+    modal
+    header="Upload extra data"
+    :style="{ width: '32rem', maxWidth: '95vw' }"
+  >
+    <p class="text-sm m-0 mb-3">
+      Upload a table with <code>design_id</code> (or equivalent). New columns are stored as annotations
+      and survive re-ingest. Keys that already exist in pipeline data are skipped.
+    </p>
+    <div class="flex flex-column gap-3">
+      <input
+        ref="mergeTableFileInputRef"
+        type="file"
+        :accept="mergeTableFileAccept"
+        style="display: none"
+        @change="onMergeTableFileChange"
+      />
+      <div class="flex gap-2 align-items-center flex-wrap">
+        <Button
+          label="Choose file"
+          icon="pi pi-file"
+          size="small"
+          severity="secondary"
+          @click="mergeTableFileInputRef?.click()"
+        />
+        <span v-if="mergeTableFile" class="text-sm">{{ mergeTableFile.name }}</span>
+        <span v-else class="text-sm text-color-secondary">No file selected</span>
+      </div>
+      <div class="flex flex-column gap-1">
+        <label for="merge-design-id-col" class="text-sm font-medium">Design ID column (optional)</label>
+        <InputText
+          id="merge-design-id-col"
+          v-model="mergeTableDesignIdColumn"
+          placeholder="design_id"
+          size="small"
+        />
+      </div>
+      <div v-if="mergeTablePreview" class="merge-table-preview text-sm">
+        <p class="m-0"><strong>Design ID column:</strong> {{ mergeTablePreview.design_id_column }}</p>
+        <p class="m-0"><strong>Upload rows:</strong> {{ mergeTablePreview.upload_row_count }}</p>
+        <p class="m-0"><strong>Matched designs:</strong> {{ mergeTablePreview.matched_design_count }}</p>
+        <p class="m-0"><strong>Unknown design IDs:</strong> {{ mergeTablePreview.unknown_design_id_count }}</p>
+        <p v-if="mergeTablePreview.new_columns?.length" class="m-0">
+          <strong>New columns:</strong> {{ mergeTablePreview.new_columns.join(', ') }}
+        </p>
+        <p
+          v-if="mergeTablePreview.pipeline_collision_columns?.length"
+          class="m-0 text-orange-500"
+        >
+          <strong>Skipped (pipeline):</strong>
+          {{ mergeTablePreview.pipeline_collision_columns.join(', ') }}
+        </p>
+        <p v-if="mergeTablePreview.preview" class="m-0">
+          <strong>Would update:</strong> {{ mergeTablePreview.would_update_rows ?? 0 }} row(s)
+        </p>
+        <p v-if="!mergeTablePreview.preview && mergeTablePreview.updated != null" class="m-0">
+          <strong>Updated:</strong> {{ mergeTablePreview.updated }} row(s)
+        </p>
+      </div>
+    </div>
+    <template #footer>
+      <Button label="Cancel" severity="secondary" text @click="showMergeTableDialog = false" />
+      <Button
+        label="Preview"
+        icon="pi pi-eye"
+        severity="secondary"
+        :loading="mergeTablePending"
+        :disabled="!mergeTableFile"
+        @click="runMergeTablePreview"
+      />
+      <Button
+        label="Merge"
+        icon="pi pi-check"
+        :loading="mergeTablePending"
+        :disabled="!mergeTableFile || !mergeTablePreview"
+        @click="runMergeTableApply"
+      />
+    </template>
+  </Dialog>
   </div>
 </template>
 
@@ -1225,7 +1321,7 @@ import Dialog from 'primevue/dialog'
 import MolstarViewer from './MolstarViewer.vue'
 import type { MembraneData } from '../membraneOverlay'
 import { designsApi, runsApi } from '../webapi'
-import type { TagMetricsRow, TagPlacementResultRow } from '../webapi'
+import type { MergeTableResponse, TagMetricsRow, TagPlacementResultRow } from '../webapi'
 import { useDesignsStore, useAppStore, useAuthStore } from '../stores'
 import type { CustomFilter, Design } from '../types/store'
 import { PERSISTENCE_KEYS, tagPlacementKey, advRefKey } from '../persistence/keys'
@@ -1986,9 +2082,104 @@ const exportMenuItems = ref([
   { label: 'Download FASTA (Binders)', icon: 'pi pi-file', command: () => onDownloadFasta() }
 ])
 
+const mergeUploadMenuItems = ref([
+  {
+    label: 'Upload extra data (CSV)',
+    icon: 'pi pi-upload',
+    command: () => openMergeTableDialog('csv')
+  }
+])
+
 // Params dialog state
 const showParamsDialog = ref(false)
 const currentParamsJson = ref<string>('')
+
+const showMergeTableDialog = ref(false)
+const mergeTableFileInputRef = ref<HTMLInputElement | null>(null)
+const mergeTableFile = ref<File | null>(null)
+const mergeTableDesignIdColumn = ref('')
+const mergeTablePreview = ref<MergeTableResponse | null>(null)
+const mergeTablePending = ref(false)
+const mergeTableFileAccept = ref('.tsv,.txt,text/tab-separated-values')
+
+const openMergeTableDialog = (format: 'tsv' | 'csv' = 'tsv') => {
+  if (designsStore.selectedRunIds.length === 0) {
+    toast.add({
+      severity: 'warn',
+      summary: 'No runs selected',
+      detail: 'Select runs in the Runs tab before uploading extra data.',
+      life: 4000
+    })
+    return
+  }
+  mergeTableFileAccept.value =
+    format === 'csv'
+      ? '.csv,text/csv'
+      : '.tsv,.txt,text/tab-separated-values'
+  mergeTableFile.value = null
+  mergeTablePreview.value = null
+  mergeTableDesignIdColumn.value = ''
+  if (mergeTableFileInputRef.value) mergeTableFileInputRef.value.value = ''
+  showMergeTableDialog.value = true
+}
+
+const onMergeTableFileChange = (ev: Event) => {
+  const input = ev.target as HTMLInputElement
+  const f = input.files?.[0]
+  mergeTableFile.value = f ?? null
+  mergeTablePreview.value = null
+}
+
+const runMergeTableUpload = async (preview: boolean) => {
+  if (!mergeTableFile.value) return
+  const runIds = designsStore.selectedRunIds
+  if (runIds.length === 0) {
+    toast.add({
+      severity: 'warn',
+      summary: 'No runs selected',
+      detail: 'Select runs in the Runs tab first.',
+      life: 4000
+    })
+    return
+  }
+  mergeTablePending.value = true
+  try {
+    const result = await designsApi.mergeTableUpload({
+      file: mergeTableFile.value,
+      runIds,
+      preview,
+      designIdColumn: mergeTableDesignIdColumn.value || undefined
+    })
+    mergeTablePreview.value = result
+    if (!preview) {
+      await designsStore.fetchDesignsForRuns(runIds)
+      const skip = new Set(result.pipeline_collision_columns ?? [])
+      const toShow = (result.new_columns ?? []).filter((c) => !skip.has(c))
+      designsStore.ensureColumnsVisible(toShow)
+      toast.add({
+        severity: 'success',
+        summary: 'Columns merged',
+        detail: `Updated ${result.updated ?? 0} design row(s).`,
+        life: 4000
+      })
+      showMergeTableDialog.value = false
+    }
+  } catch (err: unknown) {
+    const detail =
+      err instanceof Error ? err.message : 'The table could not be imported.'
+    toast.add({
+      severity: 'error',
+      summary: preview ? 'Import preview failed' : 'Import failed',
+      detail,
+      life: 6000
+    })
+  } finally {
+    mergeTablePending.value = false
+  }
+}
+
+const runMergeTablePreview = () => runMergeTableUpload(true)
+const runMergeTableApply = () => runMergeTableUpload(false)
 
 // Filter options (pipeline methods)
 const methodOptions = ref<string[]>([...PIPELINE_METHOD_IDS])
@@ -3158,6 +3349,15 @@ defineExpose({
 .filter-panel-header h3 {
   margin: 0;
   color: #495057;
+}
+
+.designs-download-upload-row {
+  column-gap: 0;
+  gap: 0;
+}
+
+.designs-download-upload-row > .p-splitbutton + .p-splitbutton {
+  margin-left: 0.5rem;
 }
 
 .filter-controls {

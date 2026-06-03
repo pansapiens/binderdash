@@ -119,6 +119,22 @@ class ShortNameBulkResponse(BaseModel):
     updated: int
 
 
+class MergeTableResponse(BaseModel):
+    preview: bool
+    design_id_column: str
+    upload_row_count: int = 0
+    new_columns: List[str] = []
+    matched_design_count: int = 0
+    unknown_design_id_count: int = 0
+    skipped_columns: List[str] = []
+    pipeline_collision_columns: List[str] = []
+    would_update_rows: Optional[int] = None
+    matched: Optional[int] = None
+    updated: Optional[int] = None
+    skipped_keys: Optional[int] = None
+    unknown_design_ids: Optional[int] = None
+
+
 class TagPlacementItem(BaseModel):
     run_id: str
     design_id: str
