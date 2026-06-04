@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Performance (Designs)**: Large tables load faster (run-scoped SQLite, trimmed list payload, `designs_by_run_id` cache); UI uses `shallowRef`, sampled column inference, stable `binderRowKey`, and flag-based select-all; virtual scroller removed (conflicted with pagination).
 - **Added (Designs)**: **`extra_data`** SQLite column for annotations (uploaded CSV/TSV columns, extracted **Sequence**); pipeline fields stay in **`data_json`** and refresh on re-ingest. **`POST /api/designs/merge-table`** merges new columns by **`design_id`** for selected runs; UI **Merge columns** on the Designs table.
 - **Added (Auth / API)**: Optional **`BINDERDASH_API_KEY`** — scripted access via `Authorization: Bearer <key>` or `X-Binderdash-Api-Key` without session cookies or CSRF; `GET /api/auth/status` reports `providers.api_key.enabled`.
 - **Changed (Designs)**: All Designs table pagination defaults to **12** rows per page; rows-per-page options are **12, 24, 48, 96**.

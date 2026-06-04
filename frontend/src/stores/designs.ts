@@ -4,7 +4,7 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, shallowRef, computed, watch, nextTick } from 'vue'
 import { localeComparator, resolveFieldData, sort } from '@primeuix/utils/object'
 import { designsApi } from '../webapi'
 import { PERSISTENCE_KEYS } from '../persistence/keys'
@@ -24,6 +24,44 @@ import {
 const SCORE_RANGE_FILTER_FIELDS = scoreFieldsForRangeFilter() as readonly string[]
 const GLOBAL_FILTER_SCORE_FIELDS = new Set(scoreFieldsForGlobalFilter())
 
+/** Cap rows scanned when inferring dynamic table columns (full data still loaded). */
+const COLUMN_INFER_SAMPLE_SIZE = 400
+
+/** Stable unique row id for PrimeVue DataTable selection (not from pipeline data). */
+function designRowKey(design: Design, index: number): string {
+    const sp = (design as Record<string, unknown>).source_path
+    const spStr = sp != null && String(sp).trim() ? String(sp).trim() : ''
+    const rid = String(design.run_id ?? '')
+    const did = String(design.design_id ?? `row_${index}`)
+    return spStr ? `${rid}\x1f${did}\x1f${spStr}` : `${rid}\x1f${did}`
+}
+
+function designBinderKey(d: Design): string {
+    return d.binderRowKey ?? `${d.run_id}\x1f${d.design_id}`
+}
+
+/** Assign binderRowKey on each row so DataTable selection stays unique per design. */
+function withRowKeys(rows: Design[]): Design[] {
+    const seen = new Map<string, number>()
+    return rows.map((d, index) => {
+        let key = designRowKey(d, index)
+        const n = seen.get(key) ?? 0
+        seen.set(key, n + 1)
+        if (n > 0) {
+            key = `${key}\x1f${n}`
+        }
+        return { ...d, binderRowKey: key }
+    })
+}
+
+function sampleDesignsForColumnInference(designs: Design[]): Design[] {
+    if (designs.length <= COLUMN_INFER_SAMPLE_SIZE) return designs
+    const out = designs.slice(0, COLUMN_INFER_SAMPLE_SIZE)
+    const last = designs[designs.length - 1]
+    if (last && out[out.length - 1] !== last) out.push(last)
+    return out
+}
+
 function designHasAnyScoreForRangeFilter(design: Design): boolean {
     const d = design as Record<string, unknown>
     for (const field of SCORE_RANGE_FILTER_FIELDS) {
@@ -34,11 +72,15 @@ function designHasAnyScoreForRangeFilter(design: Design): boolean {
 }
 
 export const useDesignsStore = defineStore('designs', () => {
-    // State
-    const designs = ref<Design[]>([])
+    // State — shallowRef: large run tables are replaced wholesale, not deep-mutated.
+    const designs = shallowRef<Design[]>([])
     /** Designs grouped by run_id (mirrors `designs` after each load/patch). */
     const designsByRun = ref<Map<string, Design[]>>(new Map())
-    const selectedDesigns = ref<Design[]>([])
+    /** All filtered rows selected (O(1) select-all); use excludedKeys for unchecked rows. */
+    const selectAllFiltered = ref(false)
+    const excludedKeys = ref<Set<string>>(new Set())
+    const includedKeys = ref<Set<string>>(new Set())
+    const pendingSelectAllFiltered = ref(false)
     const selectedRunIds = ref<string[]>([]) // Track selected run IDs for filtering
     /** Sorted join of run ids last successfully loaded into `designs`. */
     const loadedRunIdsSignature = ref<string>('')
@@ -115,8 +157,9 @@ export const useDesignsStore = defineStore('designs', () => {
     const tableSortField = ref<string | undefined>(undefined)
     const tableSortOrder = ref<number | undefined>(undefined)
 
-    function buildColumnsFromData(designs: Design[]): ColumnConfig[] {
-        if (!designs || designs.length === 0) return []
+    function buildColumnsFromData(allDesigns: Design[]): ColumnConfig[] {
+        if (!allDesigns || allDesigns.length === 0) return []
+        const designs = sampleDesignsForColumnInference(allDesigns)
 
         const baseColumns: ColumnConfig[] = [
             { field: 'design_id', header: 'Design ID', sortable: true, filter: true, filterType: 'text', showFilterMenu: false, style: 'min-width: 150px' },
@@ -245,18 +288,6 @@ export const useDesignsStore = defineStore('designs', () => {
         { deep: true }
     )
 
-    const persistViewStateToStorage = () => {
-        if (!designsPersistenceHydrated.value) return
-        void kvSet(PERSISTENCE_KEYS.designsViewState, {
-            selectedRunIds: selectedRunIds.value,
-            selectedDesigns: selectedDesigns.value.map((d) => ({
-                run_id: d.run_id,
-                design_id: d.design_id
-            })),
-            currentNavDesignId: currentNavDesignId.value
-        })
-    }
-
     const hydrateFromPersistence = async () => {
         try {
             const filtersPayload = await kvGet<{ filters?: unknown[] }>(PERSISTENCE_KEYS.designsCustomFilters)
@@ -281,8 +312,24 @@ export const useDesignsStore = defineStore('designs', () => {
                         .map((v) => String(v))
                         .filter((v) => v.length > 0)
                 }
-                if (Array.isArray(viewPayload.selectedDesigns)) {
-                    pendingSelectedDesignKeys.value = viewPayload.selectedDesigns
+                const sel = viewPayload.selectedDesigns
+                if (sel && typeof sel === 'object' && (sel as { allFiltered?: boolean }).allFiltered) {
+                    pendingSelectAllFiltered.value = true
+                } else if (Array.isArray(sel)) {
+                    pendingSelectedDesignKeys.value = sel
+                        .map((row) => {
+                            const runId = (row as any)?.run_id
+                            const designId = (row as any)?.design_id
+                            if (runId == null || designId == null) return null
+                            return { run_id: String(runId), design_id: String(designId) }
+                        })
+                        .filter((row): row is { run_id: string; design_id: string } => row !== null)
+                } else if (
+                    sel &&
+                    typeof sel === 'object' &&
+                    Array.isArray((sel as { designs?: unknown }).designs)
+                ) {
+                    pendingSelectedDesignKeys.value = (sel as { designs: unknown[] }).designs
                         .map((row) => {
                             const runId = (row as any)?.run_id
                             const designId = (row as any)?.design_id
@@ -301,13 +348,6 @@ export const useDesignsStore = defineStore('designs', () => {
             designsPersistenceHydrated.value = true
         }
     }
-
-    const selectedDesignKeysSignature = computed(() =>
-        selectedDesigns.value
-            .map((d) => `${d.run_id}::${d.design_id}`)
-            .sort()
-            .join('|')
-    )
 
     const operatorOptionsNumeric = [
         { label: '<=', value: 'lte' },
@@ -583,6 +623,132 @@ export const useDesignsStore = defineStore('designs', () => {
         return filtered
     })
 
+    const clearDesignSelection = () => {
+        selectAllFiltered.value = false
+        excludedKeys.value = new Set()
+        includedKeys.value = new Set()
+    }
+
+    const resolveSelectedDesigns = (): Design[] => {
+        const rows = filteredDesigns.value
+        if (selectAllFiltered.value) {
+            if (excludedKeys.value.size === 0) return rows
+            return rows.filter((d) => !excludedKeys.value.has(designBinderKey(d)))
+        }
+        if (includedKeys.value.size === 0) return []
+        return rows.filter((d) => includedKeys.value.has(designBinderKey(d)))
+    }
+
+    const selectedDesigns = computed(() => resolveSelectedDesigns())
+
+    const selectedDesignCount = computed(() => {
+        const total = filteredDesigns.value.length
+        if (selectAllFiltered.value) return Math.max(0, total - excludedKeys.value.size)
+        return includedKeys.value.size
+    })
+
+    const isDesignSelected = (design: Design): boolean => {
+        const key = designBinderKey(design)
+        if (selectAllFiltered.value) return !excludedKeys.value.has(key)
+        return includedKeys.value.has(key)
+    }
+
+    const toggleDesignSelected = (design: Design, checked: boolean) => {
+        const key = designBinderKey(design)
+        if (selectAllFiltered.value) {
+            const next = new Set(excludedKeys.value)
+            if (checked) next.delete(key)
+            else next.add(key)
+            excludedKeys.value = next
+        } else {
+            const next = new Set(includedKeys.value)
+            if (checked) next.add(key)
+            else next.delete(key)
+            includedKeys.value = next
+        }
+    }
+
+    const toggleSelectAllFiltered = (checked: boolean) => {
+        if (checked) {
+            selectAllFiltered.value = true
+            excludedKeys.value = new Set()
+            includedKeys.value = new Set()
+        } else {
+            clearDesignSelection()
+        }
+    }
+
+    const tableHeaderSelectionChecked = computed(
+        () =>
+            filteredDesigns.value.length > 0 &&
+            selectedDesignCount.value === filteredDesigns.value.length
+    )
+
+    const tableHeaderSelectionIndeterminate = computed(() => {
+        const count = selectedDesignCount.value
+        return count > 0 && count < filteredDesigns.value.length
+    })
+
+    const setSelectionFromDesigns = (designsToSelect: Design[]) => {
+        selectAllFiltered.value = false
+        excludedKeys.value = new Set()
+        includedKeys.value = new Set(designsToSelect.map(designBinderKey))
+    }
+
+    const restoreSelectionAfterLoad = (rows: Design[]) => {
+        if (pendingSelectAllFiltered.value) {
+            selectAllFiltered.value = true
+            excludedKeys.value = new Set()
+            includedKeys.value = new Set()
+            pendingSelectAllFiltered.value = false
+            return
+        }
+        if (pendingSelectedDesignKeys.value.length > 0) {
+            const keySet = new Set(
+                pendingSelectedDesignKeys.value.map((k) => `${k.run_id}::${k.design_id}`)
+            )
+            setSelectionFromDesigns(rows.filter((d) => keySet.has(`${d.run_id}::${d.design_id}`)))
+            pendingSelectedDesignKeys.value = []
+            return
+        }
+        if (selectAllFiltered.value) {
+            return
+        }
+        if (includedKeys.value.size > 0) {
+            const byBinder = new Map(rows.map((d) => [designBinderKey(d), d]))
+            const next = new Set<string>()
+            for (const key of includedKeys.value) {
+                if (byBinder.has(key)) next.add(key)
+            }
+            includedKeys.value = next
+        }
+    }
+
+    const persistViewStateToStorage = () => {
+        if (!designsPersistenceHydrated.value) return
+        const selectionPayload =
+            selectAllFiltered.value && excludedKeys.value.size === 0
+                ? { allFiltered: true as const }
+                : {
+                      designs: resolveSelectedDesigns().map((d) => ({
+                          run_id: d.run_id,
+                          design_id: d.design_id
+                      }))
+                  }
+        void kvSet(PERSISTENCE_KEYS.designsViewState, {
+            selectedRunIds: selectedRunIds.value,
+            selectedDesigns: selectionPayload,
+            currentNavDesignId: currentNavDesignId.value
+        })
+    }
+
+    const selectedDesignKeysSignature = computed(() => {
+        if (selectAllFiltered.value && excludedKeys.value.size === 0) {
+            return `__all__:${filteredDesigns.value.length}`
+        }
+        return [...includedKeys.value].sort().join('|')
+    })
+
     const orderedFilteredDesigns = computed(() => {
         const data = [...filteredDesigns.value]
         const field = tableSortField.value
@@ -769,7 +935,7 @@ export const useDesignsStore = defineStore('designs', () => {
     }, { deep: true, immediate: true })
 
     const currentStructure = computed((): StructureInfo | null => {
-        if (selectedDesigns.value.length === 0) {
+        if (selectedDesignCount.value === 0) {
             return null
         }
 
@@ -795,7 +961,7 @@ export const useDesignsStore = defineStore('designs', () => {
     })
 
     const canNavigatePrevious = computed(() => {
-        if (selectedDesigns.value.length === 0) return false
+        if (selectedDesignCount.value === 0) return false
         const withPdb = designsWithPdbOrdered()
         if (withPdb.length === 0) return false
         const idx = withPdb.findIndex(d => d.design_id === currentNavDesignId.value)
@@ -803,7 +969,7 @@ export const useDesignsStore = defineStore('designs', () => {
     })
 
     const canNavigateNext = computed(() => {
-        if (selectedDesigns.value.length === 0) return false
+        if (selectedDesignCount.value === 0) return false
         const withPdb = designsWithPdbOrdered()
         if (withPdb.length === 0) return false
         const idx = withPdb.findIndex(d => d.design_id === currentNavDesignId.value)
@@ -821,7 +987,7 @@ export const useDesignsStore = defineStore('designs', () => {
             designs.value = []
             rebuildDesignsByRun([])
             loadedRunIdsSignature.value = ''
-            selectedDesigns.value = []
+            clearDesignSelection()
             currentNavDesignId.value = null
             loading.value = false
             return
@@ -834,25 +1000,46 @@ export const useDesignsStore = defineStore('designs', () => {
             const data = await designsApi.listDesigns(runIds)
             if (seq !== fetchSeq) return
 
-            designs.value = data.designs
-            rebuildDesignsByRun(data.designs)
+            const rows = withRowKeys(data.designs)
+            designs.value = rows
+            rebuildDesignsByRun(rows)
             loadedRunIdsSignature.value = runIdsSignature(runIds)
 
-            columns.value = buildColumnsFromData(data.designs)
+            restoreSelectionAfterLoad(rows)
+
+            if (pendingCurrentNavDesignId.value != null) {
+                currentNavDesignId.value = pendingCurrentNavDesignId.value
+                pendingCurrentNavDesignId.value = null
+            }
+            const withPdb = designsWithPdbOrdered()
+            if (!withPdb.some((d) => d.design_id === currentNavDesignId.value)) {
+                currentNavDesignId.value = withPdb[0]?.design_id ?? null
+            }
+
+            if (seq === fetchSeq) {
+                loading.value = false
+            }
+
+            // Defer column metadata so the table can render rows before a large scan.
+            await nextTick()
+            if (seq !== fetchSeq) return
+
+            const sample = sampleDesignsForColumnInference(rows)
+            columns.value = buildColumnsFromData(rows)
 
             const newDefaultColumns = ['design_id', 'project_id', 'run_name', 'method']
 
-            if (data.designs.some(d => Object.prototype.hasOwnProperty.call(d, 'good'))) {
+            if (sample.some(d => Object.prototype.hasOwnProperty.call(d, 'good'))) {
                 newDefaultColumns.push('good')
             }
 
-            if (data.designs.some(d => 'Length' in d && d['Length'] != null)) {
+            if (sample.some(d => 'Length' in d && d['Length'] != null)) {
                 newDefaultColumns.push('Length')
             }
 
             const scoreColumns = defaultVisibleScoreColumnFields()
             scoreColumns.forEach(scoreCol => {
-                if (data.designs.some(d => scoreCol in d && d[scoreCol] != null)) {
+                if (sample.some(d => scoreCol in d && d[scoreCol] != null)) {
                     newDefaultColumns.push(scoreCol)
                 }
             })
@@ -862,24 +1049,6 @@ export const useDesignsStore = defineStore('designs', () => {
             } else {
                 const fieldSet = new Set(columns.value.map(c => c.field))
                 visibleColumns.value = prevVisible.filter(f => fieldSet.has(f))
-            }
-
-            if (pendingSelectedDesignKeys.value.length > 0) {
-                const keySet = new Set(pendingSelectedDesignKeys.value.map((k) => `${k.run_id}::${k.design_id}`))
-                selectedDesigns.value = designs.value.filter((d) => keySet.has(`${d.run_id}::${d.design_id}`))
-                pendingSelectedDesignKeys.value = []
-            } else {
-                const keySet = new Set(selectedDesigns.value.map((d) => `${d.run_id}::${d.design_id}`))
-                selectedDesigns.value = designs.value.filter((d) => keySet.has(`${d.run_id}::${d.design_id}`))
-            }
-
-            if (pendingCurrentNavDesignId.value != null) {
-                currentNavDesignId.value = pendingCurrentNavDesignId.value
-                pendingCurrentNavDesignId.value = null
-            }
-            const withPdb = designsWithPdbOrdered()
-            if (!withPdb.some((d) => d.design_id === currentNavDesignId.value)) {
-                currentNavDesignId.value = withPdb[0]?.design_id ?? null
             }
         } catch (err) {
             console.error('Error loading designs:', err)
@@ -937,7 +1106,7 @@ export const useDesignsStore = defineStore('designs', () => {
     }
 
     const selectDesigns = (designsToSelect: Design[]) => {
-        selectedDesigns.value = designsToSelect
+        setSelectionFromDesigns(designsToSelect)
         const withPdb = designsWithPdbOrdered()
         currentNavDesignId.value = withPdb[0]?.design_id ?? null
     }
@@ -968,7 +1137,7 @@ export const useDesignsStore = defineStore('designs', () => {
             designs.value = []
             rebuildDesignsByRun([])
             loadedRunIdsSignature.value = ''
-            selectedDesigns.value = []
+            clearDesignSelection()
             currentNavDesignId.value = null
         } catch (err) {
             console.error('Error clearing designs:', err)
@@ -980,9 +1149,23 @@ export const useDesignsStore = defineStore('designs', () => {
         const previousRunIdsSignature = runIdsSignature(selectedRunIds.value)
         const nextRunIdsSignature = runIdsSignature(runIds)
         selectedRunIds.value = runIds
-        selectedDesigns.value = selectedDesigns.value.filter(design =>
-            runIds.length === 0 || runIds.includes(design.run_id)
-        )
+        if (runIds.length === 0) {
+            clearDesignSelection()
+        } else if (selectAllFiltered.value) {
+            excludedKeys.value = new Set(
+                [...excludedKeys.value].filter((key) => {
+                    const row = designs.value.find((d) => designBinderKey(d) === key)
+                    return row != null && runIds.includes(String(row.run_id))
+                })
+            )
+        } else {
+            includedKeys.value = new Set(
+                [...includedKeys.value].filter((key) => {
+                    const row = designs.value.find((d) => designBinderKey(d) === key)
+                    return row != null && runIds.includes(String(row.run_id))
+                })
+            )
+        }
 
         if (
             nextRunIdsSignature === previousRunIdsSignature &&
@@ -1009,7 +1192,7 @@ export const useDesignsStore = defineStore('designs', () => {
     }
 
     const viewDesign = (design: Design) => {
-        selectedDesigns.value = [design]
+        setSelectionFromDesigns([design])
 
         const withPdb = designsWithPdbOrdered()
         const index = withPdb.findIndex(d => d.design_id === design.design_id)
@@ -1041,7 +1224,6 @@ export const useDesignsStore = defineStore('designs', () => {
         }
         designs.value = designs.value.map(sync)
         rebuildDesignsByRun(designs.value)
-        selectedDesigns.value = selectedDesigns.value.map(sync)
 
         if (!columns.value.some(c => c.field === 'good')) {
             const methodIdx = columns.value.findIndex(c => c.field === 'method')
@@ -1134,7 +1316,6 @@ export const useDesignsStore = defineStore('designs', () => {
         }
         designs.value = designs.value.map(sync)
         rebuildDesignsByRun(designs.value)
-        selectedDesigns.value = selectedDesigns.value.map(sync)
         ensureTagColumnVisible()
     }
 
@@ -1158,12 +1339,11 @@ export const useDesignsStore = defineStore('designs', () => {
         }
         designs.value = designs.value.map(sync)
         rebuildDesignsByRun(designs.value)
-        selectedDesigns.value = selectedDesigns.value.map(sync)
         ensureTagColumnVisible()
     }
 
     const getCurrentRowPosition = () => {
-        if (selectedDesigns.value.length === 0) return '0 / 0'
+        if (selectedDesignCount.value === 0) return '0 / 0'
 
         const withPdb = designsWithPdbOrdered()
 
@@ -1182,6 +1362,16 @@ export const useDesignsStore = defineStore('designs', () => {
         designs,
         designsByRun,
         selectedDesigns,
+        selectedDesignCount,
+        selectAllFiltered,
+        isDesignSelected,
+        toggleDesignSelected,
+        toggleSelectAllFiltered,
+        tableHeaderSelectionChecked,
+        tableHeaderSelectionIndeterminate,
+        clearDesignSelection,
+        setSelectionFromDesigns,
+        resolveSelectedDesigns,
         selectedRunIds,
         filters,
         bestMpnnOnly,

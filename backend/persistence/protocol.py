@@ -36,6 +36,12 @@ class DesignsRepository(Protocol):
         """Flattened design dicts for cache (merged from DB columns + data_json)."""
         ...
 
+    def list_design_dicts_for_run_ids(
+        self, run_ids: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Design rows for the given run_ids only (same shape as list_all_design_dicts)."""
+        ...
+
     def update_design_tag(
         self,
         run_id: str,

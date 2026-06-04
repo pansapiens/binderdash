@@ -26,6 +26,11 @@ class NoopDesignsRepository:
     def list_all_design_dicts(self) -> List[Dict[str, Any]]:
         return []
 
+    def list_design_dicts_for_run_ids(
+        self, run_ids: List[str]
+    ) -> List[Dict[str, Any]]:
+        return []
+
     def update_design_tag(
         self,
         run_id: str,

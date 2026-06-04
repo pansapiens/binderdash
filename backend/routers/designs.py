@@ -1,16 +1,23 @@
 import asyncio
+import json
 import logging
+import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-
 from ..auth import get_current_user_optional
 from ..cache import (
     designs_cache,
+    get_designs_for_run_ids,
     get_run_metadata,
     patch_design_in_cache,
     refresh_designs_cache,
+)
+from ..util.design_list import (
+    paginate_designs,
+    parse_run_ids_param,
+    trim_designs_for_list,
 )
 from ..routers.files import _resolve_structure_path
 from ..run_discovery import (
@@ -44,29 +51,76 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/designs", tags=["designs"])
 
 
+def _log_list_designs_timing(
+    *,
+    run_ids: Optional[List[str]],
+    row_count: int,
+    started: float,
+    source: str,
+    response_bytes: int,
+) -> None:
+    """Emit INFO timing for list_designs (source: run_scoped, full_cache, etc.)."""
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+    logger.info(
+        "list_designs run_ids=%s rows=%s source=%s duration_ms=%s response_bytes=%s",
+        len(run_ids) if run_ids else 0,
+        row_count,
+        source,
+        elapsed_ms,
+        response_bytes,
+    )
+
+
 @router.get("")
 async def list_designs(
     run_ids: Optional[str] = Query(
         None,
         description="Comma-separated run_id values to filter designs; omit for all designs.",
     ),
+    include_heavy: bool = Query(
+        False,
+        description="Include params, target_sequence, and run_path on each design (larger payload).",
+    ),
+    page: Optional[int] = Query(None, ge=0, description="Page index when paginating."),
+    page_size: Optional[int] = Query(
+        50, ge=1, le=1000, description="Page size when page is set."
+    ),
     current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
+    """List designs from cache/DB; run_ids scopes load to selected runs only."""
+    started = time.perf_counter()
     try:
-        if not designs_cache:
-            refresh_designs_cache()
-        if not run_ids or not run_ids.strip():
-            return {"designs": designs_cache}
-        allowed = {rid.strip() for rid in run_ids.split(",") if rid.strip()}
-        if not allowed:
-            return {"designs": designs_cache}
-        filtered = [
-            d for d in designs_cache if str(d.get("run_id")) in allowed
-        ]
-        return {"designs": filtered}
+        parsed_run_ids = parse_run_ids_param(run_ids)
+        source = "cache"
+
+        if parsed_run_ids is not None:
+            rows = get_designs_for_run_ids(parsed_run_ids)
+            source = "run_scoped"
+        else:
+            if not designs_cache:
+                refresh_designs_cache()
+            rows = list(designs_cache)
+            source = "full_cache"
+
+        rows, page_meta = paginate_designs(rows, page, page_size)
+        rows = trim_designs_for_list(rows, include_heavy=include_heavy)
+
+        payload: Dict[str, Any] = {"designs": rows}
+        if page_meta is not None:
+            payload.update(page_meta)
+
+        body = json.dumps(payload, default=str).encode("utf-8")
+        _log_list_designs_timing(
+            run_ids=parsed_run_ids,
+            row_count=len(rows),
+            started=started,
+            source=source,
+            response_bytes=len(body),
+        )
+        return payload
     except Exception as e:
-        logger.error(f"Error in list_designs: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error in list_designs: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.delete("")
@@ -74,7 +128,10 @@ async def clear_designs(
     current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
+        from ..cache import designs_by_run_id
+
         designs_cache.clear()
+        designs_by_run_id.clear()
         return {"message": "All designs cleared from cache"}
     except Exception as e:
         logger.error(f"Error in clear_designs: {str(e)}")

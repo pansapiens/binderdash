@@ -356,9 +356,7 @@
           :loading="designsStore.loading"
           v-model:sortField="designsStore.tableSortField"
           v-model:sortOrder="designsStore.tableSortOrder"
-          v-model:selection="designsStore.selectedDesigns"
           sortMode="multiple"
-          dataKey="design_id"
           stripedRows
           paginator
           :rows="12"
@@ -474,8 +472,23 @@
             </div>
           </template>
 
-          <!-- Selection column -->
-          <Column selectionMode="multiple" headerStyle="width: 3rem"></Column>
+          <Column headerStyle="width: 3rem" :exportable="false">
+            <template #header>
+              <Checkbox
+                :modelValue="designsStore.tableHeaderSelectionChecked"
+                :indeterminate="designsStore.tableHeaderSelectionIndeterminate"
+                binary
+                @update:modelValue="onTableHeaderSelectAllChange"
+              />
+            </template>
+            <template #body="{ data }">
+              <Checkbox
+                :modelValue="designsStore.isDesignSelected(data)"
+                binary
+                @update:modelValue="(v) => designsStore.toggleDesignSelected(data, !!v)"
+              />
+            </template>
+          </Column>
 
           <!-- Dynamic columns based on available data -->
           <Column 
@@ -550,7 +563,7 @@
       </div>
 
       <!-- Structure Viewer Section -->
-      <div v-if="designsStore.selectedDesigns.length > 0" class="structure-viewer-section">
+      <div v-if="designsStore.selectedDesignCount > 0" class="structure-viewer-section">
         <div class="viewer-header">
           <h3>Structure Viewer</h3>
         </div>
@@ -978,10 +991,10 @@
               <p class="tag-metrics-hint">
                 Metrics use the current parameters below. Values appear from cache when available, or after
                 <strong> Auto detect</strong> runs. Otherwise cells show —.
-                {{ !designsStore.selectedDesigns.length ? ' Select design(s) in the table above.' : '' }}
+                {{ !designsStore.selectedDesignCount ? ' Select design(s) in the table above.' : '' }}
               </p>
               <DataTable
-                v-if="designsStore.selectedDesigns.length"
+                v-if="designsStore.selectedDesignCount"
                 v-model:first="tagMetricsFirst"
                 class="tag-metrics-datatable"
                 :value="tagMetricsRows"
@@ -1090,7 +1103,7 @@
                   icon="pi pi-bolt"
                   @click="runTagPlacementAutoDetect"
                   :loading="tagPlacementLoading"
-                  :disabled="designsStore.selectedDesigns.length === 0"
+                  :disabled="designsStore.selectedDesignCount === 0"
                 />
               </div>
               <div class="advanced-row">
@@ -1488,7 +1501,7 @@ const chunkArray = <T,>(items: T[], size: number): T[][] => {
 
 const loadTagMetrics = async () => {
   tagMetricsFirst.value = 0
-  if (!showTagPlacementOptions.value || !designsStore.selectedDesigns.length) {
+  if (!showTagPlacementOptions.value || !designsStore.selectedDesignCount) {
     tagMetricsRows.value = []
     return
   }
@@ -1570,7 +1583,8 @@ const scheduleTagMetricsLoad = () => {
 watch(
   [
     showTagPlacementOptions,
-    () => designsStore.selectedDesigns,
+    () => designsStore.selectedDesignCount,
+    () => designsStore.selectAllFiltered,
     tagPlacementBinderChain,
     tagPlacementTargetChains,
     tagPlacementDistantFrom,
@@ -1580,7 +1594,7 @@ watch(
     tagPlacementMoreDist,
   ],
   () => scheduleTagMetricsLoad(),
-  { deep: true, immediate: true },
+  { immediate: true },
 )
 
 const applyTagPlacementDefaults = () => {
@@ -2427,6 +2441,14 @@ const applyFilters = () => {
   console.log('Filters applied:', designsStore.filters)
 }
 
+const onTableHeaderSelectAllChange = (value: boolean) => {
+  if (designsStore.tableHeaderSelectionIndeterminate) {
+    designsStore.toggleSelectAllFiltered(true)
+    return
+  }
+  designsStore.toggleSelectAllFiltered(value)
+}
+
 const selectTopRows = () => {
   if (!selectTopCount.value || selectTopCount.value < 1) {
     return
@@ -2437,7 +2459,7 @@ const selectTopRows = () => {
   const topRows = sortedDesigns.slice(0, selectTopCount.value)
   
   // Update the store's selected designs
-  designsStore.selectedDesigns = topRows
+  designsStore.setSelectionFromDesigns(topRows)
   
   toast.add({
     severity: 'success',

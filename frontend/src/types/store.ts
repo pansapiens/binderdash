@@ -37,6 +37,8 @@ export interface Design {
     pdb_file?: string;
     run_path: string;
     run_id: string;
+    /** Stable DataTable selection key (set by designs store; not from pipeline files). */
+    binderRowKey?: string;
     [key: string]: any; // Allow additional properties including dynamic score columns
 }
 

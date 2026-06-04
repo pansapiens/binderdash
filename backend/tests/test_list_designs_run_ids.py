@@ -3,9 +3,17 @@
 import backend.cache as cache_mod
 
 
-def test_list_designs_no_param_returns_all(api_client) -> None:
+def _seed_cache(rows: list) -> None:
     cache_mod.designs_cache.clear()
-    cache_mod.designs_cache.extend(
+    cache_mod.designs_by_run_id.clear()
+    cache_mod.designs_cache.extend(rows)
+    for row in rows:
+        rid = str(row["run_id"])
+        cache_mod.designs_by_run_id.setdefault(rid, []).append(row)
+
+
+def test_list_designs_no_param_returns_all(api_client) -> None:
+    _seed_cache(
         [
             {"run_id": "run-a", "design_id": "d1"},
             {"run_id": "run-b", "design_id": "d2"},
@@ -17,8 +25,7 @@ def test_list_designs_no_param_returns_all(api_client) -> None:
 
 
 def test_list_designs_run_ids_filters_single(api_client) -> None:
-    cache_mod.designs_cache.clear()
-    cache_mod.designs_cache.extend(
+    _seed_cache(
         [
             {"run_id": "run-a", "design_id": "d1"},
             {"run_id": "run-b", "design_id": "d2"},
@@ -32,8 +39,7 @@ def test_list_designs_run_ids_filters_single(api_client) -> None:
 
 
 def test_list_designs_run_ids_comma_separated(api_client) -> None:
-    cache_mod.designs_cache.clear()
-    cache_mod.designs_cache.extend(
+    _seed_cache(
         [
             {"run_id": "run-a", "design_id": "d1"},
             {"run_id": "run-b", "design_id": "d2"},
@@ -47,8 +53,7 @@ def test_list_designs_run_ids_comma_separated(api_client) -> None:
 
 
 def test_list_designs_run_ids_unknown_returns_empty(api_client) -> None:
-    cache_mod.designs_cache.clear()
-    cache_mod.designs_cache.append({"run_id": "run-a", "design_id": "d1"})
+    _seed_cache([{"run_id": "run-a", "design_id": "d1"}])
     r = api_client.get("/api/designs", params={"run_ids": "nonexistent"})
     assert r.status_code == 200
     assert r.json()["designs"] == []

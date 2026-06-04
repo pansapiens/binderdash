@@ -18,6 +18,43 @@ from .protocol import (
 logger = logging.getLogger(__name__)
 
 
+def _design_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    """Merge a binderdash_designs SQLite row into a flat design dict for the API cache."""
+    data = json.loads(row["data_json"])
+    extra_raw = row["extra_data"]
+    if extra_raw is None or not str(extra_raw).strip():
+        extra: Dict[str, Any] = {}
+    else:
+        extra = json.loads(extra_raw)
+    good_v: Optional[bool]
+    if row["good"] is None:
+        good_v = None
+    else:
+        good_v = bool(row["good"])
+    tag_v = row["tag"]
+    bc_v = row["binder_chain"]
+    binder_chain_out: Optional[str] = (
+        str(bc_v).strip() if bc_v is not None and str(bc_v).strip() else None
+    )
+    sn_v = row["short_name"]
+    short_name_out: Optional[str] = (
+        str(sn_v).strip() if sn_v is not None and str(sn_v).strip() else None
+    )
+    return merge_design_from_storage(
+        row["run_id"],
+        row["design_id"],
+        row["project_id"],
+        row["method"],
+        row["source_path"] or "",
+        tag_v,
+        good_v,
+        data,
+        binder_chain=binder_chain_out,
+        short_name=short_name_out,
+        extra=extra,
+    )
+
+
 def _sqlite_path_from_url(database_url: str) -> Path:
     u = database_url.strip()
     if not u.lower().startswith("sqlite:"):
@@ -336,44 +373,24 @@ class SqliteDesignsRepository:
                 "SELECT run_id, design_id, project_id, method, source_path, tag, good, "
                 "binder_chain, short_name, data_json, extra_data FROM binderdash_designs"
             )
-            out: List[Dict[str, Any]] = []
-            for row in cur.fetchall():
-                data = json.loads(row["data_json"])
-                extra_raw = row["extra_data"]
-                if extra_raw is None or not str(extra_raw).strip():
-                    extra: Dict[str, Any] = {}
-                else:
-                    extra = json.loads(extra_raw)
-                good_v: Optional[bool]
-                if row["good"] is None:
-                    good_v = None
-                else:
-                    good_v = bool(row["good"])
-                tag_v = row["tag"]
-                bc_v = row["binder_chain"]
-                binder_chain_out: Optional[str] = (
-                    str(bc_v).strip() if bc_v is not None and str(bc_v).strip() else None
-                )
-                sn_v = row["short_name"]
-                short_name_out: Optional[str] = (
-                    str(sn_v).strip() if sn_v is not None and str(sn_v).strip() else None
-                )
-                out.append(
-                    merge_design_from_storage(
-                        row["run_id"],
-                        row["design_id"],
-                        row["project_id"],
-                        row["method"],
-                        row["source_path"] or "",
-                        tag_v,
-                        good_v,
-                        data,
-                        binder_chain=binder_chain_out,
-                        short_name=short_name_out,
-                        extra=extra,
-                    )
-                )
-            return out
+            return [_design_row_to_dict(row) for row in cur.fetchall()]
+
+    def list_design_dicts_for_run_ids(
+        self, run_ids: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Load design dicts for the given run_ids only (same shape as list_all_design_dicts)."""
+        ids = [str(r).strip() for r in run_ids if str(r).strip()]
+        if not ids:
+            return []
+        with self._lock:
+            placeholders = ",".join("?" * len(ids))
+            cur = self._get_conn().execute(
+                "SELECT run_id, design_id, project_id, method, source_path, tag, good, "
+                "binder_chain, short_name, data_json, extra_data FROM binderdash_designs "
+                f"WHERE run_id IN ({placeholders})",
+                ids,
+            )
+            return [_design_row_to_dict(row) for row in cur.fetchall()]
 
     def update_design_tag(
         self,
