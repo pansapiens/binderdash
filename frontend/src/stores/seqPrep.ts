@@ -112,7 +112,7 @@ export interface PreparedRow {
     prepared_aa_display: string
     prepared_dna: string | null
     segments_aa: PreparedSegment[]
-    /** Coloured AA segments for UI: omits post-stop padding only (terminal * follows Include stop). */
+    /** Coloured AA segments for UI: omits post-stop padding only (terminal stop follows stop options). */
     segments_aa_display: PreparedSegment[]
     segments_dna: PreparedSegment[] | null
     extinction_coeff_reduced: number
@@ -196,6 +196,37 @@ export const CUSTOM_TAG_VISUAL = {
     background: 'rgba(69, 90, 100, 0.1)',
     foreground: '#37474f'
 } as const
+
+function appendTerminalStopAa(
+    segmentLists: PreparedSegment[][],
+    exportPartLists: string[][],
+    doubleStop: boolean
+): void {
+    const count = doubleStop ? 2 : 1
+    for (const segList of segmentLists) {
+        for (let i = 0; i < count; i += 1) {
+            segList.push({ text: '*', cssClass: 'seq-seg-stop' })
+        }
+    }
+    const stopAa = doubleStop ? '**' : '*'
+    for (const parts of exportPartLists) {
+        parts.push(stopAa)
+    }
+}
+
+function appendTerminalStopDna(
+    mainDnaChunks: string[],
+    mainSegChunks: PreparedSegment[][],
+    table: CodonTable,
+    doubleStop: boolean
+): void {
+    const stop = table.stop
+    const count = doubleStop ? 2 : 1
+    for (let i = 0; i < count; i += 1) {
+        mainDnaChunks.push(stop)
+        mainSegChunks.push([{ text: stop, cssClass: 'seq-seg-stop' }])
+    }
+}
 
 /** Default post-stop padding (lowercase = nucleotides). */
 export const DEFAULT_POST_STOP_PADDING =
@@ -652,7 +683,10 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
     const cTags = ref<PlacedTag[]>([])
     const nTerminalPrefix = ref('')
     const cTerminalSuffix = ref('')
-    const includeStop = ref(true)
+    const includeStopForNTagged = ref(true)
+    const includeStopForCTagged = ref(true)
+    const useDoubleStop = ref(false)
+
     const goodOnly = ref(false)
     const extractChain = ref('B')
     const dnaMode = ref(false)
@@ -979,8 +1013,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         nFix: string,
         cFix: string,
         tagCol: string,
-        core: string,
-        includeStop: boolean
+        core: string
     ): { mainDna: string; mainSegChunks: PreparedSegment[][] } {
         const mainDnaChunks: string[] = []
         const mainSegChunks: PreparedSegment[][] = []
@@ -1005,6 +1038,9 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         }
         if (tagCol === 'C') {
             appendTagsDna(cTags.value, mainDnaChunks, mainSegChunks, table)
+            if (includeStopForCTagged.value) {
+                appendTerminalStopDna(mainDnaChunks, mainSegChunks, table, useDoubleStop.value)
+            }
         }
         if (cFix) {
             const { dna, segments } = mixedToDnaSegments(
@@ -1016,10 +1052,8 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             mainDnaChunks.push(dna)
             mainSegChunks.push(mergeDnaSegments(segments, 'seq-seg-cfix'))
         }
-        if (includeStop) {
-            const stop = table.stop
-            mainDnaChunks.push(stop)
-            mainSegChunks.push([{ text: stop, cssClass: 'seq-seg-stop' }])
+        if (tagCol === 'N' && includeStopForNTagged.value) {
+            appendTerminalStopDna(mainDnaChunks, mainSegChunks, table, useDoubleStop.value)
         }
 
         return { mainDna: mainDnaChunks.join(''), mainSegChunks }
@@ -1070,6 +1104,13 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             if (tagCol === 'C') {
                 appendTagsAa(cTags.value, segmentsAa, aaExportParts, table)
                 appendTagsAa(cTags.value, segmentsAaDisplay, aaExportPartsDisplay, table)
+                if (includeStopForCTagged.value) {
+                    appendTerminalStopAa(
+                        [segmentsAa, segmentsAaDisplay],
+                        [aaExportParts, aaExportPartsDisplay],
+                        useDoubleStop.value
+                    )
+                }
             }
             if (cFix) {
                 const { segments, exportText } = mixedToAaSegments(
@@ -1083,11 +1124,12 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                 aaExportParts.push(exportText)
                 aaExportPartsDisplay.push(exportText)
             }
-            if (includeStop.value) {
-                segmentsAa.push({ text: '*', cssClass: 'seq-seg-stop' })
-                segmentsAaDisplay.push({ text: '*', cssClass: 'seq-seg-stop' })
-                aaExportParts.push('*')
-                aaExportPartsDisplay.push('*')
+            if (tagCol === 'N' && includeStopForNTagged.value) {
+                appendTerminalStopAa(
+                    [segmentsAa, segmentsAaDisplay],
+                    [aaExportParts, aaExportPartsDisplay],
+                    useDoubleStop.value
+                )
             }
 
             const needMainDnaForPad =
@@ -1102,7 +1144,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                     // nucleotide lengths since optimisation preserves translation) and reslice
                     // the optimised sequence across those boundaries.
                     const { mainSegChunks: origChunks } = buildMainDnaForRow(
-                        table, nFix, cFix, tagCol, core, includeStop.value
+                        table, nFix, cFix, tagCol, core
                     )
                     let offset = 0
                     mainSegChunks = origChunks.map(chunk =>
@@ -1118,8 +1160,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                         nFix,
                         cFix,
                         tagCol,
-                        core,
-                        includeStop.value
+                        core
                     ))
                 }
             }
@@ -1436,7 +1477,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
     /** True after at least one successful per-sequence optimisation in this session (used for stale messaging). */
     const optimizationEverSucceeded = ref(false)
 
-    watch([nTags, cTags, nTerminalPrefix, cTerminalSuffix, includeStop, selectedCodonTable, optimizationConstraints], () => {
+    watch([nTags, cTags, nTerminalPrefix, cTerminalSuffix, includeStopForNTagged, includeStopForCTagged, useDoubleStop, selectedCodonTable, optimizationConstraints], () => {
         optimizationStale.value = true
     }, { deep: true })
 
@@ -1506,7 +1547,9 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         cTags,
         nTerminalPrefix,
         cTerminalSuffix,
-        includeStop,
+        includeStopForNTagged,
+        includeStopForCTagged,
+        useDoubleStop,
         goodOnly,
         extractChain,
         dnaMode,

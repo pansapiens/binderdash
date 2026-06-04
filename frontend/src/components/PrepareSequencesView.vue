@@ -8,7 +8,7 @@
       <p class="ps-intro">
         <strong>Tagging:</strong> Tags you place in the <strong>N-tagged</strong> and <strong>C-tagged</strong> areas are only added to designs whose
         <strong>tag</strong> column is <code>N</code> or <code>C</code> respectively. Designs with another tag value get
-        only the core sequence plus the global N/C terminal additions and optional stop.
+        only the core sequence plus the global N/C terminal additions and optional terminal stops.
       </p>
       <p class="ps-case-help">
         <strong>Entering amino acid and nucleotides:</strong> Sequences entered in uppercase are interpreted as amino acids, lowercase are nucleotides. You can mix and match
@@ -130,9 +130,19 @@
           class="w-full ps-terminal-input ps-terminal-input--c"
         />
       </div>
-      <div class="ps-field ps-checks">
-        <Checkbox v-model="seqPrep.includeStop" input-id="ps-stop" binary />
-        <label for="ps-stop">Include stop *</label>
+      <div class="ps-field ps-checks ps-checks--stops">
+        <div class="ps-stop-check">
+          <Checkbox v-model="seqPrep.includeStopForNTagged" input-id="ps-stop-n" binary />
+          <label for="ps-stop-n">Include * stop for N-tagged</label>
+        </div>
+        <div class="ps-stop-check">
+          <Checkbox v-model="seqPrep.includeStopForCTagged" input-id="ps-stop-c" binary />
+          <label for="ps-stop-c">Include * stop for C-tagged</label>
+        </div>
+        <div class="ps-stop-check">
+          <Checkbox v-model="seqPrep.useDoubleStop" input-id="ps-stop-double" binary />
+          <label for="ps-stop-double">Use double stop **</label>
+        </div>
       </div>
       <div class="ps-field">
         <label for="ps-chain">Chain to extract (PDB/mmCIF)</label>
@@ -1772,6 +1782,18 @@ const downloadMenuItems = [
   align-items: center;
   gap: 0.5rem;
   padding-top: 1.4rem;
+}
+
+.ps-checks--stops {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.ps-stop-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .ps-checks label {
