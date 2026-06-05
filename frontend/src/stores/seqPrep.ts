@@ -232,6 +232,54 @@ function appendTerminalStopDna(
 export const DEFAULT_POST_STOP_PADDING =
     'ttgtgttgcgatagcccagtatgatattctaaggcgttacgctgatgaatattctacggaattgccataggcgttgaacgctacacggacgatacgaatt'
 
+interface PostStopPaddingChunk {
+    dna: string
+    aaMixed: string
+}
+
+function paddingRequiredForMainDna(
+    mainDnaLen: number,
+    padTargetBp: number,
+    padRaw: string,
+    table: CodonTable
+): boolean {
+    const standardTrim = padRaw.trim()
+    if (!standardTrim || padTargetBp <= 0 || mainDnaLen >= padTargetBp) {
+        return false
+    }
+    const { dna: standardUnit } = mixedToDnaSegments(standardTrim, table, 'seq-seg-dna-body')
+    return standardUnit.length > 0
+}
+
+function computePostStopPaddingChunks(
+    mainDnaLen: number,
+    padTargetBp: number,
+    padRaw: string,
+    table: CodonTable
+): PostStopPaddingChunk[] {
+    const standardTrim = padRaw.trim()
+    if (!paddingRequiredForMainDna(mainDnaLen, padTargetBp, padRaw, table)) {
+        return []
+    }
+    const standardUnit = mixedToDnaSegments(standardTrim, table, 'seq-seg-dna-body')
+    const standardLen = standardUnit.dna.length
+
+    const chunks: PostStopPaddingChunk[] = []
+    let remaining = padTargetBp - mainDnaLen
+
+    while (remaining >= standardLen) {
+        chunks.push({ dna: standardUnit.dna, aaMixed: standardTrim })
+        remaining -= standardLen
+    }
+    if (remaining > 0) {
+        chunks.push({
+            dna: standardUnit.dna.slice(0, remaining),
+            aaMixed: standardUnit.dna.slice(0, remaining).toLowerCase()
+        })
+    }
+    return chunks
+}
+
 export interface CodonTable {
     label: string
     forward: Record<string, string>
@@ -694,6 +742,8 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
     const showPostStopPadding = ref(true)
     const postStopPadding = ref(DEFAULT_POST_STOP_PADDING)
     const postStopPadUpToNucleotideLength = ref<number | null>(300)
+    const onlyUseNTerminalTagWhenPaddingRequired = ref(false)
+    const onlyUseCTerminalTagWhenPaddingRequired = ref(false)
     const minDnaFragmentLength = ref(300)
     const customTagInput = ref('')
     const exportOrderName = ref('')
@@ -892,14 +942,14 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         const usePadTarget =
             padTargetVal != null && Number.isFinite(padTargetVal) && padTargetVal > 0
         if (usePadTarget) {
-                const e = validateMixedSequence(padTrim, 'Post-stop padding')
-                if (e) errs.push(e)
-                const { dna: padUnit } = mixedToDnaSegments(padTrim, activeCodonTable.value, 'seq-seg-dna-body')
-                if (padUnit.length === 0) {
-                    errs.push(
-                        'Post-stop padding: must expand to at least one nucleotide to pad to a target length'
-                    )
-                }
+            const e = validateMixedSequence(padTrim, 'Post-stop padding')
+            if (e) errs.push(e)
+            const { dna: padUnit } = mixedToDnaSegments(padTrim, activeCodonTable.value, 'seq-seg-dna-body')
+            if (padUnit.length === 0) {
+                errs.push(
+                    'Post-stop padding: must expand to at least one nucleotide to pad to a target length'
+                )
+            }
         }
         return errs
     })
@@ -1008,12 +1058,52 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         }
     }
 
+    function resolveIncludeNTags(
+        tagCol: string,
+        mainDnaLenWithoutTerminalTags: number,
+        usePostStopPadTarget: boolean,
+        padRaw: string,
+        padTargetBp: number,
+        table: CodonTable
+    ): boolean {
+        if (tagCol !== 'N') return false
+        if (!onlyUseNTerminalTagWhenPaddingRequired.value) return true
+        if (!usePostStopPadTarget) return false
+        return paddingRequiredForMainDna(
+            mainDnaLenWithoutTerminalTags,
+            padTargetBp,
+            padRaw,
+            table
+        )
+    }
+
+    function resolveIncludeCTags(
+        tagCol: string,
+        mainDnaLenWithoutTerminalTags: number,
+        usePostStopPadTarget: boolean,
+        padRaw: string,
+        padTargetBp: number,
+        table: CodonTable
+    ): boolean {
+        if (tagCol !== 'C') return false
+        if (!onlyUseCTerminalTagWhenPaddingRequired.value) return true
+        if (!usePostStopPadTarget) return false
+        return paddingRequiredForMainDna(
+            mainDnaLenWithoutTerminalTags,
+            padTargetBp,
+            padRaw,
+            table
+        )
+    }
+
     function buildMainDnaForRow(
         table: CodonTable,
         nFix: string,
         cFix: string,
         tagCol: string,
-        core: string
+        core: string,
+        includeNTags: boolean,
+        includeCTags: boolean
     ): { mainDna: string; mainSegChunks: PreparedSegment[][] } {
         const mainDnaChunks: string[] = []
         const mainSegChunks: PreparedSegment[][] = []
@@ -1028,7 +1118,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             mainDnaChunks.push(dna)
             mainSegChunks.push(mergeDnaSegments(segments, 'seq-seg-nfix'))
         }
-        if (tagCol === 'N') {
+        if (tagCol === 'N' && includeNTags) {
             appendTagsDna(nTags.value, mainDnaChunks, mainSegChunks, table)
         }
         {
@@ -1036,11 +1126,8 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             mainDnaChunks.push(dna)
             mainSegChunks.push(mergeDnaSegments(segments, 'seq-seg-dna-body'))
         }
-        if (tagCol === 'C') {
+        if (tagCol === 'C' && includeCTags) {
             appendTagsDna(cTags.value, mainDnaChunks, mainSegChunks, table)
-            if (includeStopForCTagged.value) {
-                appendTerminalStopDna(mainDnaChunks, mainSegChunks, table, useDoubleStop.value)
-            }
         }
         if (cFix) {
             const { dna, segments } = mixedToDnaSegments(
@@ -1052,11 +1139,75 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             mainDnaChunks.push(dna)
             mainSegChunks.push(mergeDnaSegments(segments, 'seq-seg-cfix'))
         }
-        if (tagCol === 'N' && includeStopForNTagged.value) {
+        if (
+            (tagCol === 'N' && includeStopForNTagged.value) ||
+            (tagCol === 'C' && includeStopForCTagged.value)
+        ) {
             appendTerminalStopDna(mainDnaChunks, mainSegChunks, table, useDoubleStop.value)
         }
 
         return { mainDna: mainDnaChunks.join(''), mainSegChunks }
+    }
+
+    function appendPreparedBodyAa(
+        table: CodonTable,
+        tagCol: string,
+        nFix: string,
+        cFix: string,
+        core: string,
+        includeNTags: boolean,
+        includeCTags: boolean,
+        segmentsAa: PreparedSegment[],
+        segmentsAaDisplay: PreparedSegment[],
+        aaExportParts: string[],
+        aaExportPartsDisplay: string[]
+    ): void {
+        if (nFix) {
+            const { segments, exportText } = mixedToAaSegments(
+                nFix,
+                'seq-seg-nfix',
+                { ...N_TERMINAL_SEGMENT_STYLE },
+                table
+            )
+            segmentsAa.push(...segments)
+            segmentsAaDisplay.push(...segments)
+            aaExportParts.push(exportText)
+            aaExportPartsDisplay.push(exportText)
+        }
+        if (tagCol === 'N' && includeNTags) {
+            appendTagsAa(nTags.value, segmentsAa, aaExportParts, table)
+            appendTagsAa(nTags.value, segmentsAaDisplay, aaExportPartsDisplay, table)
+        }
+        segmentsAa.push({ text: core, cssClass: 'seq-seg-core' })
+        segmentsAaDisplay.push({ text: core, cssClass: 'seq-seg-core' })
+        aaExportParts.push(core)
+        aaExportPartsDisplay.push(core)
+        if (tagCol === 'C' && includeCTags) {
+            appendTagsAa(cTags.value, segmentsAa, aaExportParts, table)
+            appendTagsAa(cTags.value, segmentsAaDisplay, aaExportPartsDisplay, table)
+        }
+        if (cFix) {
+            const { segments, exportText } = mixedToAaSegments(
+                cFix,
+                'seq-seg-cfix',
+                { ...C_TERMINAL_SEGMENT_STYLE },
+                table
+            )
+            segmentsAa.push(...segments)
+            segmentsAaDisplay.push(...segments)
+            aaExportParts.push(exportText)
+            aaExportPartsDisplay.push(exportText)
+        }
+        if (
+            (tagCol === 'N' && includeStopForNTagged.value) ||
+            (tagCol === 'C' && includeStopForCTagged.value)
+        ) {
+            appendTerminalStopAa(
+                [segmentsAa, segmentsAaDisplay],
+                [aaExportParts, aaExportPartsDisplay],
+                useDoubleStop.value
+            )
+        }
     }
 
     const preparedRowsInternal = computed((): Omit<PreparedRow, 'short_name'>[] => {
@@ -1081,56 +1232,46 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             const aaExportParts: string[] = []
             const aaExportPartsDisplay: string[] = []
 
-            if (nFix) {
-                const { segments, exportText } = mixedToAaSegments(
-                    nFix,
-                    'seq-seg-nfix',
-                    { ...N_TERMINAL_SEGMENT_STYLE },
-                    table
-                )
-                segmentsAa.push(...segments)
-                segmentsAaDisplay.push(...segments)
-                aaExportParts.push(exportText)
-                aaExportPartsDisplay.push(exportText)
-            }
-            if (tagCol === 'N') {
-                appendTagsAa(nTags.value, segmentsAa, aaExportParts, table)
-                appendTagsAa(nTags.value, segmentsAaDisplay, aaExportPartsDisplay, table)
-            }
-            segmentsAa.push({ text: core, cssClass: 'seq-seg-core' })
-            segmentsAaDisplay.push({ text: core, cssClass: 'seq-seg-core' })
-            aaExportParts.push(core)
-            aaExportPartsDisplay.push(core)
-            if (tagCol === 'C') {
-                appendTagsAa(cTags.value, segmentsAa, aaExportParts, table)
-                appendTagsAa(cTags.value, segmentsAaDisplay, aaExportPartsDisplay, table)
-                if (includeStopForCTagged.value) {
-                    appendTerminalStopAa(
-                        [segmentsAa, segmentsAaDisplay],
-                        [aaExportParts, aaExportPartsDisplay],
-                        useDoubleStop.value
-                    )
-                }
-            }
-            if (cFix) {
-                const { segments, exportText } = mixedToAaSegments(
-                    cFix,
-                    'seq-seg-cfix',
-                    { ...C_TERMINAL_SEGMENT_STYLE },
-                    table
-                )
-                segmentsAa.push(...segments)
-                segmentsAaDisplay.push(...segments)
-                aaExportParts.push(exportText)
-                aaExportPartsDisplay.push(exportText)
-            }
-            if (tagCol === 'N' && includeStopForNTagged.value) {
-                appendTerminalStopAa(
-                    [segmentsAa, segmentsAaDisplay],
-                    [aaExportParts, aaExportPartsDisplay],
-                    useDoubleStop.value
-                )
-            }
+            const bodyWithoutTerminalTags = buildMainDnaForRow(
+                table,
+                nFix,
+                cFix,
+                tagCol,
+                core,
+                false,
+                false
+            )
+            const probeLen = bodyWithoutTerminalTags.mainDna.length
+            const includeNTags = resolveIncludeNTags(
+                tagCol,
+                probeLen,
+                usePostStopPadTarget,
+                padRaw,
+                padTargetBp,
+                table
+            )
+            const includeCTags = resolveIncludeCTags(
+                tagCol,
+                probeLen,
+                usePostStopPadTarget,
+                padRaw,
+                padTargetBp,
+                table
+            )
+
+            appendPreparedBodyAa(
+                table,
+                tagCol,
+                nFix,
+                cFix,
+                core,
+                includeNTags,
+                includeCTags,
+                segmentsAa,
+                segmentsAaDisplay,
+                aaExportParts,
+                aaExportPartsDisplay
+            )
 
             const needMainDnaForPad =
                 dnaMode.value || (usePostStopPadTarget && padRaw.length > 0)
@@ -1144,7 +1285,13 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                     // nucleotide lengths since optimisation preserves translation) and reslice
                     // the optimised sequence across those boundaries.
                     const { mainSegChunks: origChunks } = buildMainDnaForRow(
-                        table, nFix, cFix, tagCol, core
+                        table,
+                        nFix,
+                        cFix,
+                        tagCol,
+                        core,
+                        includeNTags,
+                        includeCTags
                     )
                     let offset = 0
                     mainSegChunks = origChunks.map(chunk =>
@@ -1160,39 +1307,21 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                         nFix,
                         cFix,
                         tagCol,
-                        core
+                        core,
+                        includeNTags,
+                        includeCTags
                     ))
                 }
             }
 
-            let numFullPadRepeats = 0
-            let padRemainderBp = 0
-            let padUnitDna = ''
-            if (usePostStopPadTarget && padRaw) {
-                const unit = mixedToDnaSegments(padRaw, table, 'seq-seg-dna-body')
-                padUnitDna = unit.dna
-                const padUnitLen = padUnitDna.length
-                if (padUnitLen > 0 && mainDna.length < padTargetBp) {
-                    const remaining = padTargetBp - mainDna.length
-                    numFullPadRepeats = Math.floor(remaining / padUnitLen)
-                    padRemainderBp = remaining % padUnitLen
-                }
-            }
+            const paddingChunks =
+                usePostStopPadTarget && padRaw && needMainDnaForPad
+                    ? computePostStopPaddingChunks(mainDna.length, padTargetBp, padRaw, table)
+                    : []
 
-            for (let pr = 0; pr < numFullPadRepeats; pr += 1) {
+            for (const chunk of paddingChunks) {
                 const { segments, exportText } = mixedToAaSegments(
-                    padRaw,
-                    'seq-seg-padding',
-                    undefined,
-                    table
-                )
-                segmentsAa.push(...segments)
-                aaExportParts.push(exportText)
-            }
-            if (padRemainderBp > 0 && padUnitDna.length > 0) {
-                const partialDna = padUnitDna.slice(0, padRemainderBp)
-                const { segments, exportText } = mixedToAaSegments(
-                    partialDna.toLowerCase(),
+                    chunk.aaMixed,
                     'seq-seg-padding',
                     undefined,
                     table
@@ -1218,25 +1347,17 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             if (dnaMode.value) {
                 let dna = mainDna
                 const padSegChunks: PreparedSegment[][] = []
-                if (
-                    usePostStopPadTarget &&
-                    padRaw &&
-                    padUnitDna.length > 0 &&
-                    (numFullPadRepeats > 0 || padRemainderBp > 0)
-                ) {
-                    const { segments: padSegsFull } = mixedToDnaSegments(
-                        padRaw,
+                for (const chunk of paddingChunks) {
+                    dna += chunk.dna
+                    const { dna: unitDna, segments: padSegs } = mixedToDnaSegments(
+                        chunk.aaMixed,
                         table,
                         'seq-seg-dna-body'
                     )
-                    for (let pr = 0; pr < numFullPadRepeats; pr += 1) {
-                        dna += padUnitDna
-                        padSegChunks.push(mergeDnaSegments(padSegsFull, 'seq-seg-padding'))
-                    }
-                    if (padRemainderBp > 0) {
-                        const partial = padUnitDna.slice(0, padRemainderBp)
-                        dna += partial
-                        padSegChunks.push([{ text: partial, cssClass: 'seq-seg-padding' }])
+                    if (unitDna.length > 0 && chunk.dna.length === unitDna.length) {
+                        padSegChunks.push(mergeDnaSegments(padSegs, 'seq-seg-padding'))
+                    } else {
+                        padSegChunks.push([{ text: chunk.dna, cssClass: 'seq-seg-padding' }])
                     }
                 }
 
@@ -1477,9 +1598,27 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
     /** True after at least one successful per-sequence optimisation in this session (used for stale messaging). */
     const optimizationEverSucceeded = ref(false)
 
-    watch([nTags, cTags, nTerminalPrefix, cTerminalSuffix, includeStopForNTagged, includeStopForCTagged, useDoubleStop, selectedCodonTable, optimizationConstraints], () => {
-        optimizationStale.value = true
-    }, { deep: true })
+    watch(
+        [
+            nTags,
+            cTags,
+            nTerminalPrefix,
+            cTerminalSuffix,
+            includeStopForNTagged,
+            includeStopForCTagged,
+            useDoubleStop,
+            postStopPadding,
+            postStopPadUpToNucleotideLength,
+            onlyUseNTerminalTagWhenPaddingRequired,
+            onlyUseCTerminalTagWhenPaddingRequired,
+            selectedCodonTable,
+            optimizationConstraints
+        ],
+        () => {
+            optimizationStale.value = true
+        },
+        { deep: true }
+    )
 
     async function runOptimization() {
         const seqs: Record<string, string> = {}
@@ -1556,6 +1695,8 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         showPostStopPadding,
         postStopPadding,
         postStopPadUpToNucleotideLength,
+        onlyUseNTerminalTagWhenPaddingRequired,
+        onlyUseCTerminalTagWhenPaddingRequired,
         minDnaFragmentLength,
         customTagInput,
         exportOrderName,

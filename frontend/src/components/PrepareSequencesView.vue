@@ -174,6 +174,26 @@
             placeholder="Leave empty to omit padding"
           />
         </div>
+        <div class="ps-field ps-field-span-2">
+          <div class="ps-stop-check">
+            <Checkbox
+              v-model="seqPrep.onlyUseNTerminalTagWhenPaddingRequired"
+              input-id="ps-ntag-pad-only"
+              binary
+            />
+            <label for="ps-ntag-pad-only">Only use N-terminal tag when padding required</label>
+          </div>
+        </div>
+        <div class="ps-field ps-field-span-2">
+          <div class="ps-stop-check">
+            <Checkbox
+              v-model="seqPrep.onlyUseCTerminalTagWhenPaddingRequired"
+              input-id="ps-ctag-pad-only"
+              binary
+            />
+            <label for="ps-ctag-pad-only">Only use C-terminal tag when padding required</label>
+          </div>
+        </div>
       </div>
       <div v-if="seqPrep.dnaMode" class="ps-field">
         <label for="ps-minlen">Minimum DNA fragment length (bp)</label>
@@ -1731,13 +1751,17 @@ const downloadMenuItems = [
   grid-column: 1 / -1;
   grid-template-columns: repeat(2, minmax(14rem, 1fr));
   gap: 0.5rem;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
-  justify-self: start;
-  padding: 0.75rem 0.75rem 0.75rem 0;
+  justify-self: stretch;
+  padding: 0.75rem;
   border: 1px solid var(--p-content-border-color, #dee2e6);
   border-radius: 6px;
   background: color-mix(in srgb, var(--p-content-background, #fff) 88%, #eef3ff 12%);
+}
+
+.ps-field-row--padding .ps-field-span-2 {
+  grid-column: 1 / -1;
 }
 
 .ps-field-row--padding > .ps-field {

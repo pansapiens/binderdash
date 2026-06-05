@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Changed (Prepare sequences)**: Terminal stop options split into **Include \* stop for N-tagged** and **Include \* stop for C-tagged**, plus **Use double stop \*\*** (default single `*` / one stop codon). C-tagged rows place the stop after C-terminal tags (before global C-suffix and post-stop padding); N-tagged rows place it at the end of the prepared sequence (after tags and C-suffix), before padding.
+- **Changed (Prepare sequences)**: Per-tag **Include \* stop** (N/C) and optional **double stop**; stops sit after the full body and before padding. Optional **Only use N/C-terminal tag when padding required** omits preset tags on long sequences and adds them only when pad-up-to padding applies.
 - **Performance (Designs)**: Large tables load faster (run-scoped SQLite, trimmed list payload, `designs_by_run_id` cache); UI uses `shallowRef`, sampled column inference, stable `binderRowKey`, and flag-based select-all; virtual scroller removed (conflicted with pagination).
 - **Added (Designs)**: **`extra_data`** SQLite column for annotations (uploaded CSV/TSV columns, extracted **Sequence**); pipeline fields stay in **`data_json`** and refresh on re-ingest. **`POST /api/designs/merge-table`** merges new columns by **`design_id`** for selected runs; UI **Merge columns** on the Designs table.
 - **Added (Auth / API)**: Optional **`BINDERDASH_API_KEY`** — scripted access via `Authorization: Bearer <key>` or `X-Binderdash-Api-Key` without session cookies or CSRF; `GET /api/auth/status` reports `providers.api_key.enabled`.
