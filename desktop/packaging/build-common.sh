@@ -6,7 +6,7 @@ cd "$ROOT"
 
 VERSION="$(grep -E '^version = ' backend/pyproject.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
 
-if [[ ! -d backend/static ]]; then
+if [[ ! -f backend/static/index.html ]]; then
   echo "Building frontend..."
   (cd frontend && pnpm install && pnpm run build)
 fi
