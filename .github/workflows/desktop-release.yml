@@ -30,6 +30,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm install && pnpm run build
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -78,6 +82,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm install && pnpm run build
+
       - name: Build macOS zip
         run: bash desktop/packaging/build-macos.sh
 
@@ -106,6 +114,10 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm install; pnpm run build
 
       - name: Build Windows zip
         shell: pwsh
