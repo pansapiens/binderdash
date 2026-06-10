@@ -5,10 +5,12 @@ import { authApi, setCsrfToken } from '../webapi'
 
 interface AuthStatus {
     auth_disabled: boolean
+    desktop_mode?: boolean
     providers: {
         local: { enabled: boolean }
         pam: { enabled: boolean }
         google: { enabled: boolean; login_url: string }
+        api_key?: { enabled: boolean }
     }
 }
 
@@ -108,6 +110,7 @@ export const useAuthStore = defineStore('auth', () => {
             console.error('Failed to check auth status:', error)
             const fallback: AuthStatus = {
                 auth_disabled: false,
+                desktop_mode: false,
                 providers: {
                     local: { enabled: false },
                     pam: { enabled: false },

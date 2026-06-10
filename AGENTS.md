@@ -23,6 +23,13 @@
   - `pnpm run build` (output configured to backend static dir)
 - Containerised (optional):
   - `docker compose up --build`
+- Desktop (pywebview + PyInstaller):
+  - Build frontend first: `cd frontend && pnpm run build`
+  - Dev launcher: `uv pip install pywebview && uv run python -m desktop.main`
+  - Linux AppImage: `bash desktop/packaging/build-linux-appimage.sh`
+  - macOS zip: `bash desktop/packaging/build-macos.sh`
+  - Windows zip: `powershell -File desktop/packaging/build-windows.ps1`
+  - See [`desktop/README.md`](desktop/README.md)
 
 ## Environment configuration
 

@@ -12,7 +12,6 @@ from ..auth import (
 from ..auth_providers.base import AuthUser
 from ..auth_providers.google import get_oauth, google_oauth_configured
 from ..auth_providers.local import authenticate_local
-from ..auth_providers.pam import authenticate_pam
 from ..schemas import LoginRequest
 from ..settings import settings
 
@@ -39,6 +38,8 @@ async def login(login_request: LoginRequest, response: Response):
 
     user = authenticate_local(login_request.username, login_request.password)
     if user is None and settings.pam_local_enabled:
+        from ..auth_providers.pam import authenticate_pam
+
         user = await authenticate_pam(login_request.username, login_request.password)
 
     if not user:
@@ -81,6 +82,7 @@ async def auth_status():
     google_login_path = "/api/auth/google/login"
     return {
         "auth_disabled": settings.auth_disabled,
+        "desktop_mode": settings.binderdash_desktop,
         "providers": {
             "local": {"enabled": settings.local_auth_enabled()},
             "pam": {"enabled": settings.pam_local_enabled},

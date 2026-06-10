@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import pwd
 from pathlib import Path
 from typing import Optional
 
@@ -8,6 +7,11 @@ from ..settings import settings
 from .base import AuthUser
 
 logger = logging.getLogger(__name__)
+
+try:
+    import pwd
+except ImportError:
+    pwd = None  # type: ignore[assignment]
 
 
 def _pam_authenticate(username: str, password: str, service: str) -> bool:
@@ -36,6 +40,9 @@ def _pam_authenticate(username: str, password: str, service: str) -> bool:
 
 
 async def authenticate_pam(username: str, password: str) -> Optional[AuthUser]:
+    if pwd is None:
+        logger.debug("PAM auth unavailable: pwd module not found on this platform")
+        return None
     if not settings.pam_local_enabled:
         logger.debug("PAM auth skipped because PAM_LOCAL_ENABLED is false")
         return None

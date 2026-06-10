@@ -1,5 +1,7 @@
 <template>
   <div class="folder-browser">
+    <DesktopSettings />
+
     <div class="browser-header">
       <h2>Ingest Runs</h2>
       <div class="header-actions">
@@ -239,6 +241,7 @@ import { formatAcceptedTotalText } from '../utils/runDisplay'
 import { getMethodTagStyle, getMethodIconClass } from '../config/pipelineDisplay'
 import { runsApi } from '../webapi'
 import type { IngestPreviewReingestItem } from '../webapi'
+import DesktopSettings from './DesktopSettings.vue'
 
 const emit = defineEmits(['ingestComplete'])
 
