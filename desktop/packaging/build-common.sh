@@ -22,7 +22,9 @@ fi
 echo "Installing backend + desktop dependencies..."
 uv pip install -r backend/requirements.txt
 uv pip install -e backend 2>/dev/null || uv pip install -r backend/requirements.txt
-uv pip install "pywebview[gtk]" pyinstaller
+# Linux GTK/WebKit bindings come from distro python3-gi (bundled via binderdash.spec).
+# pywebview[gtk] would pull pip pygobject and fail to compile in CI.
+uv pip install pywebview pyinstaller
 
 echo "Running PyInstaller..."
 pyinstaller --noconfirm desktop/binderdash.spec

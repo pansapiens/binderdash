@@ -2,6 +2,8 @@ param(
     [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 )
 
+$ErrorActionPreference = "Stop"
+
 Set-Location $RepoRoot
 
 $versionLine = Select-String -Path "backend\pyproject.toml" -Pattern '^version = ' | Select-Object -First 1
@@ -17,7 +19,11 @@ if (-not (Test-Path "backend\static")) {
 }
 
 Write-Host "Installing dependencies..."
-uv pip install -r backend/requirements.txt
+$filteredReq = Join-Path $env:TEMP "binderdash-requirements-no-uvloop.txt"
+Get-Content (Join-Path $RepoRoot "backend\requirements.txt") |
+    Where-Object { $_ -notmatch '^uvloop==' } |
+    Set-Content -Path $filteredReq -Encoding utf8
+uv pip install -r $filteredReq
 uv pip install pywebview pyinstaller
 
 Write-Host "Running PyInstaller..."

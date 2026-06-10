@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Added (Desktop)**: Native desktop app via pywebview + PyInstaller — embedded uvicorn, auth disabled, per-user SQLite and `desktop.json` config, folder picker for run base directories, portable zip builds (Windows/macOS) and Linux AppImage.
 - **Added (Desktop)**: GitHub Actions workflow publishes Linux AppImage, macOS zip, and Windows zip to GitHub Releases on `v*` tags.
+- **Fixed (Desktop)**: CI builds no longer install `pywebview[gtk]` (use system PyGObject on Linux); Windows build skips non-portable `uvloop`.
 - **Changed (Prepare sequences)**: Per-tag **Include \* stop** (N/C) and optional **double stop**; stops sit after the full body and before padding. Optional **Only use N/C-terminal tag when padding required** omits preset tags on long sequences and adds them only when pad-up-to padding applies.
 - **Performance (Designs)**: Large tables load faster (run-scoped SQLite, trimmed list payload, `designs_by_run_id` cache); UI uses `shallowRef`, sampled column inference, stable `binderRowKey`, and flag-based select-all; virtual scroller removed (conflicted with pagination).
 - **Added (Designs)**: **`extra_data`** SQLite column for annotations (uploaded CSV/TSV columns, extracted **Sequence**); pipeline fields stay in **`data_json`** and refresh on re-ingest. **`POST /api/designs/merge-table`** merges new columns by **`design_id`** for selected runs; UI **Merge columns** on the Designs table.
