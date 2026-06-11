@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-11
+
 - **Added (Desktop)**: Native desktop app via pywebview + PyInstaller — embedded uvicorn, auth disabled, per-user SQLite and `desktop.json` config, folder picker for run base directories, portable zip builds (Windows/macOS) and Linux AppImage.
 - **Added (Desktop)**: GitHub Actions workflow publishes Linux AppImage, macOS zip, and Windows zip to GitHub Releases on `v*` tags.
 - **Fixed (Desktop)**: CI builds no longer install `pywebview[gtk]` (use system PyGObject on Linux); Windows build skips non-portable `uvloop`.

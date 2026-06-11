@@ -6,11 +6,15 @@ __pycache__/
 venv/
 build/
 dist/
+/site/
 *.egg-info/
 .env
 playwright-report/
 .last-run.json
 test-results/
+.cursor/
+desktop-builds/
+prototypes/
 
 # Frontend
 /node_modules/

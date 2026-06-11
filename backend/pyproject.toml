@@ -1,6 +1,6 @@
 [project]
 name = "binderdash-backend"
-version = "0.2.0"
+version = "0.3.0"
 description = "Backend for binderdash"
 dependencies = [
     "fastapi",
@@ -20,5 +20,14 @@ dependencies = [
     "itsdangerous",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-timeout",
+]
+
 [tool.pytest.ini_options]
 pythonpath = [".."]
+markers = [
+    "timeout(seconds): fail if test exceeds given duration",
+]

@@ -14,6 +14,7 @@
   - Create venv: `uv venv -p python3.12 .venv && source .venv/bin/activate`
   - Update dependencies if required, modify `backend/pyproject.toml` then run `uv pip compile backend/pyproject.toml -o backend/requirements.txt`
   - Install deps: `uv pip install -r backend/requirements.txt`
+  - Dev/test deps: `uv pip compile backend/pyproject.toml --extra dev -o backend/requirements-dev.txt && uv pip install -r backend/requirements-dev.txt` (includes runtime deps plus `pytest` and `pytest-timeout`)
   - Start API dev server: `uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000`
 - Frontend (pnpm, Vite, PrimeVue):
   - `cd frontend && pnpm install`
@@ -80,3 +81,30 @@
 - Run Playwright tests: `pnpm test` (from project root)
 - Update `.env.example` when env vars change
 - Update `CHANGELOG.md` for notable features and fixes
+
+## Releasing
+
+Bump the version in **all four** project manifests (keep them in sync):
+
+| File | Role |
+|------|------|
+| [`package.json`](package.json) | Root package (Playwright test runner) |
+| [`frontend/package.json`](frontend/package.json) | Frontend npm package |
+| [`backend/pyproject.toml`](backend/pyproject.toml) | **Canonical** app version — desktop packaging scripts, `GET /api/desktop/info`, and PyInstaller artifact names read this |
+| [`desktop/pyproject.toml`](desktop/pyproject.toml) | Desktop packaging dependencies metadata |
+
+Also update before tagging:
+
+- [`CHANGELOG.md`](CHANGELOG.md) — move `[Unreleased]` entries into a dated section (e.g. `## [0.3.0] - YYYY-MM-DD`)
+- **Git tag** — `vX.Y.Z` must match `backend/pyproject.toml` (e.g. `v0.3.0` for version `0.3.0`). Pushing a `v*` tag triggers [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) to build and publish Linux AppImage, macOS zip, and Windows zip.
+
+Optional doc touch-ups (examples only): [`desktop/README.md`](desktop/README.md).
+
+**Not** app version strings (do not bump for releases): `frontend/src/persistence/db.ts` (`DB_VERSION` is IndexedDB schema version); dependency versions in lockfiles.
+
+Pre-tag checklist:
+
+1. All four manifests at the same version; tag matches `backend/pyproject.toml`
+2. `CHANGELOG.md` finalised for the release
+3. `pytest` (backend), `pnpm run build` (frontend), `pnpm test` (Playwright)
+4. Rebuild frontend before desktop/PyInstaller builds (`cd frontend && pnpm run build`)

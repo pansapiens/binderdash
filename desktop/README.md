@@ -40,14 +40,14 @@ The [`.github/workflows/desktop-release.yml`](../.github/workflows/desktop-relea
 
 | Trigger | Behaviour |
 |---------|-----------|
-| Push a `v*` tag (e.g. `v0.2.0`) | Builds Linux AppImage, macOS zip, and Windows zip, then publishes them to a [GitHub Release](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository) |
+| Push a `v*` tag (e.g. `v0.3.0`) | Builds Linux AppImage, macOS zip, and Windows zip, then publishes them to a [GitHub Release](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository) |
 | Manual **workflow_dispatch** | Builds and uploads workflow artifacts only (no GitHub Release) |
 
 To publish a desktop release:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 Tag the version in `backend/pyproject.toml` to match the release tag.
