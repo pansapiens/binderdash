@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Changed (Plots)**: Plots tab uses the filtered Designs table rows directly — run selection controls removed from Plots; select runs on **Select Runs** and filter on **Designs** first.
+- **Added (Plots)**: Optional **Colour** and **Size** aesthetics on the scatter plot — map any column to point colour (numeric gradient or categorical palette) and any numeric column to point size; marginal histograms stay a single neutral colour.
+- **Changed (Plots)**: Scatter plot with X/Y marginal histograms rendered as a single concatenated Vega-Lite spec (`bounds: "flush"`) so the marginal plot frames align exactly with the scatter axes; colour/size legends sit to the right; scatter panel is always square (sized from container width).
+- **Changed (Plots)**: Larger axis and legend fonts; marginal histogram thickness ~18% of the scatter, with a resize observer keeping the layout responsive.
+- **Added (Plots)**: Full-width distribution plots below the scatter — histogram plus overlaid semi-transparent KDE curves (grouped by **Colour** when categorical).
+- **Added (Plots)**: Scatter X/Y/colour/size selections persist in IndexedDB; restored when columns exist on the current run set, otherwise default as before.
+
 ## [0.3.0] - 2026-06-11
 
 - **Added (Desktop)**: Native desktop app via pywebview + PyInstaller — embedded uvicorn, auth disabled, per-user SQLite and `desktop.json` config, folder picker for run base directories, portable zip builds (Windows/macOS) and Linux AppImage.

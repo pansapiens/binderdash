@@ -45,7 +45,7 @@ watch(
     }
     if (tab === 'plots') {
       await nextTick()
-      await plotsViewRef.value?.loadRunData?.()
+      await plotsViewRef.value?.syncFromDesignTable?.()
     }
   },
   { immediate: true }

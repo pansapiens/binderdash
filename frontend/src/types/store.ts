@@ -132,8 +132,11 @@ export interface PlotsState {
     selectedRunIds: string[];
     combinedData: any[];
     numericColumns: string[];
+    plotColumns: string[];
     scatterXCol: string | null;
     scatterYCol: string | null;
+    scatterColorCol: string | null;
+    scatterSizeCol: string | null;
     loading: boolean;
     chartLoading: boolean;
     plotSelections: PlotSelection[];

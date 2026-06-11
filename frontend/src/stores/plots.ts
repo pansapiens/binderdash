@@ -6,22 +6,44 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { plotsApi } from '../webapi'
-import type { Run, PlotSelection, PlotsState } from '../types/store'
+import { PERSISTENCE_KEYS } from '../persistence/keys'
+import { kvGet, kvSet } from '../persistence/store'
+import type { PlotSelection, PlotsState } from '../types/store'
+
+type ScatterAxisPreferences = {
+    x: string | null
+    y: string | null
+    color: string | null
+    size: string | null
+}
+
+const emptyScatterAxisPreferences = (): ScatterAxisPreferences => ({
+    x: null,
+    y: null,
+    color: null,
+    size: null,
+})
 
 export const usePlotsStore = defineStore('plots', () => {
     // State
     const selectedRunIds = ref<string[]>([])
     const combinedData = ref<any[]>([])
     const numericColumns = ref<string[]>([])
+    const plotColumns = ref<string[]>([])
     const scatterXCol = ref<string | null>(null)
     const scatterYCol = ref<string | null>(null)
+    const scatterColorCol = ref<string | null>(null)
+    const scatterSizeCol = ref<string | null>(null)
     const loading = ref(false)
     const chartLoading = ref(false)
     const plotSelections = ref<PlotSelection[]>([])
 
+    const scatterAxisPreferences = ref<ScatterAxisPreferences>(emptyScatterAxisPreferences())
+    const plotsPersistenceHydrated = ref(false)
+    let resolvingScatterColumns = false
+
     // Getters
     const filteredRuns = computed(() => {
-        // This will be enhanced with filtering logic based on available runs
         return []
     })
 
@@ -35,7 +57,6 @@ export const usePlotsStore = defineStore('plots', () => {
     )
 
     const selectedDataPoints = computed(() => {
-        // Return data points that match current plot selections
         if (plotSelections.value.length === 0) return combinedData.value
 
         return combinedData.value.filter(point => {
@@ -52,6 +73,86 @@ export const usePlotsStore = defineStore('plots', () => {
             })
         })
     })
+
+    const columnCoverage = (coerced: any[], col: string): number =>
+        coerced.reduce((acc: number, r: any) => acc + (Number.isFinite(r[col]) ? 1 : 0), 0)
+
+    const defaultNumericColumn = (
+        coerced: any[],
+        numeric: string[],
+        exclude?: string | null,
+    ): string | null => {
+        const candidates = numeric.filter((c) => c !== exclude)
+        if (candidates.length === 0) return null
+        const sorted = [...candidates].sort((a, b) => columnCoverage(coerced, b) - columnCoverage(coerced, a))
+        return sorted[0] ?? null
+    }
+
+    const resolveNumericColumn = (
+        preference: string | null,
+        numeric: string[],
+        coerced: any[],
+        exclude?: string | null,
+    ): string | null => {
+        const candidates = numeric.filter((c) => c !== exclude)
+        if (preference && candidates.includes(preference)) return preference
+        return defaultNumericColumn(coerced, numeric, exclude)
+    }
+
+    const resolveOptionalColumn = (
+        preference: string | null,
+        available: string[],
+    ): string | null => {
+        if (preference && available.includes(preference)) return preference
+        return null
+    }
+
+    const applyScatterColumnsFromData = (coerced: any[]) => {
+        const numeric = numericColumns.value
+        const plotCols = plotColumns.value
+        const prefs = scatterAxisPreferences.value
+
+        resolvingScatterColumns = true
+        try {
+            const x = resolveNumericColumn(prefs.x, numeric, coerced)
+            const y = resolveNumericColumn(prefs.y, numeric, coerced, x)
+            scatterXCol.value = x
+            scatterYCol.value = y
+            scatterColorCol.value = resolveOptionalColumn(prefs.color, plotCols)
+            scatterSizeCol.value = resolveOptionalColumn(prefs.size, numeric)
+        } finally {
+            resolvingScatterColumns = false
+        }
+    }
+
+    const recordScatterAxisPreferences = () => {
+        if (!plotsPersistenceHydrated.value || resolvingScatterColumns) return
+        scatterAxisPreferences.value = {
+            x: scatterXCol.value,
+            y: scatterYCol.value,
+            color: scatterColorCol.value,
+            size: scatterSizeCol.value,
+        }
+        void kvSet(PERSISTENCE_KEYS.plotsScatterAxes, { ...scatterAxisPreferences.value })
+    }
+
+    const hydrateFromPersistence = async () => {
+        try {
+            const payload = await kvGet<Partial<ScatterAxisPreferences>>(PERSISTENCE_KEYS.plotsScatterAxes)
+            if (payload) {
+                scatterAxisPreferences.value = {
+                    x: typeof payload.x === 'string' ? payload.x : null,
+                    y: typeof payload.y === 'string' ? payload.y : null,
+                    color: typeof payload.color === 'string' ? payload.color : null,
+                    size: typeof payload.size === 'string' ? payload.size : null,
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to hydrate plots persistence from IndexedDB', e)
+        } finally {
+            plotsPersistenceHydrated.value = true
+        }
+    }
 
     // Actions
     const setSelectedRuns = (runIds: string[]) => {
@@ -74,7 +175,6 @@ export const usePlotsStore = defineStore('plots', () => {
                 plotsApi.getPlotColumns(runIds).catch(() => null)
             ])
 
-            // Coerce numeric-like strings to numbers for plotting
             const coerced = result.data.map((row: any) => {
                 const copy: any = { ...row }
                 for (const key of Object.keys(copy)) {
@@ -89,21 +189,20 @@ export const usePlotsStore = defineStore('plots', () => {
 
             combinedData.value = coerced
             numericColumns.value = result.numericColumns
+            const keys = new Set<string>()
+            coerced.forEach((r: any) => Object.keys(r).forEach((k) => keys.add(k)))
+            plotColumns.value = Array.from(keys).filter((col) =>
+                coerced.some((r: any) => r[col] != null && r[col] !== '')
+            ).sort()
 
-            // Prefer backend defaults; fallback to heuristic with max coverage
-            if (cols && cols.numeric_columns?.length) {
+            if (cols?.numeric_columns?.length) {
                 const defX = cols.defaults?.x
                 const defY = cols.defaults?.y
-                if (defX) scatterXCol.value = defX
-                if (defY) scatterYCol.value = defY
+                if (defX && !scatterAxisPreferences.value.x) scatterAxisPreferences.value.x = defX
+                if (defY && !scatterAxisPreferences.value.y) scatterAxisPreferences.value.y = defY
             }
-            if (!scatterXCol.value || !scatterYCol.value) {
-                // Pick columns with most finite values
-                const coverage = (col: string) => coerced.reduce((acc: number, r: any) => acc + (Number.isFinite(r[col]) ? 1 : 0), 0)
-                const sorted = [...numericColumns.value].sort((a, b) => coverage(b) - coverage(a))
-                if (sorted.length > 0) scatterXCol.value = scatterXCol.value || sorted[0]
-                if (sorted.length > 1) scatterYCol.value = scatterYCol.value || sorted[1]
-            }
+
+            applyScatterColumnsFromData(coerced)
         } catch (err) {
             console.error('Error loading combined data:', err)
             throw err
@@ -118,20 +217,21 @@ export const usePlotsStore = defineStore('plots', () => {
     }
 
     const updatePlots = () => {
-        // This will trigger plot updates in components
-        // The actual plot rendering will be handled by components
+        // Triggered by components
     }
 
     const clearData = () => {
         selectedRunIds.value = []
         combinedData.value = []
         numericColumns.value = []
+        plotColumns.value = []
         scatterXCol.value = null
         scatterYCol.value = null
+        scatterColorCol.value = null
+        scatterSizeCol.value = null
         plotSelections.value = []
     }
 
-    // Plot interaction methods
     const addPlotSelection = (selection: PlotSelection) => {
         plotSelections.value.push(selection)
     }
@@ -170,15 +270,14 @@ export const usePlotsStore = defineStore('plots', () => {
         })
     }
 
-    // Accept rows directly from the designs store (keeps plots in sync with table)
     const setDataFromDesigns = (rows: any[]) => {
         if (!rows || rows.length === 0) {
             combinedData.value = []
             numericColumns.value = []
+            plotColumns.value = []
             return
         }
 
-        // Coerce numeric-like strings
         const coerced = rows.map((row: any) => {
             const copy: any = { ...row }
             for (const key of Object.keys(copy)) {
@@ -191,54 +290,50 @@ export const usePlotsStore = defineStore('plots', () => {
         })
         combinedData.value = coerced
 
-        // Derive numeric columns from current data
         const keys = new Set<string>()
         coerced.forEach(r => Object.keys(r).forEach(k => keys.add(k)))
         numericColumns.value = Array.from(keys).filter(col =>
             coerced.some(r => Number.isFinite(r[col]))
         )
+        plotColumns.value = Array.from(keys).filter(col =>
+            coerced.some(r => r[col] != null && r[col] !== '')
+        ).sort()
 
-        // If axes not set yet, choose columns with highest valid coverage
-        if (!scatterXCol.value || !scatterYCol.value) {
-            const coverage = (col: string) => coerced.reduce((acc: number, r: any) => acc + (Number.isFinite(r[col]) ? 1 : 0), 0)
-            const sorted = [...numericColumns.value].sort((a, b) => coverage(b) - coverage(a))
-            if (!scatterXCol.value && sorted.length > 0) scatterXCol.value = sorted[0]
-            if (!scatterYCol.value && sorted.length > 1) scatterYCol.value = sorted[1]
-        }
+        applyScatterColumnsFromData(coerced)
     }
 
     return {
-        // State
         selectedRunIds,
         combinedData,
         numericColumns,
+        plotColumns,
         scatterXCol,
         scatterYCol,
+        scatterColorCol,
+        scatterSizeCol,
         loading,
         chartLoading,
         plotSelections,
 
-        // Getters
         filteredRuns,
         availableColumns,
         hasValidData,
         selectedDataPoints,
 
-        // Actions
         setSelectedRuns,
         fetchCombinedData,
         setAxisColumns,
         updatePlots,
         clearData,
+        hydrateFromPersistence,
+        recordScatterAxisPreferences,
 
-        // Plot interactions
         addPlotSelection,
         clearPlotSelections,
         removePlotSelection,
         selectDataPoints,
         selectDataRange,
-        getFilteredDataForColumn
-        ,
-        setDataFromDesigns
+        getFilteredDataForColumn,
+        setDataFromDesigns,
     }
 })
