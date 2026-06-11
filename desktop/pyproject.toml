@@ -1,0 +1,9 @@
+[project]
+name = "binderdash-desktop"
+version = "0.2.0"
+description = "Desktop packaging dependencies for Binderdash"
+requires-python = ">=3.11"
+dependencies = [
+    "pywebview>=5",
+    "pyinstaller>=6",
+]

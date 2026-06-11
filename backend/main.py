@@ -15,8 +15,10 @@ from .routers import designs as designs_routes
 from .routers import files as files_routes
 from .routers import plots as plots_routes
 from .routers import runs as runs_routes
+from .routers import desktop as desktop_routes
 from .routers import sequences as sequences_routes
 from .persistence.factory import default_sqlite_url, init_designs_repository_from_url
+from .runtime_paths import static_root
 from .settings import CORS_ALLOWED_ORIGINS, SECRET_KEY, raw_settings, settings
 
 
@@ -28,8 +30,7 @@ logging.basicConfig(
 logging.getLogger().setLevel(_root_level)
 logger = logging.getLogger(__name__)
 
-_BACKEND_ROOT = Path(__file__).resolve().parent
-_STATIC_ROOT = _BACKEND_ROOT / "static"
+_STATIC_ROOT = static_root()
 _STATIC_ASSETS = _STATIC_ROOT / "assets"
 
 
@@ -147,3 +148,5 @@ app.include_router(files_routes.pdbs_router)
 app.include_router(files_routes.tree_router)
 app.include_router(plots_routes.router)
 app.include_router(sequences_routes.router)
+if settings.binderdash_desktop:
+    app.include_router(desktop_routes.router)

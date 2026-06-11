@@ -28,6 +28,7 @@ class RawSettings(BaseSettings):
     google_auth_redirect_uri: str = ""
     google_auth_allowed_users: str = ""
     binderdash_api_key: str = ""
+    binderdash_desktop: str = ""
 
 
 class LocalUser(BaseModel):
@@ -50,6 +51,7 @@ class AppSettings(BaseModel):
     google_auth_redirect_uri: str = ""
     google_auth_allowed_users: List[str] = []
     binderdash_api_key: str = ""
+    binderdash_desktop: bool = False
 
     def api_key_enabled(self) -> bool:
         return bool(self.binderdash_api_key)
@@ -96,13 +98,39 @@ def _parse_csv_lower(s: str) -> List[str]:
     return [x.strip().lower() for x in s.split(",") if x.strip()]
 
 
+def _initial_run_base_dirs(raw: RawSettings) -> List[str]:
+    dirs = (
+        [item.strip() for item in raw.run_base_dirs.split(",")]
+        if raw.run_base_dirs
+        else []
+    )
+    if raw.binderdash_desktop.lower() == "true":
+        try:
+            from desktop.config import load_config
+
+            cfg = load_config()
+            if cfg.run_base_dirs:
+                return cfg.run_base_dirs
+        except ImportError:
+            pass
+    return dirs
+
+
+def update_run_base_dirs(dirs: List[str]) -> None:
+    cleaned = [d.strip() for d in dirs if d.strip()]
+    settings.run_base_dirs = cleaned
+    if settings.binderdash_desktop:
+        try:
+            from desktop.config import update_run_base_dirs_in_file
+
+            update_run_base_dirs_in_file(cleaned)
+        except ImportError:
+            pass
+
+
 raw_settings = RawSettings()
 settings = AppSettings(
-    run_base_dirs=(
-        [item.strip() for item in raw_settings.run_base_dirs.split(",")]
-        if raw_settings.run_base_dirs
-        else []
-    ),
+    run_base_dirs=_initial_run_base_dirs(raw_settings),
     local_users=parse_local_users(raw_settings.local_users),
     auth_disabled=raw_settings.disable_authentication.lower() == "true",
     access_token_expire_minutes=raw_settings.access_token_expire_minutes,
@@ -118,6 +146,7 @@ settings = AppSettings(
     google_auth_redirect_uri=(raw_settings.google_auth_redirect_uri or "").strip(),
     google_auth_allowed_users=_parse_csv_lower(raw_settings.google_auth_allowed_users),
     binderdash_api_key=(raw_settings.binderdash_api_key or "").strip(),
+    binderdash_desktop=raw_settings.binderdash_desktop.lower() == "true",
 )
 
 SECRET_KEY = raw_settings.secret_key or secrets.token_urlsafe(32)

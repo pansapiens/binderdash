@@ -747,6 +747,47 @@ export const plotsApi = {
 /**
  * Authentication APIs
  */
+export interface DesktopInfo {
+    desktop: boolean
+    version: string
+    data_dir: string
+    run_base_dirs: string[]
+    needs_setup: boolean
+    webview_api: boolean
+}
+
+export interface RunBaseDirsResponse {
+    run_base_dirs: string[]
+    needs_setup: boolean
+}
+
+export const desktopApi = {
+    async getInfo(): Promise<DesktopInfo> {
+        return await apiRequest<DesktopInfo>(`${API_BASE}/api/desktop/info`, {
+            requireAuth: false
+        })
+    },
+
+    async putRunBaseDirs(runBaseDirs: string[]): Promise<RunBaseDirsResponse> {
+        return await apiRequest<RunBaseDirsResponse>(`${API_BASE}/api/desktop/run-base-dirs`, {
+            method: 'PUT',
+            body: JSON.stringify({ run_base_dirs: runBaseDirs }),
+            requireAuth: false
+        })
+    },
+
+    async openDataDir(): Promise<{ ok: boolean; data_dir: string }> {
+        return await apiRequest<{ ok: boolean; data_dir: string }>(
+            `${API_BASE}/api/desktop/open-data-dir`,
+            {
+                method: 'POST',
+                body: '{}',
+                requireAuth: false
+            }
+        )
+    }
+}
+
 export const authApi = {
     /**
      * Login with username and password
@@ -808,18 +849,22 @@ export const authApi = {
      */
     async getStatus(): Promise<{
         auth_disabled: boolean
+        desktop_mode: boolean
         providers: {
             local: { enabled: boolean }
             pam: { enabled: boolean }
             google: { enabled: boolean; login_url: string }
+            api_key?: { enabled: boolean }
         }
     }> {
         return await apiRequest<{
             auth_disabled: boolean
+            desktop_mode: boolean
             providers: {
                 local: { enabled: boolean }
                 pam: { enabled: boolean }
                 google: { enabled: boolean; login_url: string }
+                api_key?: { enabled: boolean }
             }
         }>(`${API_BASE}/api/auth/status`, { requireAuth: false })
     }
@@ -834,5 +879,6 @@ export default {
     designs: designsApi,
     sequences: sequencesApi,
     plots: plotsApi,
-    auth: authApi
+    auth: authApi,
+    desktop: desktopApi
 }
