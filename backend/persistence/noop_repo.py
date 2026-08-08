@@ -119,6 +119,31 @@ class NoopDesignsRepository:
     ) -> None:
         pass
 
+    def get_structural_metrics_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chains: str,
+        target_chains: str,
+    ) -> Optional[Dict[str, Any]]:
+        return None
+
+    def upsert_structural_metrics_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chains: str,
+        target_chains: str,
+        metrics: Dict[str, Any],
+    ) -> None:
+        pass
+
     def record_login(
         self,
         provider: str,
@@ -126,3 +151,34 @@ class NoopDesignsRepository:
         email: Optional[str] = None,
     ) -> None:
         pass
+
+    def create_saved_set(
+        self,
+        *,
+        saved_set_id: str,
+        name: str,
+        source_run_ids: List[str],
+        filter_params: Dict[str, Any],
+        result_summary: Dict[str, Any],
+    ) -> None:
+        pass
+
+    def list_saved_sets(self) -> List[Dict[str, Any]]:
+        return []
+
+    def get_saved_set(self, saved_set_id: str) -> Optional[Dict[str, Any]]:
+        return None
+
+    def delete_saved_set(self, saved_set_id: str) -> bool:
+        return False
+
+    def rename_saved_set(self, saved_set_id: str, name: str) -> bool:
+        return False
+
+    def add_saved_set_designs(
+        self, saved_set_id: str, designs: List[Dict[str, Any]]
+    ) -> None:
+        pass
+
+    def list_saved_set_designs(self, saved_set_id: str) -> List[Dict[str, Any]]:
+        return []

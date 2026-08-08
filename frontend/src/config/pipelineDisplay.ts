@@ -207,16 +207,6 @@ const SCORE_FIELD_BY_FIELD: ReadonlyMap<string, ScoreFieldDef> = new Map(
     SCORE_FIELD_DEFS.map((x) => [x.field, x])
 )
 
-/** Fields participating in the numeric score min/max filter. */
-export function scoreFieldsForRangeFilter(): readonly string[] {
-    return SCORE_FIELD_DEFS.filter((x) => x.scoreRangeFilter).map((x) => x.field)
-}
-
-/** Score columns included in global text search when visible. */
-export function scoreFieldsForGlobalFilter(): readonly string[] {
-    return SCORE_FIELD_DEFS.filter((x) => x.globalFilterScore).map((x) => x.field)
-}
-
 /** Table column configs derived from defs (presence still checked per-design in the store). */
 export function scoreColumnConfigsForTable(): ReadonlyArray<{ field: string; header: string }> {
     return SCORE_FIELD_DEFS.map((x) => ({ field: x.field, header: x.tableHeader }))

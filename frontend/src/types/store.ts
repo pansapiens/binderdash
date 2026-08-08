@@ -53,29 +53,7 @@ export interface FolderNode {
 }
 
 // Store-specific types
-export interface FilterState {
-    global: { value: any; matchMode: string };
-    design_id: { value: any; matchMode: string };
-    project_id: { value: any; matchMode: string };
-    run_name: { value: any; matchMode: string };
-    method: { value: any; matchMode: string };
-    score_min: { value: any; matchMode: string };
-    score_max: { value: any; matchMode: string };
-    length_min: { value: any; matchMode: string };
-    length_max: { value: any; matchMode: string };
-    target_sequence: { value: any; matchMode: string };
-}
-
 export type ColumnDataType = 'text' | 'numeric' | 'boolean' | 'date'
-
-export interface CustomFilter {
-    id: string
-    column: string
-    operator: string
-    value: any
-    /** When false, the rule does not filter the table and structure cards for this column are greyed out (synced with sidebar toggles). */
-    enabled?: boolean
-}
 
 export interface ColumnConfig {
     field: string;
@@ -121,7 +99,6 @@ export interface RunsState {
 export interface DesignsState {
     designs: Design[];
     selectedDesigns: Design[];
-    filters: FilterState;
     columns: ColumnConfig[];
     visibleColumns: string[];
     loading: boolean;

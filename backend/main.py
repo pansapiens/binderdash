@@ -13,8 +13,10 @@ from .auth import CSRF_COOKIE_NAME, request_has_valid_api_key
 from .routers import auth as auth_routes
 from .routers import designs as designs_routes
 from .routers import files as files_routes
+from .routers import filtering as filtering_routes
 from .routers import plots as plots_routes
 from .routers import runs as runs_routes
+from .routers import saved_sets as saved_sets_routes
 from .routers import desktop as desktop_routes
 from .routers import sequences as sequences_routes
 from .persistence.factory import default_sqlite_url, init_designs_repository_from_url
@@ -148,5 +150,7 @@ app.include_router(files_routes.pdbs_router)
 app.include_router(files_routes.tree_router)
 app.include_router(plots_routes.router)
 app.include_router(sequences_routes.router)
+app.include_router(filtering_routes.router)
+app.include_router(saved_sets_routes.router)
 if settings.binderdash_desktop:
     app.include_router(desktop_routes.router)

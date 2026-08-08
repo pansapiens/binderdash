@@ -131,6 +131,32 @@ class DesignsRepository(Protocol):
     ) -> None:
         ...
 
+    def get_structural_metrics_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chains: str,
+        target_chains: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Return cached structural metrics dict (see filtering.structural_metrics), or None."""
+        ...
+
+    def upsert_structural_metrics_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chains: str,
+        target_chains: str,
+        metrics: Dict[str, Any],
+    ) -> None:
+        ...
+
     def record_login(
         self,
         provider: str,
@@ -138,6 +164,46 @@ class DesignsRepository(Protocol):
         email: Optional[str] = None,
     ) -> None:
         """Upsert audit row for successful login (SQLite); noop when persistence disabled."""
+        ...
+
+    def create_saved_set(
+        self,
+        *,
+        saved_set_id: str,
+        name: str,
+        source_run_ids: List[str],
+        filter_params: Dict[str, Any],
+        result_summary: Dict[str, Any],
+    ) -> None:
+        """Persist a new Saved Set (filter/rank/diversity result). Designs are added
+        separately via ``add_saved_set_designs``.
+        """
+        ...
+
+    def list_saved_sets(self) -> List[Dict[str, Any]]:
+        """Rows with id, name, created_at, source_run_ids (list), filter_params (dict),
+        result_summary (dict).
+        """
+        ...
+
+    def get_saved_set(self, saved_set_id: str) -> Optional[Dict[str, Any]]:
+        ...
+
+    def delete_saved_set(self, saved_set_id: str) -> bool:
+        ...
+
+    def rename_saved_set(self, saved_set_id: str, name: str) -> bool:
+        ...
+
+    def add_saved_set_designs(
+        self, saved_set_id: str, designs: List[Dict[str, Any]]
+    ) -> None:
+        """Each item: design_id, run_id, source_path, final_rank, quality_score,
+        in_diverse_set, metrics (dict of all metric values for this design).
+        """
+        ...
+
+    def list_saved_set_designs(self, saved_set_id: str) -> List[Dict[str, Any]]:
         ...
 
 

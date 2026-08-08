@@ -6,13 +6,14 @@
 import { defineStore } from 'pinia'
 import { ref, shallowRef, computed, watch, nextTick } from 'vue'
 import { localeComparator, resolveFieldData, sort } from '@primeuix/utils/object'
-import { designsApi } from '../webapi'
+import { designsApi, savedSetsApi } from '../webapi'
+import type { SavedSetDesignRowDto } from '../webapi'
 import { PERSISTENCE_KEYS } from '../persistence/keys'
 import { kvGet, kvSet } from '../persistence/store'
-import type { Design, FilterState, ColumnConfig, StructureInfo, CustomFilter } from '../types/store'
+import type { Design, ColumnConfig, StructureInfo } from '../types/store'
+import { buildDesignKey, designDedupeKey } from '../utils/designKey'
+import { useFilteringStore } from './filtering'
 import {
-    scoreFieldsForRangeFilter,
-    scoreFieldsForGlobalFilter,
     scoreColumnConfigsForTable,
     DESIGN_BUILD_COLUMN_STATIC_KEYS,
     METHOD_BEST_SCORE,
@@ -20,9 +21,6 @@ import {
     designHasStructureFile,
     defaultVisibleScoreColumnFields,
 } from '../config/pipelineDisplay'
-
-const SCORE_RANGE_FILTER_FIELDS = scoreFieldsForRangeFilter() as readonly string[]
-const GLOBAL_FILTER_SCORE_FIELDS = new Set(scoreFieldsForGlobalFilter())
 
 /** Cap rows scanned when inferring dynamic table columns (full data still loaded). */
 const COLUMN_INFER_SAMPLE_SIZE = 400
@@ -62,15 +60,6 @@ function sampleDesignsForColumnInference(designs: Design[]): Design[] {
     return out
 }
 
-function designHasAnyScoreForRangeFilter(design: Design): boolean {
-    const d = design as Record<string, unknown>
-    for (const field of SCORE_RANGE_FILTER_FIELDS) {
-        const value = d[field]
-        if (value !== null && value !== undefined) return true
-    }
-    return false
-}
-
 export const useDesignsStore = defineStore('designs', () => {
     // State — shallowRef: large run tables are replaced wholesale, not deep-mutated.
     const designs = shallowRef<Design[]>([])
@@ -84,8 +73,15 @@ export const useDesignsStore = defineStore('designs', () => {
     const selectedRunIds = ref<string[]>([]) // Track selected run IDs for filtering
     /** Sorted join of run ids last successfully loaded into `designs`. */
     const loadedRunIdsSignature = ref<string>('')
+    // Saved Sets selected for inclusion alongside Runs (plan §7A.4/§7A.5) — Sets show
+    // frozen-snapshot data (§7A.3), merged into the same `designs` pool, deduped against
+    // any live-selected Run that also contains the same design.
+    const selectedSavedSetIds = ref<string[]>([])
+    /** Sorted join of saved-set ids last successfully merged into `designs`. */
+    const loadedSavedSetIdsSignature = ref<string>('')
     let fetchSeq = 0
     let selectionDebounceTimer: ReturnType<typeof setTimeout> | null = null
+    let savedSetSelectionDebounceTimer: ReturnType<typeof setTimeout> | null = null
     const SELECTION_DEBOUNCE_MS = 200
 
     function runIdsSignature(runIds: string[]): string {
@@ -105,50 +101,7 @@ export const useDesignsStore = defineStore('designs', () => {
     const pendingSelectedDesignKeys = ref<Array<{ run_id: string; design_id: string }>>([])
     const pendingCurrentNavDesignId = ref<string | null>(null)
     const designsPersistenceHydrated = ref(false)
-    const filters = ref<FilterState>({
-        global: { value: null, matchMode: 'contains' },
-        design_id: { value: null, matchMode: 'contains' },
-        project_id: { value: null, matchMode: 'contains' },
-        run_name: { value: null, matchMode: 'contains' },
-        method: { value: null, matchMode: 'equals' },
-        score_min: { value: null, matchMode: 'gte' },
-        score_max: { value: null, matchMode: 'lte' },
-        length_min: { value: null, matchMode: 'gte' },
-        length_max: { value: null, matchMode: 'lte' },
-        target_sequence: { value: null, matchMode: 'regex' }
-    })
     const bestMpnnOnly = ref(false)
-    const customFilters = ref<CustomFilter[]>([])
-
-    const persistCustomFiltersToStorage = () => {
-        if (!designsPersistenceHydrated.value) return
-        void kvSet(PERSISTENCE_KEYS.designsCustomFilters, { filters: customFilters.value })
-    }
-
-    watch(customFilters, () => persistCustomFiltersToStorage(), { deep: true })
-
-    const isFieldReferencedByCustomFilter = (field: string): boolean => {
-        const t = field.trim()
-        if (!t) return false
-        return customFilters.value.some(f => f.column?.trim() === t)
-    }
-
-    /** True when every custom filter row targeting this column is enabled (undefined counts as enabled). */
-    const allFiltersForFieldEnabled = (field: string): boolean => {
-        const t = field.trim()
-        if (!t) return true
-        const relevant = customFilters.value.filter(f => f.column?.trim() === t)
-        if (relevant.length === 0) return true
-        return relevant.every(f => f.enabled !== false)
-    }
-
-    const setAllCustomFiltersEnabledForField = (field: string, enabled: boolean) => {
-        const t = field.trim()
-        if (!t) return
-        customFilters.value = customFilters.value.map(f =>
-            f.column?.trim() === t ? { ...f, enabled } : f
-        )
-    }
 
     const columns = ref<ColumnConfig[]>([])
     const visibleColumns = ref<string[]>(['design_id', 'project_id', 'run_name', 'method', 'Length'])
@@ -268,11 +221,19 @@ export const useDesignsStore = defineStore('designs', () => {
     }
 
     const columnsForSelectedRuns = computed((): ColumnConfig[] => {
-        if (selectedRunIds.value.length === 0) return []
+        if (selectedRunIds.value.length === 0 && selectedSavedSetIds.value.length === 0) return []
         const parts: Design[] = []
         for (const id of selectedRunIds.value) {
             const rows = designsByRun.value.get(id)
             if (rows?.length) parts.push(...rows)
+        }
+        // Saved-Set-sourced rows (plan §7A) aren't grouped under a selected live run_id
+        // in designsByRun when their own run isn't also live-selected — pull them in via
+        // their provenance marker so column inference still covers Set-only columns.
+        if (selectedSavedSetIds.value.length > 0) {
+            for (const d of designs.value) {
+                if ((d as Record<string, unknown>).__source_saved_set_id != null) parts.push(d)
+            }
         }
         if (parts.length === 0) return []
         return buildColumnsFromData(parts)
@@ -290,17 +251,6 @@ export const useDesignsStore = defineStore('designs', () => {
 
     const hydrateFromPersistence = async () => {
         try {
-            const filtersPayload = await kvGet<{ filters?: unknown[] }>(PERSISTENCE_KEYS.designsCustomFilters)
-            if (filtersPayload && Array.isArray(filtersPayload.filters)) {
-                customFilters.value = filtersPayload.filters.map((f: any) => ({
-                    id: typeof f?.id === 'string' ? f.id : crypto.randomUUID(),
-                    column: typeof f?.column === 'string' ? f.column : '',
-                    operator: typeof f?.operator === 'string' ? f.operator : 'eq',
-                    value: f?.value,
-                    enabled: f?.enabled !== false
-                }))
-            }
-
             const viewPayload = await kvGet<{
                 selectedRunIds?: unknown
                 selectedDesigns?: unknown
@@ -349,268 +299,34 @@ export const useDesignsStore = defineStore('designs', () => {
         }
     }
 
-    const operatorOptionsNumeric = [
-        { label: '<=', value: 'lte' },
-        { label: '>=', value: 'gte' },
-        { label: '==', value: 'eq' },
-        { label: '!=', value: 'ne' },
-        { label: '>', value: 'gt' },
-        { label: '<', value: 'lt' },
-        { label: 'is empty', value: 'is_empty' },
-        { label: 'is not empty', value: 'is_not_empty' }
-    ]
-
-    const operatorOptionsText = [
-        { label: '==', value: 'eq' },
-        { label: '!=', value: 'ne' },
-        { label: 'contains', value: 'contains' },
-        { label: 'does not contain', value: 'not_contains' },
-        { label: 'starts with', value: 'starts_with' },
-        { label: 'ends with', value: 'ends_with' },
-        { label: 'is empty', value: 'is_empty' },
-        { label: 'is not empty', value: 'is_not_empty' }
-    ]
-
-    const operatorOptionsBoolean = [
-        { label: '==', value: 'eq' },
-        { label: 'is empty', value: 'is_empty' },
-        { label: 'is not empty', value: 'is_not_empty' }
-    ]
-
-    function getColumnFilterType(field: string): string {
-        const fromSelected = columnsForSelectedRuns.value.find(c => c.field === field)
-        if (fromSelected) return fromSelected.filterType ?? 'text'
-        return columns.value.find(c => c.field === field)?.filterType ?? 'text'
-    }
-
-    function getOperatorsForColumn(field: string) {
-        if (!field) return operatorOptionsText
-        const t = getColumnFilterType(field)
-        if (t === 'numeric') return operatorOptionsNumeric
-        if (t === 'boolean') return operatorOptionsBoolean
-        return operatorOptionsText
-    }
-
-    function cellIsEmptyForFilter(raw: unknown): boolean {
-        return raw == null || raw === ''
-    }
-
-    function toNumericForFilter(raw: unknown): number | null {
-        if (raw == null || raw === '') return null
-        if (typeof raw === 'number' && !Number.isNaN(raw)) return raw
-        const n = Number(raw)
-        return Number.isNaN(n) ? null : n
-    }
-
-    function normalizeBooleanCell(raw: unknown): 'true' | 'false' | 'empty' {
-        if (raw == null || raw === '') return 'empty'
-        if (raw === true || raw === 1 || raw === '1') return 'true'
-        if (typeof raw === 'string' && raw.toLowerCase() === 'true') return 'true'
-        if (raw === false || raw === 0 || raw === '0') return 'false'
-        if (typeof raw === 'string' && raw.toLowerCase() === 'false') return 'false'
-        return 'empty'
-    }
-
-    function passesCustomFilter(design: Design, filter: CustomFilter): boolean {
-        if (!filter.column) return true
-        const colType = getColumnFilterType(filter.column)
-        const op = filter.operator
-        const raw = (design as Record<string, unknown>)[filter.column]
-
-        if (op === 'is_empty') return cellIsEmptyForFilter(raw)
-        if (op === 'is_not_empty') return !cellIsEmptyForFilter(raw)
-
-        if (colType === 'boolean') {
-            if (op !== 'eq') return true
-            if (filter.value === undefined) return true
-            const cell = normalizeBooleanCell(raw)
-            if (filter.value === null) return cell === 'empty'
-            if (filter.value === true) return cell === 'true'
-            if (filter.value === false) return cell === 'false'
-            return true
-        }
-
-        if (colType === 'numeric') {
-            const nRow = toNumericForFilter(raw)
-            if (nRow === null) return false
-            if (filter.value === null || filter.value === undefined) return true
-            const nFilter = toNumericForFilter(filter.value)
-            if (nFilter === null) return true
-            switch (op) {
-                case 'eq':
-                    return nRow === nFilter
-                case 'ne':
-                    return nRow !== nFilter
-                case 'gt':
-                    return nRow > nFilter
-                case 'gte':
-                    return nRow >= nFilter
-                case 'lt':
-                    return nRow < nFilter
-                case 'lte':
-                    return nRow <= nFilter
-                default:
-                    return true
-            }
-        }
-
-        const rowStr = raw == null ? '' : String(raw)
-        if (op === 'eq') {
-            if (filter.value === null || filter.value === undefined) return true
-            return rowStr === String(filter.value)
-        }
-        if (op === 'ne') {
-            if (filter.value === null || filter.value === undefined) return true
-            return rowStr !== String(filter.value)
-        }
-        if (cellIsEmptyForFilter(raw)) return false
-        if (filter.value === null || filter.value === undefined) return true
-        const fv = String(filter.value)
-        switch (op) {
-            case 'contains':
-                return rowStr.toLowerCase().includes(fv.toLowerCase())
-            case 'not_contains':
-                return !rowStr.toLowerCase().includes(fv.toLowerCase())
-            case 'starts_with':
-                return rowStr.toLowerCase().startsWith(fv.toLowerCase())
-            case 'ends_with':
-                return rowStr.toLowerCase().endsWith(fv.toLowerCase())
-            default:
-                return true
-        }
-    }
-
-    const addCustomFilter = () => {
-        customFilters.value.push({
-            id: crypto.randomUUID(),
-            column: '',
-            operator: 'eq',
-            value: null,
-            enabled: true
-        })
-    }
-
-    const removeCustomFilter = (id: string) => {
-        customFilters.value = customFilters.value.filter(f => f.id !== id)
-    }
-
-    const updateCustomFilter = (id: string, patch: Partial<Omit<CustomFilter, 'id'>>) => {
-        const idx = customFilters.value.findIndex(f => f.id === id)
-        if (idx < 0) return
-        customFilters.value[idx] = { ...customFilters.value[idx], ...patch }
-    }
-
-    // Getters — `designs` holds only rows for the current selected runs after fetch
+    // Getters — `designs` holds only rows for the current selected runs after fetch.
+    // Hard filtering (column/operator/threshold rules) now lives entirely on the
+    // backend filtering engine (see plan §7A) — a design passes when
+    // filteringStore.passingDesignKeys is null (no active filter) or contains this
+    // design's key. The legacy client-side custom-filter system (per-row
+    // column/operator/value rules re-implemented in JS) has been removed in favour of
+    // this single source of truth; see the Filtering tab for building filters.
     const filteredDesigns = computed(() => {
         let filtered = designs.value
 
-        // Apply global filter
-        if (filters.value.global.value) {
-            const globalValue = filters.value.global.value.toLowerCase()
-            filtered = filtered.filter(design => {
-                return getGlobalFilterFields().some(field => {
-                    const value = design[field]
-                    return value && value.toString().toLowerCase().includes(globalValue)
-                })
-            })
+        // Apply backend-driven hard filters from the Filtering tab (see plan §7A) —
+        // null means no active filter (show everything); otherwise keep only designs
+        // whose key is in the passing set. Lazily looked up to avoid a circular
+        // store-init dependency (filteringStore.activeRunIds reads this store).
+        const passingKeys = useFilteringStore().passingDesignKeys
+        if (passingKeys) {
+            filtered = filtered.filter(design => passingKeys.has(buildDesignKey(design)))
         }
 
-        // Apply individual column filters
-        if (filters.value.design_id.value) {
-            filtered = filtered.filter(design =>
-                design.design_id && design.design_id.toLowerCase().includes(filters.value.design_id.value.toLowerCase())
-            )
-        }
-
-        if (filters.value.project_id.value) {
-            filtered = filtered.filter(design =>
-                design.project_id && design.project_id.toLowerCase().includes(filters.value.project_id.value.toLowerCase())
-            )
-        }
-
-        if (filters.value.run_name.value) {
-            filtered = filtered.filter(design =>
-                design.run_name && design.run_name.toLowerCase().includes(filters.value.run_name.value.toLowerCase())
-            )
-        }
-
-        if (filters.value.method.value) {
-            filtered = filtered.filter(design =>
-                (design as any).method === filters.value.method.value
-            )
-        }
-
-        // Apply score range filters (rows with none of these fields pass — avoids hiding other methods after switching runs)
-        if (filters.value.score_min.value != null) {
-            const min = filters.value.score_min.value
-            filtered = filtered.filter(design => {
-                if (!designHasAnyScoreForRangeFilter(design)) return true
-                return SCORE_RANGE_FILTER_FIELDS.some(field => {
-                    const value = (design as Record<string, unknown>)[field]
-                    return value !== null && value !== undefined && Number(value) >= min
-                })
-            })
-        }
-
-        if (filters.value.score_max.value != null) {
-            const max = filters.value.score_max.value
-            filtered = filtered.filter(design => {
-                if (!designHasAnyScoreForRangeFilter(design)) return true
-                return SCORE_RANGE_FILTER_FIELDS.some(field => {
-                    const value = (design as Record<string, unknown>)[field]
-                    return value !== null && value !== undefined && Number(value) <= max
-                })
-            })
-        }
-
-        // Apply length range filters (missing length passes — e.g. boltzgen rows without Length while bounds were set from another run)
-        if (filters.value.length_min.value != null) {
-            const min = filters.value.length_min.value
-            filtered = filtered.filter(design => {
-                const length = design.Length ?? design.length
-                if (length === null || length === undefined) return true
-                return Number(length) >= min
-            })
-        }
-
-        if (filters.value.length_max.value != null) {
-            const max = filters.value.length_max.value
-            filtered = filtered.filter(design => {
-                const length = design.Length ?? design.length
-                if (length === null || length === undefined) return true
-                return Number(length) <= max
-            })
-        }
-
-        // Apply target sequence filter (regex pattern matching)
-        if (filters.value.target_sequence.value) {
-            const targetSequencePattern = filters.value.target_sequence.value
-            filtered = filtered.filter(design => {
-                const targetSequence = (design as any).target_sequence
-                if (!targetSequence) return false
-
-                try {
-                    // Create regex from the pattern, case-insensitive
-                    const regex = new RegExp(targetSequencePattern, 'i')
-                    return regex.test(targetSequence)
-                } catch (error) {
-                    // If regex is invalid, fall back to simple string contains
-                    return targetSequence.toLowerCase().includes(targetSequencePattern.toLowerCase())
-                }
-            })
-        }
-
-        const activeCustomFilters = customFilters.value.filter(f => f.enabled !== false)
-        if (activeCustomFilters.length > 0) {
-            filtered = filtered.filter(design =>
-                activeCustomFilters.every(f => passesCustomFilter(design, f))
-            )
-        }
-
-        // Filter by selected run IDs (defensive; payload is usually already scoped)
-        if (selectedRunIds.value.length > 0) {
+        // Filter by selected run IDs (defensive; payload is usually already scoped).
+        // Rows sourced from a selected Saved Set (plan §7A — see fetchDesignsForSelection
+        // in this file) carry __source_saved_set_id and are exempt: their run_id is the
+        // *originating* run, which may not itself be live-selected in Select Runs.
+        if (selectedRunIds.value.length > 0 || selectedSavedSetIds.value.length > 0) {
             const idSet = new Set(selectedRunIds.value.map(String))
-            filtered = filtered.filter(design => idSet.has(String(design.run_id)))
+            filtered = filtered.filter(design =>
+                idSet.has(String(design.run_id)) || (design as Record<string, unknown>).__source_saved_set_id != null
+            )
         } else {
             filtered = []
         }
@@ -618,6 +334,17 @@ export const useDesignsStore = defineStore('designs', () => {
         // Apply best MPNN filtering if enabled
         if (bestMpnnOnly.value) {
             filtered = _filterBestMpnnDesigns(filtered)
+        }
+
+        // Attach final_rank/quality_score from an "Apply Ranking"/"Apply Diversity
+        // Filter" result (see plan §7A.2), for display/sorting in the Designs table.
+        const rankedDesigns = useFilteringStore().rankedDesigns
+        if (rankedDesigns) {
+            filtered = filtered.map(design => {
+                const info = rankedDesigns.get(buildDesignKey(design))
+                if (!info) return design
+                return { ...design, final_rank: info.final_rank, quality_score: info.quality_score }
+            })
         }
 
         return filtered
@@ -904,24 +631,8 @@ export const useDesignsStore = defineStore('designs', () => {
         return filteredDesigns
     }
 
-    // Helper function for global filtering
-    const getGlobalFilterFields = () => {
-        // Base fields that are always present
-        const baseFields = ['design_id', 'project_id', 'run_name', 'method', 'Length']
-
-        // Add score columns that are currently visible
-        const scoreFields = visibleColumns.value.filter((col: string) => GLOBAL_FILTER_SCORE_FIELDS.has(col))
-
-        return [...baseFields, ...scoreFields]
-    }
-
     const designsWithPdbOrdered = (): Design[] =>
         orderedFilteredDesigns.value.filter(d => hasStructureFile(d))
-
-    watch(() => filters.value, () => {
-        const withPdb = designsWithPdbOrdered()
-        currentNavDesignId.value = withPdb[0]?.design_id ?? null
-    }, { deep: true })
 
     watch(orderedFilteredDesigns, () => {
         const withPdb = designsWithPdbOrdered()
@@ -1065,12 +776,118 @@ export const useDesignsStore = defineStore('designs', () => {
         await fetchDesignsForRuns(selectedRunIds.value)
     }
 
+    /**
+     * Convert one Saved Set's frozen design rows (see plan §7A.3 — snapshot data,
+     * not rejoined against live run data) into Design-shaped rows, tagged with
+     * provenance markers so the UI can show which Set a row came from.
+     */
+    function savedSetRowsToDesigns(rows: SavedSetDesignRowDto[], savedSetId: string, savedSetName: string): Design[] {
+        return rows.map((row) => ({
+            ...row.metrics,
+            run_id: row.run_id,
+            design_id: row.design_id,
+            source_path: row.source_path ?? undefined,
+            final_rank: row.final_rank ?? undefined,
+            quality_score: row.quality_score ?? undefined,
+            in_diverse_set: row.in_diverse_set,
+            __source_saved_set_id: savedSetId,
+            __source_saved_set_name: savedSetName,
+        } as unknown as Design))
+    }
+
+    /**
+     * Load the raw design pool from the union of selected Runs + selected Saved Sets
+     * (plan §7A "Redesign: Unifying Designs-Tab Filters With the Filtering Tab").
+     *
+     * Runs go through the existing `fetchDesignsForRuns` (untouched — that function
+     * already owns row/column setup for the live-run path). Saved Sets are fetched
+     * separately and merged in afterwards, deduped per §7A.5: a design present via
+     * both a live-selected Run and a selected Set keeps the live Run's version.
+     */
+    const fetchDesignsForSelection = async (runIds: string[], savedSetIds: string[]) => {
+        await fetchDesignsForRuns(runIds)
+
+        if (savedSetIds.length === 0) {
+            loadedSavedSetIdsSignature.value = ''
+            return
+        }
+
+        const filteringStore = useFilteringStore()
+        const liveKeys = new Set(
+            designs.value.map((d) => designDedupeKey(d.run_id, d.design_id, (d as Record<string, unknown>).source_path as string | undefined))
+        )
+
+        // First-seen-in-selection-order wins between two Sets with no live Run in
+        // view for that key (plan §7A.5 — explicitly left as a low-stakes, undecided
+        // tiebreak; this is the accepted default).
+        const seenSetKeys = new Set<string>()
+        const setRows: Design[] = []
+        for (const savedSetId of savedSetIds) {
+            let savedSetName = filteringStore.savedSets.find((s) => s.id === savedSetId)?.name
+            if (savedSetName == null) {
+                try {
+                    const detail = await savedSetsApi.get(savedSetId)
+                    savedSetName = detail.name
+                } catch (err) {
+                    console.error(`Error fetching saved set ${savedSetId} details:`, err)
+                    savedSetName = savedSetId
+                }
+            }
+            try {
+                const { designs: rows } = await savedSetsApi.getDesigns(savedSetId)
+                for (const design of savedSetRowsToDesigns(rows, savedSetId, savedSetName)) {
+                    const key = designDedupeKey(design.run_id, design.design_id, (design as Record<string, unknown>).source_path as string | undefined)
+                    if (liveKeys.has(key) || seenSetKeys.has(key)) continue
+                    seenSetKeys.add(key)
+                    setRows.push(design)
+                }
+            } catch (err) {
+                console.error(`Error fetching designs for saved set ${savedSetId}:`, err)
+            }
+        }
+
+        if (setRows.length === 0) {
+            loadedSavedSetIdsSignature.value = [...savedSetIds].sort().join('|')
+            return
+        }
+
+        const hadVisibleColumns = visibleColumns.value.length > 0
+        const merged = withRowKeys([...designs.value, ...setRows])
+        designs.value = merged
+        rebuildDesignsByRun(merged)
+        loadedSavedSetIdsSignature.value = [...savedSetIds].sort().join('|')
+
+        // Re-run column inference over the merged pool so Set-only columns show up.
+        await nextTick()
+        columns.value = buildColumnsFromData(merged)
+
+        // Mirrors fetchDesignsForRuns' first-load defaulting: if nothing was visible yet
+        // (e.g. a Set was selected with zero live Runs, so fetchDesignsForRuns([]) never
+        // set defaults), pick the same sensible default column set.
+        if (!hadVisibleColumns) {
+            const sample = sampleDesignsForColumnInference(merged)
+            const defaultColumns = ['design_id', 'project_id', 'run_name', 'method']
+            if (sample.some(d => Object.prototype.hasOwnProperty.call(d, 'good'))) {
+                defaultColumns.push('good')
+            }
+            if (sample.some(d => 'Length' in d && d['Length'] != null)) {
+                defaultColumns.push('Length')
+            }
+            defaultVisibleScoreColumnFields().forEach(scoreCol => {
+                if (sample.some(d => scoreCol in d && d[scoreCol] != null)) {
+                    defaultColumns.push(scoreCol)
+                }
+            })
+            visibleColumns.value = defaultColumns
+        }
+    }
+
     const flushSelectedRunIds = async (): Promise<void> => {
         if (selectionDebounceTimer) {
             clearTimeout(selectionDebounceTimer)
             selectionDebounceTimer = null
         }
-        await fetchDesignsForRuns(selectedRunIds.value)
+        await fetchDesignsForSelection(selectedRunIds.value, selectedSavedSetIds.value)
     }
 
     const ensureDesignsForCurrentSelection = async (): Promise<void> => {
@@ -1078,26 +895,6 @@ export const useDesignsStore = defineStore('designs', () => {
         const sig = runIdsSignature(selectedRunIds.value)
         if (sig === loadedRunIdsSignature.value && designs.value.length > 0) return
         await fetchDesignsForRuns(selectedRunIds.value)
-    }
-
-    const setFilters = (newFilters: Partial<FilterState>) => {
-        filters.value = { ...filters.value, ...newFilters }
-    }
-
-    const clearFilters = () => {
-        filters.value = {
-            global: { value: null, matchMode: 'contains' },
-            design_id: { value: null, matchMode: 'contains' },
-            project_id: { value: null, matchMode: 'contains' },
-            run_name: { value: null, matchMode: 'contains' },
-            method: { value: null, matchMode: 'equals' },
-            score_min: { value: null, matchMode: 'gte' },
-            score_max: { value: null, matchMode: 'lte' },
-            length_min: { value: null, matchMode: 'gte' },
-            length_max: { value: null, matchMode: 'lte' },
-            target_sequence: { value: null, matchMode: 'regex' }
-        }
-        customFilters.value = []
     }
 
     const toggleBestMpnnOnly = () => {
@@ -1181,13 +978,47 @@ export const useDesignsStore = defineStore('designs', () => {
         }
 
         if (runIds.length === 0) {
-            void fetchDesignsForRuns([])
+            void fetchDesignsForSelection([], selectedSavedSetIds.value)
             return
         }
 
         selectionDebounceTimer = setTimeout(() => {
             selectionDebounceTimer = null
-            void fetchDesignsForRuns(runIds)
+            void fetchDesignsForSelection(runIds, selectedSavedSetIds.value)
+        }, SELECTION_DEBOUNCE_MS)
+    }
+
+    /**
+     * Setter for `selectedSavedSetIds`, mirroring `setSelectedRunIds`'s debounce
+     * convention (own timer, so a Sets-only change doesn't cancel an in-flight
+     * Runs-selection debounce or vice versa). Triggers the combined Runs+Sets
+     * reload (see plan §7A.4 — Select Runs handles inclusion of both).
+     */
+    const setSelectedSavedSetIds = (savedSetIds: string[]) => {
+        const previousSignature = [...selectedSavedSetIds.value].sort().join('|')
+        const nextSignature = [...savedSetIds].sort().join('|')
+        selectedSavedSetIds.value = savedSetIds
+
+        if (
+            nextSignature === previousSignature &&
+            nextSignature === loadedSavedSetIdsSignature.value
+        ) {
+            return
+        }
+
+        if (savedSetSelectionDebounceTimer) {
+            clearTimeout(savedSetSelectionDebounceTimer)
+            savedSetSelectionDebounceTimer = null
+        }
+
+        if (savedSetIds.length === 0) {
+            void fetchDesignsForSelection(selectedRunIds.value, [])
+            return
+        }
+
+        savedSetSelectionDebounceTimer = setTimeout(() => {
+            savedSetSelectionDebounceTimer = null
+            void fetchDesignsForSelection(selectedRunIds.value, savedSetIds)
         }, SELECTION_DEBOUNCE_MS)
     }
 
@@ -1373,12 +1204,8 @@ export const useDesignsStore = defineStore('designs', () => {
         setSelectionFromDesigns,
         resolveSelectedDesigns,
         selectedRunIds,
-        filters,
+        selectedSavedSetIds,
         bestMpnnOnly,
-        customFilters,
-        isFieldReferencedByCustomFilter,
-        allFiltersForFieldEnabled,
-        setAllCustomFiltersEnabledForField,
         columns,
         columnsForSelectedRuns,
         visibleColumns,
@@ -1399,14 +1226,9 @@ export const useDesignsStore = defineStore('designs', () => {
         // Actions
         fetchDesigns,
         fetchDesignsForRuns,
+        fetchDesignsForSelection,
         flushSelectedRunIds,
         ensureDesignsForCurrentSelection,
-        setFilters,
-        clearFilters,
-        addCustomFilter,
-        removeCustomFilter,
-        updateCustomFilter,
-        getOperatorsForColumn,
         toggleBestMpnnOnly,
         selectDesigns,
         toggleColumn,
@@ -1414,6 +1236,7 @@ export const useDesignsStore = defineStore('designs', () => {
         navigateStructure,
         clearDesigns,
         setSelectedRunIds,
+        setSelectedSavedSetIds,
         viewDesign,
         getCurrentRowPosition,
         extractFilename,

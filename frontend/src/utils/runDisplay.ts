@@ -25,6 +25,23 @@ function fmtNum(n: number): string {
     return abs >= 10 ? n.toFixed(2) : n.toFixed(4)
 }
 
+/** Resolve a Saved Set's source_run_ids to display names — falls back to the raw ID
+ * for a run no longer present (e.g. deleted since the set was created). */
+export function resolveSourceRunNames(sourceRunIds: string[] | undefined, runs: Run[]): string[] {
+    if (!sourceRunIds || sourceRunIds.length === 0) return []
+    const byId = new Map(runs.map((r) => [r.run_id, r]))
+    return sourceRunIds.map((id) => byId.get(id)?.metadata?.name ?? id)
+}
+
+/** Short "Source Runs" column text — full names when there are only a couple, else a count
+ * (see resolveSourceRunNames for the full list, e.g. for a tooltip). */
+export function formatSourceRunNames(sourceRunIds: string[] | undefined, runs: Run[]): string {
+    const names = resolveSourceRunNames(sourceRunIds, runs)
+    if (names.length === 0) return '—'
+    if (names.length <= 2) return names.join(', ')
+    return `${names.length} runs`
+}
+
 export function primaryScoreDisplay(data: Run): {
     numbersLine: string
     column: string

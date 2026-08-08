@@ -36,6 +36,9 @@ from ..schemas import (
     SequenceExtractResultRow,
     ShortNameBulkRequest,
     ShortNameBulkResponse,
+    StructuralMetricsRequest,
+    StructuralMetricsResponse,
+    StructuralMetricsRow,
     TagMetricsResponse,
     TagMetricsRow,
     TagPlacementRequest,
@@ -45,6 +48,12 @@ from ..schemas import (
 from ..persistence.factory import get_designs_repository
 from ..auth_providers.base import AuthUser
 from ..tag_placement import compute_tag_metrics_for_structure_file
+from ..filtering.chain_roles import resolve_chain_roles_cached
+from ..filtering.structural_metrics import (
+    amino_acid_composition_fractions,
+    compute_structural_metrics,
+    hydrophobicity_score,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -625,6 +634,150 @@ def _tag_metrics_sync(body: TagPlacementRequest) -> TagMetricsResponse:
     return TagMetricsResponse(results=results)
 
 
+def _structural_metrics_sync(body: StructuralMetricsRequest) -> StructuralMetricsResponse:
+    repo = get_designs_repository()
+    results: list[StructuralMetricsRow] = []
+    allow_compute = bool(body.ignore_cache or not body.cache_only)
+    use_cache_read = bool(not body.ignore_cache and repo.is_enabled())
+
+    for item in body.designs:
+        run = get_run_metadata(item.run_id)
+        if not run:
+            results.append(
+                StructuralMetricsRow(
+                    run_id=item.run_id, design_id=item.design_id, error="Run not found"
+                )
+            )
+            continue
+        fn_raw = (item.pdb_file or "").strip()
+        if not fn_raw:
+            results.append(
+                StructuralMetricsRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    error="No structure file for design",
+                )
+            )
+            continue
+        fn = Path(fn_raw).name
+        sp = (item.source_path or "").strip()
+        pdb_path = _resolve_structure_path(
+            run.get("pdb_files", []), fn, run.get("method")
+        )
+        if pdb_path is None or not pdb_path.is_file():
+            results.append(
+                StructuralMetricsRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    pdb_file=fn,
+                    error="Structure file not found on disk",
+                )
+            )
+            continue
+
+        if body.binder_chain_ids is not None and body.target_chain_ids is not None:
+            binder_ids = list(body.binder_chain_ids)
+            target_ids = list(body.target_chain_ids)
+        else:
+            roles = resolve_chain_roles_cached(
+                item.run_id, run.get("method") or "", run.get("pdb_files", [])
+            )
+            binder_ids = roles.binder_chain_ids
+            target_ids = roles.target_chain_ids
+
+        if not binder_ids or not target_ids:
+            results.append(
+                StructuralMetricsRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    pdb_file=fn,
+                    binder_chain_ids=binder_ids,
+                    target_chain_ids=target_ids,
+                    error="Could not resolve binder/target chain roles for this run",
+                )
+            )
+            continue
+
+        binder_key = ",".join(sorted(binder_ids))
+        target_key = ",".join(sorted(target_ids))
+
+        if use_cache_read:
+            cached = repo.get_structural_metrics_cache(
+                run_id=item.run_id,
+                design_id=item.design_id,
+                source_path=sp,
+                structure_filename=fn,
+                binder_chains=binder_key,
+                target_chains=target_key,
+            )
+            if cached is not None:
+                results.append(
+                    StructuralMetricsRow(
+                        run_id=item.run_id,
+                        design_id=item.design_id,
+                        pdb_file=fn,
+                        binder_chain_ids=binder_ids,
+                        target_chain_ids=target_ids,
+                        metrics=cached,
+                    )
+                )
+                continue
+
+        if not allow_compute:
+            results.append(
+                StructuralMetricsRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    pdb_file=fn,
+                    binder_chain_ids=binder_ids,
+                    target_chain_ids=target_ids,
+                )
+            )
+            continue
+
+        try:
+            metrics = compute_structural_metrics(str(pdb_path), binder_ids, target_ids)
+            chain_seqs = get_chain_sequences(str(pdb_path), binder_ids)
+            binder_sequence = "".join(chain_seqs.get(c, "") for c in binder_ids)
+            metrics.update(amino_acid_composition_fractions(binder_sequence))
+            metrics["hydrophobicity"] = hydrophobicity_score(binder_sequence)
+        except Exception as e:
+            results.append(
+                StructuralMetricsRow(
+                    run_id=item.run_id,
+                    design_id=item.design_id,
+                    pdb_file=fn,
+                    binder_chain_ids=binder_ids,
+                    target_chain_ids=target_ids,
+                    error=str(e),
+                )
+            )
+            continue
+
+        results.append(
+            StructuralMetricsRow(
+                run_id=item.run_id,
+                design_id=item.design_id,
+                pdb_file=fn,
+                binder_chain_ids=binder_ids,
+                target_chain_ids=target_ids,
+                metrics=metrics,
+            )
+        )
+        if repo.is_enabled():
+            repo.upsert_structural_metrics_cache(
+                run_id=item.run_id,
+                design_id=item.design_id,
+                source_path=sp,
+                structure_filename=fn,
+                binder_chains=binder_key,
+                target_chains=target_key,
+                metrics=metrics,
+            )
+
+    return StructuralMetricsResponse(results=results)
+
+
 @router.post("/merge-table", response_model=MergeTableResponse)
 async def post_merge_table(
     file: UploadFile = File(...),
@@ -685,6 +838,18 @@ async def post_tag_metrics(
         return await asyncio.to_thread(_tag_metrics_sync, body)
     except Exception as e:
         logger.error("tag-metrics failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/structural-metrics", response_model=StructuralMetricsResponse)
+async def post_structural_metrics(
+    body: StructuralMetricsRequest,
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
+    try:
+        return await asyncio.to_thread(_structural_metrics_sync, body)
+    except Exception as e:
+        logger.error("structural-metrics failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

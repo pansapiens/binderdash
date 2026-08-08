@@ -745,6 +745,311 @@ export const plotsApi = {
 }
 
 /**
+ * Filtering & Saved Sets APIs
+ */
+export type FilterOperator =
+    | '<' | '<=' | '>' | '>='
+    | 'contains' | 'not_contains' | 'starts_with' | 'ends_with'
+    | 'equals' | 'not_equals' | 'regex'
+    | 'is_empty' | 'is_not_empty'
+
+export const NUMERIC_FILTER_OPERATORS: FilterOperator[] = ['<', '<=', '>', '>=']
+export const STRING_FILTER_OPERATORS: FilterOperator[] = [
+    'contains', 'not_contains', 'starts_with', 'ends_with', 'equals', 'not_equals', 'regex'
+]
+export const EMPTY_FILTER_OPERATORS: FilterOperator[] = ['is_empty', 'is_not_empty']
+
+export interface FilterSpecDto {
+    column: string
+    operator: FilterOperator
+    /** Numeric operators (<, <=, >, >=). */
+    threshold?: number | null
+    /** String operators (contains, starts_with, equals, regex, ...). */
+    text_value?: string | null
+    /**
+     * Local UI-only flag (not sent to the backend — stripped before any request body
+     * is built, see stores/filtering.ts's `activeFilters`): lets a user temporarily
+     * turn a filter off without losing its configuration. Defaults to true.
+     */
+    enabled?: boolean
+}
+
+export interface RankingMetricDto {
+    column: string
+    weight: number
+    higher_is_better: boolean
+    /** Local UI-only flag — see FilterSpecDto.enabled. */
+    enabled?: boolean
+}
+
+export interface SizeBucketDto {
+    min: number
+    max: number
+    num_designs: number
+}
+
+export interface ColumnInfoDto {
+    name: string
+    canonical_name?: string | null
+    present_in_runs: string[]
+    dtype: string
+    sample_values?: { min: number; max: number; mean: number; median: number } | null
+    raw_columns?: Record<string, string>
+}
+
+export interface FilterCascadeStageDto {
+    column: string
+    operator: string
+    threshold?: number | null
+    text_value?: string | null
+    /** Designs remaining after this stage (filters cascade sequentially). */
+    remaining: number
+}
+
+export interface FilteringPreviewRequestDto {
+    run_ids: string[]
+    filters?: FilterSpecDto[]
+    metrics?: RankingMetricDto[]
+}
+
+export interface FilteringPreviewResponseDto {
+    total_designs: number
+    per_filter_counts: FilterCascadeStageDto[]
+    final_passing: number
+    available_columns: ColumnInfoDto[]
+}
+
+export interface FilteringColumnsResponseDto {
+    columns: ColumnInfoDto[]
+}
+
+export interface FilteringRunRequestDto {
+    name: string
+    run_ids: string[]
+    filters?: FilterSpecDto[]
+    metrics?: RankingMetricDto[]
+    budget: number
+    alpha: number
+    size_buckets?: SizeBucketDto[]
+    random_state?: number
+}
+
+export interface FilteringRunResponseDto {
+    saved_set_id: string
+    name: string
+    total_input: number
+    passing_filters: number
+    top_set_count: number
+    diverse_set_count: number
+}
+
+export interface SavedSetDto {
+    id: string
+    name: string
+    created_at: string
+    source_run_ids: string[]
+    filter_params: Record<string, any>
+    design_count: number
+    total_input: number
+}
+
+export interface SavedSetListResponseDto {
+    saved_sets: SavedSetDto[]
+}
+
+export interface SavedSetDesignRowDto {
+    design_id: string
+    run_id: string
+    source_path?: string | null
+    final_rank?: number | null
+    quality_score?: number | null
+    in_diverse_set: boolean
+    metrics: Record<string, any>
+}
+
+export interface SavedSetDesignsResponseDto {
+    designs: SavedSetDesignRowDto[]
+}
+
+export interface DesignKeyDto {
+    run_id: string
+    design_id: string
+    source_path?: string | null
+}
+
+export interface FilteringApplyRequestDto {
+    run_ids: string[]
+    filters?: FilterSpecDto[]
+}
+
+export interface FilteringApplyResponseDto {
+    total_designs: number
+    passing_keys: DesignKeyDto[]
+    final_passing: number
+}
+
+export interface FilteringRankRequestDto {
+    run_ids: string[]
+    filters?: FilterSpecDto[]
+    metrics?: RankingMetricDto[]
+}
+
+export interface RankedDesignRowDto {
+    run_id: string
+    design_id: string
+    source_path?: string | null
+    final_rank?: number | null
+    quality_score?: number | null
+}
+
+export interface FilteringRankResponseDto {
+    designs: RankedDesignRowDto[]
+    total_designs: number
+}
+
+export interface FilteringDiversityRequestDto {
+    run_ids: string[]
+    filters?: FilterSpecDto[]
+    metrics?: RankingMetricDto[]
+    budget: number
+    alpha: number
+    size_buckets?: SizeBucketDto[]
+    random_state?: number
+}
+
+export interface DiverseDesignRowDto {
+    run_id: string
+    design_id: string
+    source_path?: string | null
+    final_rank?: number | null
+    quality_score?: number | null
+    in_diverse_set: boolean
+}
+
+export interface FilteringDiversityResponseDto {
+    designs: DiverseDesignRowDto[]
+    total_designs: number
+    passing_filters: number
+    diverse_set_count: number
+}
+
+export const filteringApi = {
+    async preview(payload: FilteringPreviewRequestDto): Promise<FilteringPreviewResponseDto> {
+        return await apiRequest<FilteringPreviewResponseDto>(`${API_BASE}/api/filtering/preview`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            requireAuth: true
+        })
+    },
+
+    async columns(runIds: string[]): Promise<FilteringColumnsResponseDto> {
+        return await apiRequest<FilteringColumnsResponseDto>(`${API_BASE}/api/filtering/columns`, {
+            method: 'POST',
+            body: JSON.stringify({ run_ids: runIds }),
+            requireAuth: true
+        })
+    },
+
+    /**
+     * Hard filters only (no ranking/diversity) — for live-narrowing the Designs table.
+     * Cheap; meant to be called on a debounce as filters are edited (see plan §7A.2).
+     */
+    async apply(payload: FilteringApplyRequestDto): Promise<FilteringApplyResponseDto> {
+        return await apiRequest<FilteringApplyResponseDto>(`${API_BASE}/api/filtering/apply`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            requireAuth: true
+        })
+    },
+
+    async run(payload: FilteringRunRequestDto): Promise<FilteringRunResponseDto> {
+        return await apiRequest<FilteringRunResponseDto>(`${API_BASE}/api/filtering/run`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            requireAuth: true
+        })
+    },
+
+    /**
+     * Hard filters + ranking, no diversity selection, no Saved Set persistence.
+     * Backs the Filtering tab's explicit "Apply Ranking" button (not debounced). See
+     * plan §7A.2.
+     */
+    async rank(payload: FilteringRankRequestDto): Promise<FilteringRankResponseDto> {
+        return await apiRequest<FilteringRankResponseDto>(`${API_BASE}/api/filtering/rank`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            requireAuth: true
+        })
+    },
+
+    /**
+     * Full filter+rank+diversity pipeline without persisting a Saved Set. Backs the
+     * Filtering tab's explicit "Apply Diversity Filter" button. See plan §7A.2.
+     */
+    async diversity(payload: FilteringDiversityRequestDto): Promise<FilteringDiversityResponseDto> {
+        return await apiRequest<FilteringDiversityResponseDto>(`${API_BASE}/api/filtering/diversity`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            requireAuth: true
+        })
+    }
+}
+
+export const savedSetsApi = {
+    async list(): Promise<SavedSetListResponseDto> {
+        return await apiRequest<SavedSetListResponseDto>(`${API_BASE}/api/saved-sets`, {
+            requireAuth: true
+        })
+    },
+
+    async get(savedSetId: string): Promise<SavedSetDto> {
+        const enc = encodeURIComponent(savedSetId)
+        return await apiRequest<SavedSetDto>(`${API_BASE}/api/saved-sets/${enc}`, {
+            requireAuth: true
+        })
+    },
+
+    async getDesigns(savedSetId: string): Promise<SavedSetDesignsResponseDto> {
+        const enc = encodeURIComponent(savedSetId)
+        return await apiRequest<SavedSetDesignsResponseDto>(
+            `${API_BASE}/api/saved-sets/${enc}/designs`,
+            { requireAuth: true }
+        )
+    },
+
+    async delete(savedSetId: string): Promise<{ ok: boolean }> {
+        const enc = encodeURIComponent(savedSetId)
+        return await apiRequest<{ ok: boolean }>(`${API_BASE}/api/saved-sets/${enc}`, {
+            method: 'DELETE',
+            requireAuth: true
+        })
+    },
+
+    /**
+     * Rename a saved set. Sets are otherwise immutable snapshots (see plan §7A.4) —
+     * this is the only allowed mutation.
+     */
+    async rename(savedSetId: string, name: string): Promise<SavedSetDto> {
+        const enc = encodeURIComponent(savedSetId)
+        return await apiRequest<SavedSetDto>(`${API_BASE}/api/saved-sets/${enc}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ name }),
+            requireAuth: true
+        })
+    },
+
+    /**
+     * Download URL for a saved set's ZIP (designs.csv + structure files).
+     * A plain link/window.open target — auth is via cookies, no fetch needed.
+     */
+    getDownloadUrl(savedSetId: string): string {
+        const enc = encodeURIComponent(savedSetId)
+        return `${API_BASE}/api/saved-sets/${enc}/download`
+    }
+}
+
+/**
  * Authentication APIs
  */
 export interface DesktopInfo {
@@ -879,6 +1184,8 @@ export default {
     designs: designsApi,
     sequences: sequencesApi,
     plots: plotsApi,
+    filtering: filteringApi,
+    savedSets: savedSetsApi,
     auth: authApi,
     desktop: desktopApi
 }

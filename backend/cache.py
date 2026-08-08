@@ -205,6 +205,9 @@ def refresh_designs_cache() -> None:
         _refresh_t = Timer(logger, "refresh_designs_cache").start()
         designs_cache.clear()
         designs_by_run_id.clear()
+        from .filtering.chain_roles import clear_chain_role_cache
+
+        clear_chain_role_cache()
         _parse_t = Timer(logger, "refresh_designs_cache.parse").start()
         from .persistence.factory import get_designs_repository
 

@@ -6,7 +6,8 @@ services:
       args:
         BUILD_FRONTEND: "false"
     ports:
-      - "8001:8000"
+      #- "8001:8000"
+      - "8911:8000"
     env_file:
       - .env.example
     environment:
@@ -15,9 +16,9 @@ services:
       - ./:/app
       - ./example_runs:/example_runs
       # Optional PAM with host local users (see docker-compose.yml for caveats):
-      #- /etc/passwd:/etc/passwd:ro
-      #- /etc/group:/etc/group:ro
-      #- /etc/shadow:/etc/shadow:ro
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
+      - /etc/shadow:/etc/shadow:ro
     working_dir: /app
     command: ["uvicorn", "backend.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:

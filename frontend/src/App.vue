@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, nextTick, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
 import Tabs from 'primevue/tabs'
 import TabList from 'primevue/tablist'
 import Tab from 'primevue/tab'
@@ -11,12 +11,15 @@ import Button from 'primevue/button'
 import RunsView from './components/DesignsView.vue'
 import PrepareSequencesView from './components/PrepareSequencesView.vue'
 import PlotsView from './components/PlotsView.vue'
+import FilteringView from './components/FilteringView.vue'
+import SavedSetsView from './components/SavedSetsView.vue'
 import FolderBrowser from './components/FolderBrowser.vue'
 import SelectRunsPanel from './components/SelectRunsPanel.vue'
 import LoginView from './components/LoginView.vue'
-import { useDesignsStore, usePlotsStore, useRunsStore, useAuthStore } from './stores'
+import { useAppStore, useDesignsStore, usePlotsStore, useRunsStore, useAuthStore } from './stores'
 
 // Use Pinia stores
+const appStore = useAppStore()
 const designsStore = useDesignsStore()
 const plotsStore = usePlotsStore()
 const runsStore = useRunsStore()
@@ -34,7 +37,43 @@ const onIngestComplete = async (): Promise<void> => {
   }
 }
 
-const mainTab = ref<string>('designs')
+// Valid Tab `value`s from the TabList below — kept in sync with the URL hash so a
+// reload (or browser back/forward) lands back on the same tab instead of always
+// resetting to Designs, and tabs are bookmarkable/shareable.
+const VALID_TABS = ['designs', 'plots', 'filtering', 'saved-sets', 'seq-prep', 'select-runs', 'ingest'] as const
+type TabId = (typeof VALID_TABS)[number]
+
+function isValidTab(value: string): value is TabId {
+  return (VALID_TABS as readonly string[]).includes(value)
+}
+
+const initialHashTab = window.location.hash.slice(1)
+if (isValidTab(initialHashTab)) {
+  appStore.setActiveTab(initialHashTab)
+}
+
+// Backed by appStore.activeTab so other components (e.g. DesignsView's "go to
+// Filtering tab" banner) can switch tabs without prop-drilling a ref through App.vue.
+const mainTab = computed<string>({
+  get: () => appStore.activeTab,
+  set: (tab) => appStore.setActiveTab(tab)
+})
+
+watch(mainTab, (tab) => {
+  if (window.location.hash.slice(1) !== tab) {
+    window.location.hash = tab
+  }
+})
+
+function handleHashChange() {
+  const tab = window.location.hash.slice(1)
+  if (isValidTab(tab) && tab !== appStore.activeTab) {
+    appStore.setActiveTab(tab)
+  }
+}
+
+onMounted(() => window.addEventListener('hashchange', handleHashChange))
+onUnmounted(() => window.removeEventListener('hashchange', handleHashChange))
 
 watch(
   () => [mainTab.value, authStore.canLoadData] as const,
@@ -87,7 +126,7 @@ onMounted(async () => {
   if (authErr) {
     const url = new URL(window.location.href)
     url.searchParams.delete('auth_error')
-    window.history.replaceState({}, document.title, url.pathname + url.search)
+    window.history.replaceState({}, document.title, url.pathname + url.search + url.hash)
   }
 })
 
@@ -149,6 +188,18 @@ const shouldShowLoading = computed(() => {
                 <span>Plots</span>
               </span>
             </Tab>
+            <Tab value="filtering">
+              <span class="binderdash-tab-label">
+                <i class="pi pi-filter" aria-hidden="true" />
+                <span>Filtering</span>
+              </span>
+            </Tab>
+            <Tab value="saved-sets">
+              <span class="binderdash-tab-label">
+                <i class="pi pi-bookmark" aria-hidden="true" />
+                <span>Saved Sets</span>
+              </span>
+            </Tab>
             <Tab value="seq-prep">
               <span class="binderdash-tab-label">
                 <svg
@@ -184,6 +235,12 @@ const shouldShowLoading = computed(() => {
             </TabPanel>
             <TabPanel value="plots">
               <PlotsView ref="plotsViewRef" />
+            </TabPanel>
+            <TabPanel value="filtering">
+              <FilteringView />
+            </TabPanel>
+            <TabPanel value="saved-sets">
+              <SavedSetsView @reapply-filters="mainTab = 'filtering'" />
             </TabPanel>
             <TabPanel value="seq-prep">
               <PrepareSequencesView />

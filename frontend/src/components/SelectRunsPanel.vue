@@ -235,6 +235,83 @@
       </Column>
     </DataTable>
 
+    <div class="panel-header saved-sets-header">
+      <h2>
+        <i class="pi pi-bookmark" aria-hidden="true" />
+        Saved Sets
+      </h2>
+      <p class="hint">
+        Include Saved Sets in the Designs table alongside runs (frozen snapshots — see the
+        <strong>Saved Sets</strong> tab to rename, delete, or download them).
+      </p>
+    </div>
+
+    <DataTable
+      v-model:selection="savedSetSelection"
+      :value="filteringStore.savedSets"
+      data-key="id"
+      stripedRows
+      showGridlines
+      :rowHover="true"
+      :loading="filteringStore.savedSetsLoading"
+      class="saved-sets-table"
+    >
+      <template #empty>
+        <div class="empty-msg">
+          <i class="pi pi-bookmark empty-icon" aria-hidden="true" />
+          <p v-if="filteringStore.savedSetsLoading">Loading saved sets…</p>
+          <template v-else>
+            <h3>No saved sets</h3>
+            <p>Create one from the <strong>Filtering</strong> tab.</p>
+          </template>
+        </div>
+      </template>
+      <Column selectionMode="multiple" headerStyle="width: 3rem" />
+      <Column field="name" header="Name" sortable style="min-width: 12rem">
+        <template #body="{ data }">
+          <div class="run-name">
+            <Tag value="Set" severity="info" class="saved-set-badge" />
+            {{ data.name }}
+          </div>
+        </template>
+      </Column>
+      <Column field="created_at" header="Created" sortable style="min-width: 10rem">
+        <template #body="{ data }">
+          {{ formatSavedSetDate(data.created_at) }}
+        </template>
+      </Column>
+      <Column header="Source Runs" style="min-width: 10rem">
+        <template #body="{ data }">
+          {{ formatSourceRuns(data.source_run_ids) }}
+        </template>
+      </Column>
+      <Column field="design_count" header="Design Count" sortable style="min-width: 8rem">
+        <template #body="{ data }">
+          {{ data.design_count }} / {{ data.total_input }}
+        </template>
+      </Column>
+      <Column header="Actions" style="min-width: 12rem">
+        <template #body="{ data }">
+          <div class="saved-set-actions">
+            <Button
+              icon="pi pi-filter"
+              severity="secondary"
+              text
+              v-tooltip.top="'Load filters (load recipe into Filtering tab)'"
+              @click="loadFiltersForSet(data)"
+            />
+            <Button
+              icon="pi pi-plus-circle"
+              severity="secondary"
+              text
+              v-tooltip.top="'Select runs for set (add its source runs to the selection above)'"
+              @click="selectRunsForSet(data)"
+            />
+          </div>
+        </template>
+      </Column>
+    </DataTable>
+
     <Dialog
       v-model:visible="reingestDialogVisible"
       modal
@@ -318,12 +395,12 @@ import Tag from 'primevue/tag'
 import Toolbar from 'primevue/toolbar'
 import Dialog from 'primevue/dialog'
 import { useToast } from 'primevue/usetoast'
-import { useRunsStore, useDesignsStore, usePlotsStore } from '../stores'
+import { useRunsStore, useDesignsStore, usePlotsStore, useFilteringStore, useAppStore } from '../stores'
 import type { Run } from '../types/store'
-import { formatAcceptedTotalText, primaryScoreDisplay } from '../utils/runDisplay'
+import { formatAcceptedTotalText, primaryScoreDisplay, formatSourceRunNames } from '../utils/runDisplay'
 import { getMethodTagStyle, getMethodIconClass } from '../config/pipelineDisplay'
 import { runsApi } from '../webapi'
-import type { IngestPreviewReingestItem } from '../webapi'
+import type { FilteringRunRequestDto, IngestPreviewReingestItem, SavedSetDto } from '../webapi'
 
 const emit = defineEmits<{
   ingestComplete: []
@@ -332,6 +409,8 @@ const emit = defineEmits<{
 const runsStore = useRunsStore()
 const designsStore = useDesignsStore()
 const plotsStore = usePlotsStore()
+const filteringStore = useFilteringStore()
+const appStore = useAppStore()
 const toast = useToast()
 
 const showSelectedOnly = ref(false)
@@ -411,6 +490,83 @@ watch(
       return
     }
     tableSelection.value = nextSelection
+  },
+  { deep: true, immediate: true }
+)
+
+// --- Saved Sets inclusion (plan §7A.4: Select Runs handles inclusion, the
+// standalone Saved Sets tab handles management) ---
+
+const savedSetSelection = ref<SavedSetDto[]>([])
+
+const formatSavedSetDate = (createdAt: string): string => {
+  const d = new Date(createdAt)
+  if (Number.isNaN(d.getTime())) return createdAt
+  return d.toLocaleString()
+}
+
+const formatSourceRuns = (sourceRunIds: string[] | undefined): string =>
+  formatSourceRunNames(sourceRunIds, runsStore.availableRuns)
+
+function loadFiltersForSet(set: SavedSetDto) {
+  filteringStore.loadRecipe(set.filter_params as FilteringRunRequestDto)
+  appStore.setActiveTab('filtering')
+  toast.add({
+    severity: 'success',
+    summary: 'Filters loaded',
+    detail: `"${set.name}"'s filters, ranking, and diversity settings were loaded into the Filtering tab.`,
+    life: 5000
+  })
+}
+
+function selectRunsForSet(set: SavedSetDto) {
+  const currentIds = new Set(tableSelection.value.map((r) => r.run_id))
+  const missingIds = (set.source_run_ids ?? []).filter((id) => !currentIds.has(id))
+  if (missingIds.length === 0) {
+    toast.add({
+      severity: 'info',
+      summary: 'Already selected',
+      detail: `All of "${set.name}"'s source runs are already selected.`,
+      life: 4000
+    })
+    return
+  }
+  const byId = new Map(runsStore.runs.map((r) => [r.run_id, r]))
+  const toAdd = missingIds.map((id) => byId.get(id)).filter((r): r is Run => !!r)
+  tableSelection.value = [...tableSelection.value, ...toAdd]
+  const notFound = missingIds.length - toAdd.length
+  if (notFound > 0) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Some source runs unavailable',
+      detail: `${notFound} of "${set.name}"'s source run(s) are no longer ingested.`,
+      life: 6000
+    })
+  }
+}
+
+watch(
+  savedSetSelection,
+  (sel) => {
+    const ids = sel.map((s) => s.id)
+    if (!sameIdSet(ids, designsStore.selectedSavedSetIds)) {
+      designsStore.setSelectedSavedSetIds(ids)
+    }
+  },
+  { deep: true }
+)
+
+watch(
+  [() => filteringStore.savedSets, () => designsStore.selectedSavedSetIds],
+  ([sets, selectedIds]) => {
+    const ids = new Set(selectedIds)
+    const nextSelection = ids.size === 0 ? [] : sets.filter((s) => ids.has(s.id))
+    const currentIds = savedSetSelection.value.map((s) => s.id)
+    const nextIds = nextSelection.map((s) => s.id)
+    if (sameIdSet(currentIds, nextIds)) {
+      return
+    }
+    savedSetSelection.value = nextSelection
   },
   { deep: true, immediate: true }
 )
@@ -541,6 +697,7 @@ const deleteSelectedRuns = async () => {
 
 onMounted(() => {
   runsStore.fetchRuns()
+  filteringStore.fetchSavedSets()
 })
 </script>
 
@@ -712,5 +869,31 @@ onMounted(() => {
 
 .delete-dialog-list li {
   margin: 0.25rem 0;
+}
+
+.saved-sets-header {
+  margin-top: 0.5rem;
+}
+
+.saved-sets-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem 0;
+  color: #495057;
+}
+
+.saved-sets-table {
+  margin-bottom: 0.5rem;
+}
+
+.saved-set-badge {
+  flex-shrink: 0;
+}
+
+.saved-set-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 </style>

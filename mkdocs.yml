@@ -1,0 +1,21 @@
+site_name: Binderdash
+site_description: Binderdash documentation
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: mkdocs
+
+nav:
+  - Home: index.md
+  - Setup:
+      - Authentication: setup/authentication.md
+  - Development:
+      - REST API: development/api.md
+      - Pipeline method types: development/pipeline-methods.md
+      - Sequence preparation: development/sequence_preparation.md
+
+markdown_extensions:
+  - toc:
+      permalink: true

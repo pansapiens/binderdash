@@ -18,6 +18,10 @@ dependencies = [
     "authlib",
     "python-pam",
     "itsdangerous",
+    "biotite",
+    "hydride",
+    "scikit-learn",
+    "polars",
 ]
 
 [project.optional-dependencies]

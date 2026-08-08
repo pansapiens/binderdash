@@ -1,0 +1,54 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+Binderdash is a single-page web app to explore results from de novo protein binder design runs (RFdiffusion, BindCraft, BoltzGen, RFdiffusion3, etc.). This file supplements `AGENTS.md` — read `AGENTS.md` for the authoritative setup, env-var, releasing, and code-style rules; it is not repeated here.
+
+## Commands not obvious from AGENTS.md
+
+- **Always deactivate conda first** and activate the repo venv before backend work: `conda deactivate; conda deactivate; source .venv/bin/activate`.
+- Run a single backend test: `cd backend && pytest tests/test_dna_optimization.py -k some_name -x`. Tests live in `backend/tests/` (not the root `tests/`, which is Playwright E2E).
+- Frontend fast inner loop for backend-served UI: `cd frontend && pnpm run watch:build` (rebuilds into `backend/static/`, so the FastAPI server at :8000 serves the latest UI). Use `pnpm run dev` (:5173) only when you don't need the built static path.
+- `pnpm test` from the repo root runs the full Playwright suite and auto-starts servers per `playwright.config.js`.
+
+## Architecture: the ingest → persist → cache → serve pipeline
+
+The backend's central job is turning heterogeneous run-output folders on disk into a queryable, sortable design table. The data flow is:
+
+1. **Scan** (`run_discovery.py`, `POST /api/runs/scan`) — walks `RUN_BASE_DIRS` (or user-selected folders), matching folders against **run signatures** to detect method, run name, project ID, and results-table location. Signatures are declarative and live in `backend/config/run_signatures.py`.
+2. **Ingest** (`POST /api/runs/ingest`) — parses each run's results tables (TSV/CSV) plus structure files into flat per-design dicts, then writes them via the **persistence repository**.
+3. **Persist** (`backend/persistence/`) — a swappable `DesignsRepository` Protocol (`protocol.py`); the SQLite implementation (`sqlite_repo.py`) is default, a `noop_repo.py` exists for the no-DB case. Selected by `DATABASE` env var via `factory.py`. Design dicts are split into indexed DB columns plus a `data_json` blob for method-specific columns.
+4. **Cache** (`cache.py`) — on startup, `hydrate_caches_from_repository()` loads all designs into in-memory `run_cache`, `designs_cache`, and `designs_by_run_id`. **The API serves reads from these in-memory caches, not the DB directly.** After mutations, refresh the cache (`POST /api/designs/refresh-cache`).
+5. **Serve** (`backend/routers/`) — `designs.py`, `runs.py`, `plots.py`, `files.py`, `sequences.py`, `auth.py`, `desktop.py`, each mounted in `main.py`.
+
+**Key consequence:** designs are *flat dicts whose columns depend on the method*. There is no fixed schema. Sorting and "primary score" selection are driven by per-method config, not hardcoded columns.
+
+## Config is data, not code (`backend/config/`)
+
+Method-specific behaviour is centralised as declarative tables. When adding/adjusting pipeline support, edit these rather than scattering conditionals:
+
+- `run_signatures.py` — folder-detection signatures: `method`, `submethod`, `priority`, results-table location, `primary_score_columns`, `sort_ascending`. **The first (lowest-priority-number) signature per method also defines its primary sort score** (see `cache._method_score_config`).
+- `method_paths.py` — method IDs, project/run path heuristics, params keys, structure-file basename rules.
+- `plot_defaults.py` — default scatter X/Y columns per method.
+- `score_labels.py` — human labels for metric columns (`Average_i_pTM`, `pae_interaction`, `iptm`, `rf3_ipsae_min`, …); the raw keys match source TSV/CSV headers.
+
+Import from `backend.config` or its submodules. Note `run_discovery` imports `run_folder_signatures` from `backend.config.run_signatures`.
+
+## Auth model
+
+Multiple auth backends coexist, resolved at request time (`backend/auth.py`, `backend/auth_providers/`): API key (`BINDERDASH_API_KEY` via `Authorization: Bearer` or `X-Binderdash-Api-Key`), `LOCAL_USERS` (bcrypt), PAM, and Google OAuth — or fully disabled via `DISABLE_AUTHENTICATION`. Browser sessions use cookie sessions + **CSRF** (`X-CSRF-Token`); the CSRF middleware in `main.py` exempts GET/HEAD/OPTIONS, the login/logout/status/google routes, valid-API-key requests, and auth-disabled mode. API-key clients skip CSRF entirely. See `AUTHENTICATION.md`.
+
+## Frontend architecture (`frontend/src/`)
+
+- **State**: Pinia stores in `stores/` (`runs`, `designs`, `plots`, `folders`, `app`, `auth`, `seqPrep`).
+- **Persistence**: user-facing state (selections, tag placements, merged CSV columns, axes) is persisted to **IndexedDB** via `persistence/` (`db.ts`, `store.ts`, `keys.ts`, `hydrate.ts`). `DB_VERSION` in `persistence/db.ts` is the IndexedDB schema version — **not** the app version; do not bump it for releases.
+- **API client**: all backend calls go through `webapi.ts`.
+- **Views**: `DesignsView.vue` (the sortable design table), `PlotsView.vue` (Vega-Lite), `MolstarViewer.vue` (Mol* 3D structures, with membrane/tag overlay helpers `membraneOverlay.ts`, `tagMarkerScreenOverlay.ts`, `molstarTerminalCa.ts`), `PrepareSequencesView.vue` (tag placement + DNA codon optimisation), `SelectRunsPanel.vue`, `FolderBrowser.vue`.
+
+## Desktop app
+
+The same FastAPI backend + built frontend ship as a `pywebview` desktop app (`desktop/`), packaged with PyInstaller into Linux AppImage / macOS zip / Windows zip. The **canonical app version is `backend/pyproject.toml`**; desktop packaging and `GET /api/desktop/info` read it, and the git tag `vX.Y.Z` must match it. See the Releasing section of `AGENTS.md` (four manifests must stay in sync) and `desktop/README.md`.
+
+## Sequence prep specifics
+
+`PrepareSequencesView.vue` + `backend/tag_placement.py` + `backend/util/dna_optimization.py` handle N-/C-terminal affinity tags (His/FLAG/HA/etc., G4S linkers) and DNA codon optimisation (DnaChisel, `backend/util/codon_tables.py`) with GC/hairpin/restriction-site constraints. Tag-metric computation is lazy and cached. See `prepare_sequences_spec.md`.

@@ -7,6 +7,11 @@
       </div>
     </div>
 
+    <FilterChainSummary
+      v-if="designsStore.selectedRunIds.length > 0 || designsStore.selectedSavedSetIds.length > 0"
+      show-edit-filters-link
+    />
+
           <div class="designs-content">
         <!-- Column Selector Panel moved to top -->
         <div v-if="showColumnSelector" class="column-selector-panel">
@@ -31,321 +36,6 @@
                 :inputId="'col-' + col.field"
               />
               <label :for="'col-' + col.field" class="ml-2">{{ col.header }}</label>
-            </div>
-          </div>
-        </div>
-
-        <!-- Filter Panel -->
-        <div v-if="showFilterPanel" class="filter-panel">
-          <div class="filter-panel-header">
-            <h3>Filters</h3>
-            <Button 
-              icon="pi pi-times" 
-              @click="toggleFilterPanel"
-              rounded
-              variant="outlined"
-              severity="danger"
-              aria-label="Close filter panel"
-              class="close-button"
-            />
-          </div>
-          <div class="filter-controls">
-            <div class="filter-row">
-              <label>Global Search:</label>
-              <InputGroup class="filter-input bd-inputgroup-inline-clear">
-                <InputText
-                  v-model="designsStore.filters.global.value"
-                  placeholder="Search all columns..."
-                  class="filter-input-field"
-                />
-                <InputGroupAddon>
-                  <Button
-                    icon="pi pi-times"
-                    severity="secondary"
-                    variant="text"
-                    :disabled="!(designsStore.filters.global.value ?? '')"
-                    aria-label="Clear global search"
-                    @click="designsStore.filters.global.value = null"
-                  />
-                </InputGroupAddon>
-              </InputGroup>
-            </div>
-            <div class="filter-row">
-              <label>Design ID:</label>
-              <InputGroup class="filter-input bd-inputgroup-inline-clear">
-                <InputText
-                  v-model="designsStore.filters.design_id.value"
-                  placeholder="Filter by design ID..."
-                  class="filter-input-field"
-                />
-                <InputGroupAddon>
-                  <Button
-                    icon="pi pi-times"
-                    severity="secondary"
-                    variant="text"
-                    :disabled="!(designsStore.filters.design_id.value ?? '')"
-                    aria-label="Clear design ID filter"
-                    @click="designsStore.filters.design_id.value = null"
-                  />
-                </InputGroupAddon>
-              </InputGroup>
-            </div>
-            <div class="filter-row">
-              <label>Project ID:</label>
-              <InputGroup class="filter-input bd-inputgroup-inline-clear">
-                <InputText
-                  v-model="designsStore.filters.project_id.value"
-                  placeholder="Filter by project ID..."
-                  class="filter-input-field"
-                />
-                <InputGroupAddon>
-                  <Button
-                    icon="pi pi-times"
-                    severity="secondary"
-                    variant="text"
-                    :disabled="!(designsStore.filters.project_id.value ?? '')"
-                    aria-label="Clear project ID filter"
-                    @click="designsStore.filters.project_id.value = null"
-                  />
-                </InputGroupAddon>
-              </InputGroup>
-            </div>
-            <div class="filter-row">
-              <label>Run Name:</label>
-              <InputGroup class="filter-input bd-inputgroup-inline-clear">
-                <InputText
-                  v-model="designsStore.filters.run_name.value"
-                  placeholder="Filter by run name..."
-                  class="filter-input-field"
-                />
-                <InputGroupAddon>
-                  <Button
-                    icon="pi pi-times"
-                    severity="secondary"
-                    variant="text"
-                    :disabled="!(designsStore.filters.run_name.value ?? '')"
-                    aria-label="Clear run name filter"
-                    @click="designsStore.filters.run_name.value = null"
-                  />
-                </InputGroupAddon>
-              </InputGroup>
-            </div>
-            <div class="filter-row">
-              <label>Method:</label>
-              <Dropdown 
-                v-model="designsStore.filters.method.value" 
-                :options="methodOptions" 
-                placeholder="Select method"
-                class="filter-input"
-                showClear
-              />
-            </div>
-            <div class="filter-row">
-              <label>Score Range:</label>
-              <div class="score-range">
-                <InputNumber 
-                  v-model="designsStore.filters.score_min.value" 
-                  placeholder="Min"
-                  class="filter-input-small"
-                />
-                <span class="range-separator">to</span>
-                <InputNumber 
-                  v-model="designsStore.filters.score_max.value" 
-                  placeholder="Max"
-                  class="filter-input-small"
-                />
-              </div>
-            </div>
-            <div class="filter-row">
-              <label>Length Range:</label>
-              <div class="length-range">
-                <div class="length-inputs">
-                  <InputNumber 
-                    v-model="lengthMin" 
-                    :min="lengthRange[0]"
-                    :max="lengthRange[1]"
-                    @update:modelValue="updateLengthFromInputs"
-                    placeholder="Min"
-                    class="filter-input-small"
-                  />
-                  <span class="range-separator">to</span>
-                  <InputNumber 
-                    v-model="lengthMax" 
-                    :min="lengthRange[0]"
-                    :max="lengthRange[1]"
-                    @update:modelValue="updateLengthFromInputs"
-                    placeholder="Max"
-                    class="filter-input-small"
-                  />
-                </div>
-                <Slider 
-                  v-model="lengthRangeValue"
-                  :min="lengthRange[0]"
-                  :max="lengthRange[1]"
-                  range
-                  class="length-slider"
-                />
-              </div>
-            </div>
-            <div class="filter-row">
-              <label>Target Sequence:</label>
-              <InputGroup class="filter-input bd-inputgroup-inline-clear">
-                <InputText
-                  v-model="designsStore.filters.target_sequence.value"
-                  placeholder="Search target sequences (regex)..."
-                  class="filter-input-field"
-                />
-                <InputGroupAddon>
-                  <Button
-                    icon="pi pi-times"
-                    severity="secondary"
-                    variant="text"
-                    :disabled="!(designsStore.filters.target_sequence.value ?? '')"
-                    aria-label="Clear target sequence filter"
-                    @click="designsStore.filters.target_sequence.value = null"
-                  />
-                </InputGroupAddon>
-              </InputGroup>
-            </div>
-            <div class="filter-row">
-              <label>Best MPNN only:</label>
-              <Checkbox 
-                :modelValue="designsStore.bestMpnnOnly"
-                @update:modelValue="designsStore.toggleBestMpnnOnly"
-                :binary="true"
-                inputId="best-mpnn-only"
-              />
-              <label for="best-mpnn-only" class="ml-2">Show only best MPNN variant per backbone</label>
-            </div>
-            <div class="custom-filters-section">
-              <div class="custom-filters-header">
-                <h4 class="custom-filters-title">Custom filters</h4>
-                <Button
-                  icon="pi pi-plus"
-                  rounded
-                  variant="outlined"
-                  size="small"
-                  v-tooltip.bottom="'Add filter'"
-                  aria-label="Add custom filter"
-                  @click="designsStore.addCustomFilter"
-                />
-              </div>
-              <div
-                v-for="cf in designsStore.customFilters"
-                :key="cf.id"
-                class="custom-filter-row-box"
-                :class="{ 'custom-filter-row-box--disabled': cf.enabled === false }"
-              >
-                <div class="custom-filter-row">
-                  <div class="custom-filter-row-top">
-                    <InputSwitch
-                      :modelValue="cf.enabled !== false"
-                      class="custom-filter-row-enable"
-                      :inputId="'cf-en-' + cf.id"
-                      :aria-label="'Enable custom filter row'"
-                      @update:modelValue="designsStore.updateCustomFilter(cf.id, { enabled: $event })"
-                    />
-                    <Dropdown
-                      :modelValue="cf.column"
-                      :options="customFilterColumnOptions"
-                      optionLabel="label"
-                      optionValue="value"
-                      placeholder="Column"
-                      class="custom-filter-column"
-                      filter
-                      showClear
-                      :disabled="cf.enabled === false"
-                      @update:modelValue="onCustomFilterColumnChange(cf.id, $event)"
-                    />
-                    <Button
-                      icon="pi pi-times"
-                      rounded
-                      variant="outlined"
-                      severity="danger"
-                      size="small"
-                      aria-label="Remove filter"
-                      @click="designsStore.removeCustomFilter(cf.id)"
-                    />
-                  </div>
-                  <div class="custom-filter-row-bottom">
-                    <Dropdown
-                      :modelValue="cf.operator"
-                      :options="designsStore.getOperatorsForColumn(cf.column)"
-                      optionLabel="label"
-                      optionValue="value"
-                      placeholder="Operator"
-                      class="custom-filter-operator"
-                      :disabled="!cf.column || cf.enabled === false"
-                      @update:modelValue="designsStore.updateCustomFilter(cf.id, { operator: $event })"
-                    />
-                    <InputNumber
-                      v-if="showCustomFilterValueInput(cf) && customFilterColumnType(cf.column) === 'numeric'"
-                      :modelValue="cf.value"
-                      class="custom-filter-value"
-                      mode="decimal"
-                      :minFractionDigits="0"
-                      :maxFractionDigits="10"
-                      :step="0.0001"
-                      :disabled="!cf.column || cf.enabled === false"
-                      @update:modelValue="designsStore.updateCustomFilter(cf.id, { value: $event })"
-                    />
-                    <Dropdown
-                      v-else-if="showCustomFilterValueInput(cf) && customFilterColumnType(cf.column) === 'boolean'"
-                      :modelValue="cf.value"
-                      :options="booleanFilterValueOptions"
-                      optionLabel="label"
-                      optionValue="value"
-                      placeholder="Value"
-                      class="custom-filter-value"
-                      :disabled="!cf.column || cf.enabled === false"
-                      @update:modelValue="designsStore.updateCustomFilter(cf.id, { value: $event })"
-                    />
-                    <InputGroup
-                      v-else-if="showCustomFilterValueInput(cf)"
-                      class="custom-filter-value bd-inputgroup-inline-clear"
-                    >
-                      <InputText
-                        :modelValue="cf.value ?? ''"
-                        class="custom-filter-value-field"
-                        :disabled="!cf.column || cf.enabled === false"
-                        @update:modelValue="
-                          designsStore.updateCustomFilter(cf.id, { value: $event })
-                        "
-                      />
-                      <InputGroupAddon>
-                        <Button
-                          icon="pi pi-times"
-                          severity="secondary"
-                          variant="text"
-                          size="small"
-                          :disabled="
-                            !cf.column ||
-                              cf.enabled === false ||
-                              !(cf.value != null && String(cf.value).length > 0)
-                          "
-                          aria-label="Clear filter value"
-                          @click="
-                            designsStore.updateCustomFilter(cf.id, { value: null })
-                          "
-                        />
-                      </InputGroupAddon>
-                    </InputGroup>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="filter-actions">
-              <Button 
-                label="Clear Filters" 
-                @click="clearFilters"
-                outlined
-                size="small"
-              />
-              <Button 
-                label="Apply Filters" 
-                @click="applyFilters"
-                size="small"
-              />
             </div>
           </div>
         </div>
@@ -387,17 +77,6 @@
                   severity="secondary"
                   variant="outlined"
                   :class="{ 'p-button-outlined': showColumnSelector }"
-                />
-                <Button 
-                  icon="pi pi-filter" 
-                  v-tooltip.bottom="'Filter designs by score, length, method, and custom rules'"
-                  aria-label="Toggle filters"
-                  @click="toggleFilterPanel"
-                  text
-                  rounded
-                  severity="secondary"
-                  variant="outlined"
-                  :class="{ 'p-button-outlined': showFilterPanel }"
                 />
                 <div class="flex align-items-start gap-3">
                   <div class="flex flex-column gap-2">
@@ -611,27 +290,11 @@
                   v-for="field in extraVisibleDesignDataFields"
                   :key="'dd-extra-' + field"
                 >
-                  <div
-                    class="detail-item"
-                    :class="{ 'detail-item--structure-suppressed': isStructureCardContentHidden(field) }"
-                  >
+                  <div class="detail-item">
                     <div class="detail-label-row">
-                      <i
-                        v-if="designsStore.isFieldReferencedByCustomFilter(field)"
-                        class="pi pi-filter detail-filter-icon"
-                        aria-hidden="true"
-                      />
                       <div class="detail-label">{{ columnHeaderForDetail(field) }}</div>
-                      <InputSwitch
-                        v-if="designsStore.isFieldReferencedByCustomFilter(field)"
-                        :modelValue="designsStore.allFiltersForFieldEnabled(field)"
-                        class="detail-filter-toggle"
-                        :aria-label="`Enable filtering for ${columnHeaderForDetail(field)}`"
-                        @update:modelValue="(v: boolean) => designsStore.setAllCustomFiltersEnabledForField(field, v)"
-                      />
                     </div>
                     <div
-                      v-show="!isStructureCardContentHidden(field)"
                       class="detail-value truncate-ellipsis"
                       :title="String(getDetailFieldValue(designsStore.currentStructure.design, field) ?? '')"
                     >
@@ -647,34 +310,17 @@
               <div class="details-grid">
                 <template v-for="scoreField in STRUCTURE_CARD_SCORE_ORDER" :key="scoreField">
                   <div
-                    v-if="hasValidValue(getScoreValue(designsStore.currentStructure.design, scoreField)) || designsStore.isFieldReferencedByCustomFilter(scoreField)"
+                    v-if="hasValidValue(getScoreValue(designsStore.currentStructure.design, scoreField))"
                     class="detail-item"
-                    :class="{ 'detail-item--structure-suppressed': isStructureCardContentHidden(scoreField) }"
                   >
                     <div
-                      v-show="!isStructureCardContentHidden(scoreField)"
                       class="score-bar"
                       :style="{ backgroundColor: scoreFieldColor(scoreField, getScoreValue(designsStore.currentStructure.design, scoreField)) }"
                     ></div>
                     <div class="detail-label-row">
-                      <i
-                        v-if="designsStore.isFieldReferencedByCustomFilter(scoreField)"
-                        class="pi pi-filter detail-filter-icon"
-                        aria-hidden="true"
-                      />
                       <div class="detail-label">{{ formatScoreHeader(scoreField) }}</div>
-                      <InputSwitch
-                        v-if="designsStore.isFieldReferencedByCustomFilter(scoreField)"
-                        :modelValue="designsStore.allFiltersForFieldEnabled(scoreField)"
-                        class="detail-filter-toggle"
-                        :aria-label="`Enable filtering for ${formatScoreHeader(scoreField)}`"
-                        @update:modelValue="(v: boolean) => designsStore.setAllCustomFiltersEnabledForField(scoreField, v)"
-                      />
                     </div>
-                    <div
-                      v-show="!isStructureCardContentHidden(scoreField)"
-                      class="detail-value"
-                    >
+                    <div class="detail-value">
                       {{ formatScore(getScoreValue(designsStore.currentStructure.design, scoreField)) }}
                     </div>
                   </div>
@@ -683,12 +329,8 @@
                   v-for="scoreField in extraVisibleScoreFields"
                   :key="'sc-extra-' + scoreField"
                 >
-                  <div
-                    class="detail-item"
-                    :class="{ 'detail-item--structure-suppressed': isStructureCardContentHidden(scoreField) }"
-                  >
+                  <div class="detail-item">
                     <div
-                      v-show="!isStructureCardContentHidden(scoreField)"
                       class="score-bar"
                       :style="{
                         backgroundColor: extraScoreBarColor(
@@ -698,21 +340,9 @@
                       }"
                     ></div>
                     <div class="detail-label-row">
-                      <i
-                        v-if="designsStore.isFieldReferencedByCustomFilter(scoreField)"
-                        class="pi pi-filter detail-filter-icon"
-                        aria-hidden="true"
-                      />
                       <div class="detail-label">{{ columnHeaderForDetail(scoreField) }}</div>
-                      <InputSwitch
-                        v-if="designsStore.isFieldReferencedByCustomFilter(scoreField)"
-                        :modelValue="designsStore.allFiltersForFieldEnabled(scoreField)"
-                        class="detail-filter-toggle"
-                        :aria-label="`Enable filtering for ${columnHeaderForDetail(scoreField)}`"
-                        @update:modelValue="(v: boolean) => designsStore.setAllCustomFiltersEnabledForField(scoreField, v)"
-                      />
                     </div>
-                    <div v-show="!isStructureCardContentHidden(scoreField)" class="detail-value">
+                    <div class="detail-value">
                       {{ formatExtraScoreValue(getDetailFieldValue(designsStore.currentStructure.design, scoreField)) }}
                     </div>
                   </div>
@@ -1320,27 +950,24 @@ import Column from 'primevue/column'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import InputText from 'primevue/inputtext'
-import InputGroup from 'primevue/inputgroup'
-import InputGroupAddon from 'primevue/inputgroupaddon'
 import InputNumber from 'primevue/inputnumber'
 import InputSwitch from 'primevue/inputswitch'
 import Dropdown from 'primevue/dropdown'
-import Slider from 'primevue/slider'
 import SplitButton from 'primevue/splitbutton'
 import ProgressBar from 'primevue/progressbar'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import Dialog from 'primevue/dialog'
 import MolstarViewer from './MolstarViewer.vue'
+import FilterChainSummary from './FilterChainSummary.vue'
 import type { MembraneData } from '../membraneOverlay'
 import { designsApi, runsApi } from '../webapi'
 import type { MergeTableResponse, TagMetricsRow, TagPlacementResultRow } from '../webapi'
 import { useDesignsStore, useAppStore, useAuthStore } from '../stores'
-import type { CustomFilter, Design } from '../types/store'
+import type { Design } from '../types/store'
 import { PERSISTENCE_KEYS, tagPlacementKey, advRefKey } from '../persistence/keys'
 import { kvGet, kvSet, kvRemove } from '../persistence/store'
 import {
-    PIPELINE_METHOD_IDS,
     STRUCTURE_CARD_SCORE_ORDER,
     niceNameForScoreField,
     scoreFieldColor,
@@ -1355,7 +982,6 @@ const authStore = useAuthStore()
 
 // Local UI state (not shared across components)
 const showColumnSelector = ref(false)
-const showFilterPanel = ref(false)
 const showAdvancedOptions = ref(false)
 const showTagPlacementOptions = ref(false)
 const molstarViewerRef = ref<any>(null)
@@ -2195,30 +1821,10 @@ const runMergeTableUpload = async (preview: boolean) => {
 const runMergeTablePreview = () => runMergeTableUpload(true)
 const runMergeTableApply = () => runMergeTableUpload(false)
 
-// Filter options (pipeline methods)
-const methodOptions = ref<string[]>([...PIPELINE_METHOD_IDS])
-
-// Length filter state
-const lengthRange = ref([0, 300]) // Default range, will be updated based on data
-const lengthMin = ref(0)
-const lengthMax = ref(300)
-
 // Computed properties using store
 const isColumnVisible = (field: string): boolean => {
   return designsStore.visibleColumns.includes(field)
 }
-
-// Computed properties for length filtering
-const lengthRangeValue = computed({
-  get: () => [designsStore.filters.length_min.value || lengthMin.value, designsStore.filters.length_max.value || lengthMax.value],
-  set: (value: number[]) => {
-    designsStore.filters.length_min.value = value[0]
-    designsStore.filters.length_max.value = value[1]
-    lengthMin.value = value[0]
-    lengthMax.value = value[1]
-  }
-})
-
 
 // Methods
 
@@ -2392,53 +1998,8 @@ const toggleColumnSelector = () => {
   showColumnSelector.value = !showColumnSelector.value
 }
 
-const toggleFilterPanel = () => {
-  showFilterPanel.value = !showFilterPanel.value
-}
-
-// Removed duplicate function - using the one defined above
-
 const toggleColumn = (field: string): void => {
   designsStore.toggleColumn(field)
-}
-
-const customFilterColumnOptions = computed(() =>
-  designsStore.columnsForSelectedRuns.map(c => ({ label: c.header, value: c.field }))
-)
-
-const booleanFilterValueOptions = [
-  { label: 'true', value: true },
-  { label: 'false', value: false },
-  { label: 'None', value: null }
-]
-
-function customFilterColumnType(field: string): string {
-  return designsStore.columnsForSelectedRuns.find(c => c.field === field)?.filterType ?? 'text'
-}
-
-function showCustomFilterValueInput(cf: CustomFilter): boolean {
-  if (!cf.column) return false
-  return cf.operator !== 'is_empty' && cf.operator !== 'is_not_empty'
-}
-
-function onCustomFilterColumnChange(id: string, column: string | null) {
-  const field = column ?? ''
-  const ops = designsStore.getOperatorsForColumn(field)
-  const firstOp = ops[0]?.value ?? 'eq'
-  const colType = designsStore.columnsForSelectedRuns.find(c => c.field === field)?.filterType ?? 'text'
-  let value: string | number | boolean | null = null
-  if (colType === 'boolean') value = true
-  designsStore.updateCustomFilter(id, { column: field, operator: firstOp, value, enabled: true })
-}
-
-const clearFilters = () => {
-  designsStore.clearFilters()
-}
-
-const applyFilters = () => {
-  // Filters are automatically applied through the DataTable's filter system
-  // This method can be used for additional custom filtering logic if needed
-  console.log('Filters applied:', designsStore.filters)
 }
 
 const onTableHeaderSelectAllChange = (value: boolean) => {
@@ -2600,38 +2161,6 @@ const onDownloadFasta = () => {
   } catch (err: any) {
     console.error('Error downloading FASTA:', err)
     toast.add({ severity: 'error', summary: 'Download Failed', detail: err?.message || 'Failed to download FASTA', life: 3000 })
-  }
-}
-
-// Length filter methods
-const updateLengthFromInputs = () => {
-  designsStore.filters.length_min.value = lengthMin.value
-  designsStore.filters.length_max.value = lengthMax.value
-}
-
-const updateLengthRange = () => {
-  // Update the length range based on available data
-  if (designsStore.designs.length > 0) {
-    const lengths = designsStore.designs
-      .map(design => design.Length || design.length)
-      .filter(length => length != null && !isNaN(Number(length)))
-      .map(length => Number(length))
-    
-    if (lengths.length > 0) {
-      const minLength = Math.min(...lengths)
-      const maxLength = Math.max(...lengths)
-      lengthRange.value = [minLength, maxLength]
-      
-      // Set initial values if not already set
-      if (designsStore.filters.length_min.value == null) {
-        lengthMin.value = minLength
-        designsStore.filters.length_min.value = minLength
-      }
-      if (designsStore.filters.length_max.value == null) {
-        lengthMax.value = maxLength
-        designsStore.filters.length_max.value = maxLength
-      }
-    }
   }
 }
 
@@ -2995,7 +2524,7 @@ const extraScoreBarColor = (field: string, raw: unknown): string => {
   return scoreFieldColor(field, raw)
 }
 
-/** Columns shown in structure Design Data / Scores cards: toggled columns plus any field used in an active custom filter. */
+/** Columns shown in structure Design Data / Scores cards: toggled/visible columns. */
 const structureDetailFieldSource = computed((): string[] => {
   const seen = new Set<string>()
   const out: string[] = []
@@ -3004,22 +2533,8 @@ const structureDetailFieldSource = computed((): string[] => {
     seen.add(field)
     out.push(field)
   }
-  for (const f of designsStore.customFilters) {
-    const field = f.column?.trim()
-    if (!field || seen.has(field)) continue
-    seen.add(field)
-    out.push(field)
-  }
   return out
 })
-
-/** When true, score/value body is hidden but label row + filter switch stay visible (custom-filter cards only). */
-function isStructureCardContentHidden(field: string): boolean {
-  return (
-    designsStore.isFieldReferencedByCustomFilter(field) &&
-    !designsStore.allFiltersForFieldEnabled(field)
-  )
-}
 
 const extraVisibleScoreFields = computed((): string[] => {
   const design = designsStore.currentStructure?.design as Record<string, unknown> | undefined
@@ -3091,11 +2606,6 @@ watch(
   },
   { immediate: true, deep: true }
 )
-
-// Update length range when designs are loaded
-watch(() => designsStore.designs, () => {
-  updateLengthRange()
-}, { deep: true, immediate: true })
 
 watch(
   () => designsStore.currentStructure?.design.run_id,
@@ -3352,27 +2862,6 @@ defineExpose({
 }
 */
 
-.filter-panel {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  padding: 1.5rem;
-  border: 1px solid #e9ecef;
-  margin-bottom: 1.5rem;
-}
-
-.filter-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-.filter-panel-header h3 {
-  margin: 0;
-  color: #495057;
-}
-
 .designs-download-upload-row {
   column-gap: 0;
   gap: 0;
@@ -3380,162 +2869,6 @@ defineExpose({
 
 .designs-download-upload-row > .p-splitbutton + .p-splitbutton {
   margin-left: 0.5rem;
-}
-
-.filter-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.custom-filters-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid #e9ecef;
-}
-
-.custom-filters-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.custom-filters-title {
-  margin: 0;
-  font-size: 1rem;
-  color: #495057;
-  font-weight: 600;
-}
-
-.custom-filter-row-box {
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
-  padding: 0.5rem 0.65rem;
-  background: #ffffff;
-  transition: background 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
-}
-
-.custom-filter-row-box--disabled {
-  background: #f1f3f5;
-  opacity: 0.92;
-  border-color: #dee2e6;
-}
-
-.custom-filter-row {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.custom-filter-row-enable {
-  flex-shrink: 0;
-  transform: scale(0.85);
-  transform-origin: center left;
-}
-
-.custom-filter-row-top {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.custom-filter-row-bottom {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.custom-filter-column {
-  flex: 1;
-  min-width: 0;
-}
-
-.custom-filter-operator {
-  flex: 1;
-  min-width: 90px;
-}
-
-.custom-filter-value {
-  flex: 1;
-  min-width: 80px;
-}
-
-.custom-filter-value.p-inputgroup {
-  min-width: 0;
-}
-
-.filter-row {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.filter-row label {
-  min-width: 120px;
-  font-weight: 500;
-  color: #495057;
-}
-
-.filter-input {
-  flex: 1;
-  max-width: 300px;
-  min-width: 0;
-}
-
-.filter-input-field {
-  flex: 1;
-  min-width: 0;
-}
-
-.custom-filter-value-field {
-  flex: 1;
-  min-width: 0;
-}
-
-.filter-input-small {
-  width: 120px;
-}
-
-.score-range {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.length-range {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  flex: 1;
-  max-width: 400px;
-}
-
-.length-inputs {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.length-slider {
-  width: 100%;
-}
-
-.range-separator {
-  color: #6c757d;
-  font-weight: 500;
-}
-
-.filter-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid #e9ecef;
 }
 
 .advanced-options-section {
@@ -3921,23 +3254,6 @@ defineExpose({
   min-width: 0;
 }
 
-.detail-filter-icon {
-  font-size: 0.75rem;
-  color: #6c757d;
-  flex-shrink: 0;
-}
-
-.detail-filter-toggle {
-  flex-shrink: 0;
-  transform: scale(0.72);
-  transform-origin: center right;
-}
-
-.detail-filter-toggle :deep(.p-inputswitch) {
-  width: 2.25rem;
-  height: 1.25rem;
-}
-
 .detail-value {
   font-size: 1rem;
   color: #343a40;
@@ -3962,11 +3278,6 @@ defineExpose({
 .detail-item:hover {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
   border-color: #e2e6ea;
-}
-
-.detail-item--structure-suppressed {
-  opacity: 0.92;
-  border-style: dashed;
 }
 
 /* Removed full-width spanning for file item to match other cards */

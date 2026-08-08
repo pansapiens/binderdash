@@ -166,6 +166,45 @@ class SqliteDesignsRepository:
                         more_distant_threshold
                     )
                 );
+                CREATE TABLE IF NOT EXISTS binderdash_structural_metrics_cache (
+                    run_id TEXT NOT NULL,
+                    design_id TEXT NOT NULL,
+                    source_path TEXT NOT NULL DEFAULT '',
+                    structure_filename TEXT NOT NULL,
+                    binder_chains TEXT NOT NULL DEFAULT '',
+                    target_chains TEXT NOT NULL DEFAULT '',
+                    metrics_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (
+                        run_id,
+                        design_id,
+                        source_path,
+                        structure_filename,
+                        binder_chains,
+                        target_chains
+                    )
+                );
+                CREATE TABLE IF NOT EXISTS binderdash_saved_sets (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    source_run_ids TEXT NOT NULL,
+                    filter_params TEXT NOT NULL,
+                    result_summary TEXT NOT NULL DEFAULT '{}'
+                );
+                CREATE TABLE IF NOT EXISTS binderdash_saved_set_designs (
+                    saved_set_id TEXT NOT NULL,
+                    design_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    source_path TEXT NOT NULL DEFAULT '',
+                    final_rank INTEGER,
+                    quality_score REAL,
+                    in_diverse_set INTEGER NOT NULL DEFAULT 0,
+                    metrics_json TEXT NOT NULL DEFAULT '{}',
+                    PRIMARY KEY (saved_set_id, design_id, run_id, source_path)
+                );
+                CREATE INDEX IF NOT EXISTS idx_saved_set_designs_saved_set_id
+                    ON binderdash_saved_set_designs(saved_set_id);
                 """
             )
             self._migrate_binder_chain_column(c)
@@ -611,6 +650,10 @@ class SqliteDesignsRepository:
             conn.execute(
                 "DELETE FROM binderdash_tag_metrics_cache WHERE run_id = ?", (run_id,)
             )
+            conn.execute(
+                "DELETE FROM binderdash_structural_metrics_cache WHERE run_id = ?",
+                (run_id,),
+            )
             cur = conn.execute("DELETE FROM binderdash_runs WHERE run_id = ?", (run_id,))
             conn.commit()
             return cur.rowcount > 0
@@ -729,3 +772,198 @@ class SqliteDesignsRepository:
                 ),
             )
             self._get_conn().commit()
+
+    def get_structural_metrics_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chains: str,
+        target_chains: str,
+    ) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            cur = self._get_conn().execute(
+                """
+                SELECT metrics_json FROM binderdash_structural_metrics_cache
+                WHERE run_id = ? AND design_id = ? AND source_path = ?
+                  AND structure_filename = ? AND binder_chains = ? AND target_chains = ?
+                """,
+                (run_id, design_id, source_path, structure_filename, binder_chains, target_chains),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return json.loads(row["metrics_json"])
+
+    def upsert_structural_metrics_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chains: str,
+        target_chains: str,
+        metrics: Dict[str, Any],
+    ) -> None:
+        payload = json.dumps(metrics, default=str)
+        with self._lock:
+            self._get_conn().execute(
+                """
+                INSERT INTO binderdash_structural_metrics_cache (
+                    run_id, design_id, source_path, structure_filename,
+                    binder_chains, target_chains, metrics_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(
+                    run_id, design_id, source_path, structure_filename,
+                    binder_chains, target_chains
+                ) DO UPDATE SET
+                    metrics_json = excluded.metrics_json,
+                    updated_at = datetime('now')
+                """,
+                (
+                    run_id,
+                    design_id,
+                    source_path,
+                    structure_filename,
+                    binder_chains,
+                    target_chains,
+                    payload,
+                ),
+            )
+            self._get_conn().commit()
+
+    def create_saved_set(
+        self,
+        *,
+        saved_set_id: str,
+        name: str,
+        source_run_ids: List[str],
+        filter_params: Dict[str, Any],
+        result_summary: Dict[str, Any],
+    ) -> None:
+        with self._lock:
+            self._get_conn().execute(
+                """
+                INSERT INTO binderdash_saved_sets (
+                    id, name, source_run_ids, filter_params, result_summary
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    saved_set_id,
+                    name,
+                    json.dumps(source_run_ids),
+                    json.dumps(filter_params, default=str),
+                    json.dumps(result_summary, default=str),
+                ),
+            )
+            self._get_conn().commit()
+
+    def _saved_set_row_to_dict(self, row) -> Dict[str, Any]:
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "created_at": row["created_at"],
+            "source_run_ids": json.loads(row["source_run_ids"]),
+            "filter_params": json.loads(row["filter_params"]),
+            "result_summary": json.loads(row["result_summary"]),
+        }
+
+    def list_saved_sets(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            cur = self._get_conn().execute(
+                "SELECT * FROM binderdash_saved_sets ORDER BY created_at DESC"
+            )
+            return [self._saved_set_row_to_dict(row) for row in cur.fetchall()]
+
+    def get_saved_set(self, saved_set_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            cur = self._get_conn().execute(
+                "SELECT * FROM binderdash_saved_sets WHERE id = ?", (saved_set_id,)
+            )
+            row = cur.fetchone()
+            return self._saved_set_row_to_dict(row) if row is not None else None
+
+    def delete_saved_set(self, saved_set_id: str) -> bool:
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute(
+                "DELETE FROM binderdash_saved_set_designs WHERE saved_set_id = ?",
+                (saved_set_id,),
+            )
+            cur = conn.execute(
+                "DELETE FROM binderdash_saved_sets WHERE id = ?", (saved_set_id,)
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def rename_saved_set(self, saved_set_id: str, name: str) -> bool:
+        with self._lock:
+            cur = self._get_conn().execute(
+                "UPDATE binderdash_saved_sets SET name = ? WHERE id = ?",
+                (name, saved_set_id),
+            )
+            self._get_conn().commit()
+            return cur.rowcount > 0
+
+    def add_saved_set_designs(
+        self, saved_set_id: str, designs: List[Dict[str, Any]]
+    ) -> None:
+        if not designs:
+            return
+        rows = [
+            (
+                saved_set_id,
+                str(d["design_id"]),
+                str(d["run_id"]),
+                str(d.get("source_path") or ""),
+                d.get("final_rank"),
+                d.get("quality_score"),
+                1 if d.get("in_diverse_set") else 0,
+                json.dumps(d.get("metrics") or {}, default=str),
+            )
+            for d in designs
+        ]
+        with self._lock:
+            self._get_conn().executemany(
+                """
+                INSERT INTO binderdash_saved_set_designs (
+                    saved_set_id, design_id, run_id, source_path,
+                    final_rank, quality_score, in_diverse_set, metrics_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(saved_set_id, design_id, run_id, source_path) DO UPDATE SET
+                    final_rank = excluded.final_rank,
+                    quality_score = excluded.quality_score,
+                    in_diverse_set = excluded.in_diverse_set,
+                    metrics_json = excluded.metrics_json
+                """,
+                rows,
+            )
+            self._get_conn().commit()
+
+    def list_saved_set_designs(self, saved_set_id: str) -> List[Dict[str, Any]]:
+        with self._lock:
+            cur = self._get_conn().execute(
+                """
+                SELECT design_id, run_id, source_path, final_rank, quality_score,
+                       in_diverse_set, metrics_json
+                FROM binderdash_saved_set_designs
+                WHERE saved_set_id = ?
+                ORDER BY final_rank ASC
+                """,
+                (saved_set_id,),
+            )
+            return [
+                {
+                    "design_id": row["design_id"],
+                    "run_id": row["run_id"],
+                    "source_path": row["source_path"],
+                    "final_rank": row["final_rank"],
+                    "quality_score": row["quality_score"],
+                    "in_diverse_set": bool(row["in_diverse_set"]),
+                    "metrics": json.loads(row["metrics_json"]),
+                }
+                for row in cur.fetchall()
+            ]

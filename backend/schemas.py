@@ -202,6 +202,41 @@ class TagMetricsResponse(BaseModel):
     results: List[TagMetricsRow]
 
 
+class StructuralMetricsRequest(BaseModel):
+    designs: List[TagPlacementItem]
+    # Override chain roles for every design in the request; when omitted, roles are
+    # resolved per-run (known per-method convention, else the sampled-sequence-identity
+    # guess heuristic — see filtering.chain_roles).
+    binder_chain_ids: Optional[List[str]] = None
+    target_chain_ids: Optional[List[str]] = None
+    cache_only: bool = Field(
+        default=False,
+        description="When true, return cached structural metrics only (no compute); misses are empty rows.",
+    )
+    ignore_cache: bool = Field(
+        default=False,
+        description="When true, skip cache reads; recompute and refresh stored cache entries.",
+    )
+
+
+class StructuralMetricsRow(BaseModel):
+    run_id: str
+    design_id: str
+    pdb_file: Optional[str] = None
+    binder_chain_ids: Optional[List[str]] = None
+    target_chain_ids: Optional[List[str]] = None
+    # Flat metric name -> value (helix_fraction, sheet_fraction, loop_fraction, delta_sasa,
+    # hydrophobic_patch_area, hbonds, saltbridge, hydrophobicity, <AA>_fraction, ...); see
+    # filtering.structural_metrics. Not a fixed schema, matching the rest of BinderDash's
+    # method-dependent flat design dicts.
+    metrics: Optional[Dict[str, float]] = None
+    error: Optional[str] = None
+
+
+class StructuralMetricsResponse(BaseModel):
+    results: List[StructuralMetricsRow]
+
+
 class InputTargetItem(BaseModel):
     id: str
     label: str
