@@ -5,6 +5,7 @@ import pytest
 import backend.filtering.engine as engine_mod
 from backend.filtering.engine import (
     apply_hard_filters,
+    count_missing_sequences,
     filter_cascade_counts,
     rank_designs,
     run_filtering_pipeline,
@@ -371,6 +372,56 @@ class TestRunFilteringPipeline:
         assert diverse is not None
         assert len(diverse) == 2
         assert set(diverse["design_id"].to_list()) == {"a", "c"}
+
+
+class TestMissingSequencesAreExcludedNotBlankFilled:
+    """A design with no sequence must never reach the diversity pool.
+
+    Blank-filling made such a design align to zero against everything, i.e. normalised
+    identity 0 — maximally *dissimilar* — so the diversity term actively preferred the
+    designs we know least about, and the resulting panel silently contained sequenceless
+    picks.
+    """
+
+    def _df_with_gaps(self):
+        # b and d have no usable sequence; both are high quality, so a diversity term
+        # that scores them as maximally dissimilar would select them first.
+        return pl.DataFrame(
+            {
+                "design_id": ["a", "b", "c", "d"],
+                "quality_score": [0.5, 1.0, 0.4, 0.99],
+                "sequence": ["AAAAAAAAAA", None, "CCCCCCCCCC", "   "],
+            }
+        )
+
+    def test_blank_and_null_sequences_never_selected(self):
+        out = select_diverse(self._df_with_gaps(), sequence_col="sequence", budget=4, alpha=0.5)
+        assert set(out["design_id"].to_list()) == {"a", "c"}
+
+    def test_all_sequences_missing_yields_empty_not_crash(self):
+        # Every pair would divide by max(0, 0) -> ZeroDivisionError before the fix.
+        df = pl.DataFrame(
+            {"design_id": ["a", "b"], "quality_score": [1.0, 0.5], "sequence": [None, ""]}
+        )
+        out = select_diverse(df, sequence_col="sequence", budget=2, alpha=0.5)
+        assert out.height == 0
+
+    def test_count_missing_sequences_reports_the_shortfall(self):
+        assert count_missing_sequences(self._df_with_gaps(), "sequence") == 2
+        assert count_missing_sequences(self._df_with_gaps(), "Sequence") == 4
+        assert count_missing_sequences(self._df_with_gaps(), None) == 4
+
+    def test_identical_empty_sequences_score_as_identical(self):
+        # Guards direct callers of the similarity function: 0/0 is not "maximally diverse".
+        assert sequence_similarity_fn(["", ""])(0, 1) == 1.0
+
+    def test_pipeline_diverse_set_smaller_than_budget_when_sequences_missing(self):
+        ranked, diverse = run_filtering_pipeline(
+            self._df_with_gaps(), [], [], budget=4, alpha=0.5, sequence_col="sequence"
+        )
+        assert ranked.height == 4
+        assert diverse is not None
+        assert diverse.height == 2
 
 
 class TestExcludedMetricColumns:

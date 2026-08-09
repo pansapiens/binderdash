@@ -222,6 +222,7 @@ class TestFilteringDiversity:
             "total_designs": 0,
             "passing_filters": 0,
             "diverse_set_count": 0,
+            "warnings": [],
         }
 
 

@@ -138,13 +138,19 @@ const handleApplyDiversity = async () => {
   try {
     await filteringStore.applyDiversityFilter()
     const res = filteringStore.lastDiversityResult
+    const warnings = res?.warnings ?? []
     toast.add({
-      severity: 'success',
-      summary: 'Diversity filter applied',
+      // A diverse set short of the budget (usually designs with no sequence) must not
+      // be reported as an unqualified success — that's how it went unnoticed before.
+      severity: warnings.length ? 'warn' : 'success',
+      summary: warnings.length ? 'Diversity filter applied with warnings' : 'Diversity filter applied',
       detail: res
-        ? `${res.diverse_set_count} diverse designs selected from ${res.passing_filters} passing filters (of ${res.total_designs} total).`
+        ? [
+            `${res.diverse_set_count} diverse designs selected from ${res.passing_filters} passing filters (of ${res.total_designs} total).`,
+            ...warnings
+          ].join(' ')
         : undefined,
-      life: 8000
+      life: warnings.length ? 12000 : 8000
     })
   } catch (err) {
     toast.add({
@@ -186,11 +192,15 @@ const handleCreateSavedSet = async () => {
   }
   try {
     const res = await filteringStore.createSavedSet(name)
+    const warnings = res.warnings ?? []
     toast.add({
-      severity: 'success',
-      summary: 'Saved set created',
-      detail: `"${res.name}": ${res.diverse_set_count} designs selected from ${res.passing_filters} passing filters (of ${res.total_input} total).`,
-      life: 8000
+      severity: warnings.length ? 'warn' : 'success',
+      summary: warnings.length ? 'Saved set created with warnings' : 'Saved set created',
+      detail: [
+        `"${res.name}": ${res.diverse_set_count} designs selected from ${res.passing_filters} passing filters (of ${res.total_input} total).`,
+        ...warnings
+      ].join(' '),
+      life: warnings.length ? 12000 : 8000
     })
     savedSetName.value = ''
   } catch (err) {

@@ -14,7 +14,13 @@ import polars as pl
 
 from ..cache import get_designs_for_run_ids
 from ..persistence.factory import get_designs_repository
-from .engine import apply_hard_filters, filter_cascade_counts, rank_designs, run_filtering_pipeline
+from .engine import (
+    apply_hard_filters,
+    count_missing_sequences,
+    filter_cascade_counts,
+    rank_designs,
+    run_filtering_pipeline,
+)
 from .metrics import METRIC_ALIASES, available_columns_for_methods, is_excluded_metric_column
 from .schemas import (
     ColumnInfo,
@@ -242,6 +248,37 @@ def compute_rank(request: FilteringRankRequest) -> FilteringRankResponse:
     return FilteringRankResponse(designs=rows, total_designs=df.height)
 
 
+def _diversity_warnings(
+    ranked: pl.DataFrame, sequence_col: Optional[str], budget: int, selected: int
+) -> List[str]:
+    """Explain a diverse set that is empty or smaller than the requested budget.
+
+    Diversity selection depends on sequences the designs table may simply not carry
+    yet. Previously that surfaced as ``diverse_set_count: 0`` with no reason given.
+    """
+    candidates = ranked.filter(pl.col("pass_filters")) if "pass_filters" in ranked.columns else ranked
+    if not sequence_col:
+        return [
+            "Diversity selection was skipped: these runs have no Sequence column. "
+            "Extract sequences first (POST /api/sequences/extract), then re-run."
+        ]
+
+    warnings: List[str] = []
+    missing = count_missing_sequences(candidates, sequence_col)
+    if missing:
+        warnings.append(
+            f"{missing} of {candidates.height} designs passing the filters have no "
+            "sequence and were excluded from diversity selection. Extract sequences "
+            "for those runs to include them."
+        )
+    if selected < budget:
+        warnings.append(
+            f"Diversity selection returned {selected} designs for a budget of {budget}; "
+            "only that many designs passed the filters with a usable sequence."
+        )
+    return warnings
+
+
 def compute_diversity_preview(request: FilteringDiversityRequest) -> FilteringDiversityResponse:
     """Full filter+rank+diversity pipeline, without persisting a Saved Set — backs the
     Filtering tab's explicit "Apply Diversity Filter" button (see plan §7A.2). Shares
@@ -291,11 +328,13 @@ def compute_diversity_preview(request: FilteringDiversityRequest) -> FilteringDi
         )
         for row in ranked.iter_rows(named=True)
     ]
+    diverse_set_count = diverse.height if diverse is not None else 0
     return FilteringDiversityResponse(
         designs=rows,
         total_designs=df.height,
         passing_filters=passing_filters,
-        diverse_set_count=(diverse.height if diverse is not None else 0),
+        diverse_set_count=diverse_set_count,
+        warnings=_diversity_warnings(ranked, sequence_col, request.budget, diverse_set_count),
     )
 
 
@@ -333,6 +372,7 @@ def run_filtering_and_save(request: FilteringRunRequest) -> FilteringRunResponse
     )
     top_set_count = min(request.budget, ranked.height)
     diverse_set_count = diverse.height if diverse is not None else 0
+    warnings = _diversity_warnings(ranked, sequence_col, request.budget, diverse_set_count)
 
     saved_set_id = str(uuid.uuid4())
     repo = get_designs_repository()
@@ -346,6 +386,7 @@ def run_filtering_and_save(request: FilteringRunRequest) -> FilteringRunResponse
             "passing_filters": passing_filters,
             "top_set_count": top_set_count,
             "diverse_set_count": diverse_set_count,
+            "warnings": warnings,
         },
     )
 
@@ -378,6 +419,7 @@ def run_filtering_and_save(request: FilteringRunRequest) -> FilteringRunResponse
         passing_filters=passing_filters,
         top_set_count=top_set_count,
         diverse_set_count=diverse_set_count,
+        warnings=warnings,
     )
 
 

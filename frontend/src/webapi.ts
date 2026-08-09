@@ -855,6 +855,7 @@ export interface FilteringRunResponseDto {
     passing_filters: number
     top_set_count: number
     diverse_set_count: number
+    warnings?: string[]
 }
 
 export interface SavedSetDto {
@@ -945,6 +946,7 @@ export interface FilteringDiversityResponseDto {
     total_designs: number
     passing_filters: number
     diverse_set_count: number
+    warnings?: string[]
 }
 
 export const filteringApi = {

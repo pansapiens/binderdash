@@ -369,8 +369,11 @@ def sequence_similarity_fn(
         key = (i, j) if i < j else (j, i)
         if key not in cache:
             seq1, seq2 = sequences[i], sequences[j]
-            aln = aligner.align(seq1, seq2)[0]
-            cache[key] = aln.score / max(len(seq1), len(seq2))
+            denom = max(len(seq1), len(seq2))
+            # Two empty sequences are identical, not maximally diverse — and the
+            # normalisation would divide by zero. select_diverse excludes empties
+            # before reaching here; this guards direct callers.
+            cache[key] = 1.0 if denom == 0 else aligner.align(seq1, seq2)[0].score / denom
         return cache[key]
 
     return sim
@@ -436,8 +439,21 @@ def _parallel_seed_similarities(
     for idx, score in zip(candidate_indices, scores):
         length = max(len(sequences[seed_idx]), len(sequences[idx]))
         key = (seed_idx, idx) if seed_idx < idx else (idx, seed_idx)
-        result[key] = score / length
+        result[key] = 1.0 if length == 0 else score / length
     return result
+
+
+def has_usable_sequence(sequence_col: str) -> pl.Expr:
+    """Rows whose sequence is present and non-blank — the only ones diversity can score."""
+    col = pl.col(sequence_col).cast(pl.Utf8)
+    return col.is_not_null() & (col.str.strip_chars().str.len_chars() > 0)
+
+
+def count_missing_sequences(df: pl.DataFrame, sequence_col: Optional[str]) -> int:
+    """How many rows ``select_diverse`` would drop. ``df.height`` if the column is absent."""
+    if not sequence_col or sequence_col not in df.columns:
+        return df.height
+    return df.height - int(df.select(has_usable_sequence(sequence_col).sum()).item() or 0)
 
 
 def select_diverse(
@@ -456,8 +472,16 @@ def select_diverse(
     enough work to be worth it, the initial seed-vs-all-candidates alignment batch (see
     ``_parallel_seed_similarities``) runs across multiple processes; the rest of the
     lazy-greedy loop is unchanged and produces identical results either way.
+
+    Designs without a usable sequence are **excluded** from the pool, not blank-filled.
+    A blank sequence aligns to zero against everything, so its normalised identity is 0 —
+    maximally dissimilar — which makes the diversity term *prefer* exactly the designs we
+    know least about. Use ``count_missing_sequences`` to report the exclusion.
     """
-    sequences = df[sequence_col].fill_null("").to_list()
+    df = df.filter(has_usable_sequence(sequence_col))
+    if df.is_empty():
+        return df
+    sequences = df[sequence_col].cast(pl.Utf8).to_list()
     quality = df[quality_col].to_numpy()
     lengths = [len(s) for s in sequences]
 
@@ -504,6 +528,11 @@ def run_filtering_pipeline(
     picked only from designs that passed every hard filter (a design that fails a
     filter must never end up in the saved/diverse set); it's ``None`` when
     ``sequence_col`` is not provided or absent from ``df`` (quality-only ranking).
+
+    Designs whose sequence is missing or blank are excluded from ``diverse_df`` (see
+    ``select_diverse``), so it can be smaller than ``budget`` — or empty — even when
+    plenty of designs passed the filters. Callers should report that with
+    ``count_missing_sequences`` rather than leave the shortfall unexplained.
     """
     filtered = apply_hard_filters(df, filters)
     ranked = rank_designs(filtered, metrics, tiebreak_column=tiebreak_column)

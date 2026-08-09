@@ -86,7 +86,7 @@ export const useFilteringStore = defineStore('filtering', () => {
 
     const diversityLoading = ref(false)
     const diversityError = ref<string | null>(null)
-    const lastDiversityResult = ref<{ passing_filters: number; diverse_set_count: number; total_designs: number } | null>(null)
+    const lastDiversityResult = ref<{ passing_filters: number; diverse_set_count: number; total_designs: number; warnings: string[] } | null>(null)
 
     // The raw diverse subset from the last "Apply Diversity Filter" run, kept separate
     // from `passingDesignKeys` (which reflects hard filters only) so the diversity step
@@ -357,7 +357,8 @@ export const useFilteringStore = defineStore('filtering', () => {
             lastDiversityResult.value = {
                 passing_filters: res.passing_filters,
                 diverse_set_count: res.diverse_set_count,
-                total_designs: res.total_designs
+                total_designs: res.total_designs,
+                warnings: res.warnings ?? []
             }
         } catch (err) {
             diversityError.value = err instanceof Error ? err.message : 'Failed to apply diversity filter'

@@ -128,6 +128,9 @@ class FilteringRunResponse(BaseModel):
     passing_filters: int
     top_set_count: int
     diverse_set_count: int
+    # Why diverse_set_count can be smaller than budget (or zero) — without this the
+    # shortfall is silent and reads as "diversity selection found nothing".
+    warnings: List[str] = Field(default_factory=list)
 
 
 class FilteringColumnsRequest(BaseModel):
@@ -243,3 +246,4 @@ class FilteringDiversityResponse(BaseModel):
     total_designs: int
     passing_filters: int
     diverse_set_count: int
+    warnings: List[str] = Field(default_factory=list)
