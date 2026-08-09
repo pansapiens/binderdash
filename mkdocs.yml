@@ -15,6 +15,7 @@ nav:
       - REST API: development/api.md
       - Pipeline method types: development/pipeline-methods.md
       - Sequence preparation: development/sequence_preparation.md
+      - Storage architecture: development/storage.md
 
 markdown_extensions:
   - toc:
