@@ -12,24 +12,36 @@ API — one cache, no drift.
 
 ## Installing
 
-`fastmcp` is an **optional extra**. Without it the app runs exactly as before and the
-endpoint is simply not mounted (an INFO line says so at startup).
+**Docker (dev and prod compose): already on.** `backend/Dockerfile` compiles with
+`--extra mcp`, so every image built from it has `fastmcp` and mounts the endpoint. Both
+`docker-compose.yml` and `docker-compose.dev.yml` build from that Dockerfile, so there is
+nothing to configure. Note that Compose does **not** rebuild on a Dockerfile change on its
+own — an existing stack needs `docker compose up -d --build` once to pick it up.
+
+**Local venv: opt in.** `fastmcp` is an optional extra, so a plain install does not get
+it; the app runs exactly as before and the endpoint is simply not mounted (an INFO line
+says so at startup).
 
 ```bash
 uv pip install -r backend/requirements.txt
 uv pip install "fastmcp>=3.4,<4"     # or: uv pip install -e "backend[mcp]"
 ```
 
+**Desktop: deliberately excluded.** The PyInstaller build installs from the checked-in
+`backend/requirements.txt`, which does not carry the extra — see below for why. Do not
+"fix" that inconsistency by regenerating `requirements.txt` with `--extra mcp`; it is
+what keeps the desktop bundle working.
+
 There is **no env var** to turn it on or off — the mount is gated purely on whether
 `fastmcp` imports. A flag would be untestable (the mount happens at module import,
 before tests can patch settings) and would add a second way for the endpoint to be
 silently missing.
 
-It is optional rather than required because it pulls roughly thirty transitive
+It is an extra rather than a plain dependency because it pulls roughly thirty transitive
 distributions (`keyring`, `jeepney`/`SecretStorage`, `aiofile`/`caio`, …) that resolve
 backends through entry points and D-Bus and are not declared in
-`desktop/binderdash.spec`'s `hiddenimports`. Keeping it out of the default set leaves the
-PyInstaller desktop bundle and the production image resolution unchanged.
+`desktop/binderdash.spec`'s `hiddenimports`. Containers have no such constraint, which is
+why they opt in at build time while the desktop bundle does not.
 
 ## Authenticating
 

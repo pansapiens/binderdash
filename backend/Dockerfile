@@ -25,7 +25,12 @@ WORKDIR /app
 COPY --chown=app:app backend/pyproject.toml backend/requirements.txt ./backend/
 COPY --chown=app:app backend/scripts/ ./backend/scripts/
 RUN pip install uv
-RUN uv pip compile backend/pyproject.toml -o backend/requirements.txt && \
+# --extra mcp so the MCP server at /api/mcp/ is active in compose stacks. It is not in
+# the checked-in requirements.txt on purpose: the desktop PyInstaller build installs
+# from that file, and fastmcp's transitive backends (keyring, jeepney/SecretStorage,
+# aiofile/caio) are not declared in desktop/binderdash.spec's hiddenimports. Containers
+# have no such constraint, so they get it by default.
+RUN uv pip compile backend/pyproject.toml --extra mcp -o backend/requirements.txt && \
     pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy frontend files and install dependencies
