@@ -50,9 +50,16 @@ def warning(code: str, message: str, detail: Optional[Any] = None) -> Dict[str, 
 
 
 def nearest(name: str, candidates: List[str], limit: int = 10) -> List[str]:
-    """Closest candidate names, so an UNKNOWN_COLUMN error is actionable."""
+    """Closest names, so an UNKNOWN_COLUMN error is actionable.
+
+    Canonical metric names are always in scope even though they are not raw columns --
+    a typo'd "iptmm" should suggest "iptm", which no list of raw column names contains.
+    """
     import difflib
 
+    from ..filtering.metrics import METRIC_ALIASES
+
+    candidates = list(dict.fromkeys(list(METRIC_ALIASES.keys()) + list(candidates)))
     close = difflib.get_close_matches(name, candidates, n=limit, cutoff=0.5)
     if close:
         return close

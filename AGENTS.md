@@ -14,6 +14,7 @@
   - Create venv: `uv venv -p python3.12 .venv && source .venv/bin/activate`
   - Update dependencies if required, modify `backend/pyproject.toml` then run `uv pip compile backend/pyproject.toml -o backend/requirements.txt`
   - Install deps: `uv pip install -r backend/requirements.txt`
+  - Optional MCP server (`/api/mcp/`): `uv pip install "fastmcp>=3.4,<4"` — deliberately not a default dependency (it would pull ~30 transitive packages the PyInstaller desktop spec does not declare). Without it the endpoint is simply not mounted. See [`docs/development/mcp.md`](docs/development/mcp.md).
   - Dev/test deps: `uv pip compile backend/pyproject.toml --extra dev -o backend/requirements-dev.txt && uv pip install -r backend/requirements-dev.txt` (includes runtime deps plus `pytest` and `pytest-timeout`)
   - Start API dev server: `uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000`
 - Frontend (pnpm, Vite, PrimeVue):

@@ -17,6 +17,15 @@ description: >
 
 Binderdash is a web app + FastAPI service that aggregates the results of de novo protein binder design runs (BindCraft, RFdiffusion / RFdiffusion3, BoltzGen, …), tailored for use with outputs from the nf-binder-design pipeline. This skill describes how an agent can drive the same REST API the browser frontend uses, both for read-only data extraction (designs, scores, PDB/CIF files) and for the DNA optimisation / sequence preparation workflow.
 
+> **Prefer the MCP server if the instance has one.** Binderdash exposes MCP at
+> `/api/mcp/` (same API key, `Authorization: Bearer bd_…`). It fixes, by construction,
+> most of what the NEVER list below warns about: canonical metric names resolve per
+> method, sort directions come from a server-side vocabulary instead of being guessed,
+> `pdb_file` server paths are replaced by `structure_filename`/`structure_url`, and
+> sort/limit/column-selection happen server-side. Use this REST skill when MCP is
+> unavailable, or for the DNA optimisation and tag-placement workflows, which MCP does
+> not cover. See `docs/development/mcp.md`.
+
 ## When to Use This Skill
 
 - User mentions **Binderdash** or `binderdash.knottlab.cloud.edu.au` (or a local Binderdash instance)

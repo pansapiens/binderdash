@@ -455,6 +455,14 @@ class TestMetricsMapping:
         resolved = resolve_column_per_row(df, "iptm")
         assert resolved.tolist() == pytest.approx([0.9, 0.7])
 
+    def test_bindcraft_rmsd_resolves_to_the_column_bindcraft_actually_writes(self):
+        # BindCraft's results table has Average_Binder_RMSD, not a bare Binder_RMSD, so
+        # canonical "rmsd" used to resolve to nothing for every bindcraft design.
+        assert (
+            resolve_column("rmsd", "bindcraft", ["Average_Binder_RMSD", "Average_Target_RMSD"])
+            == "Average_Binder_RMSD"
+        )
+
     def test_resolve_rfd_iptm_fallback_when_boltz_iptm_present(self):
         assert resolve_column("iptm", "rfd", ["rmsd", "boltz_iptm"]) == "boltz_iptm"
 

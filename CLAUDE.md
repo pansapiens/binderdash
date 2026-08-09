@@ -34,6 +34,21 @@ Method-specific behaviour is centralised as declarative tables. When adding/adju
 
 Import from `backend.config` or its submodules. Note `run_discovery` imports `run_folder_signatures` from `backend.config.run_signatures`.
 
+## MCP server (`backend/mcp_server/`)
+
+A stateless FastMCP server mounted at `/api/mcp/` in the same process, so tools call the
+service layer in-process and share the design cache. Auth reuses the per-user `bd_` API
+keys. **Optional** — gated on `fastmcp` being importable; every `fastmcp` import is
+inside a function, so a build without the extra returns `None` from
+`build_mcp_http_app()` and nothing mounts.
+
+The package is `mcp_server`, **not** `mcp`: pytest puts `backend/` on `sys.path`, where a
+package named `mcp` shadows the SDK fastmcp imports. Two things in `main.py` are
+load-bearing and easy to break — the **CSRF exemption** for the mount path (else auth
+failures surface as an unparseable `text/plain` 403) and **lifespan chaining** via
+`AsyncExitStack` (else every tool call fails with "Task group is not initialized"). The
+surface deliberately does not mirror REST; see `docs/development/mcp.md`.
+
 ## Auth model
 
 Multiple auth backends coexist, resolved at request time (`backend/auth.py`, `backend/auth_providers/`): per-user API keys (`backend/api_keys.py`, via `Authorization: Bearer` or `X-Binderdash-Api-Key`), `LOCAL_USERS` (bcrypt), PAM, and Google OAuth — or fully disabled via `DISABLE_AUTHENTICATION`.

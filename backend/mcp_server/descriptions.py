@@ -55,10 +55,12 @@ The workhorse. Use it to inspect designs, pull metrics for your own analysis, an
 gather data to plot yourself — there is no server-side plotting tool because you can
 chart these rows directly.
 
-Sorting defaults to `sort="primary_score"`, which sorts each design by its OWN
-method's primary score in that method's own correct direction, so a mixed-method
-selection comes back in a meaningful order from one call. Any other `sort` uses
-`order="auto"` by default, applying the metric's known direction (see
+Sorting defaults to `sort="default"`: best designs first, by `iptm` DESCENDING and
+then `pae_interaction` ASCENDING for designs that report no iptm. Both are canonical,
+so they resolve to whichever raw column each method uses and a mixed-method table
+orders sensibly from one call. `sort="primary_score"` instead uses each method's own
+configured primary score — the same order the Binderdash web UI shows. Any other
+`sort` uses `order="auto"`, applying that metric's known direction (see
 `describe_methods`) rather than a guess.
 
 Filters are `{column, operator, value}`. Numeric operators are `<`, `<=`, `>`, `>=`;
@@ -149,8 +151,9 @@ as-generated structure and distinct from the pipeline's own reported values), an
 `structure_url` for downloading the file. It never returns a server filesystem path.
 
 Metrics are computed on demand and cached; expect seconds per structure the first
-time. Capped at 12 designs per call (24 maximum) — that is a compute limit, not just
-a token one. Use `read_structure_file` if you genuinely need the atom records.
+time. Capped at 24 designs per call — a compute limit, not just a token one, so keep
+batches small when `include_metrics` is on. Use `read_structure_file` only if you
+genuinely need the atom records.
 """
 
 READ_STRUCTURE_FILE = """Return the raw text of one design's structure file (PDB or mmCIF).

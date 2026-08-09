@@ -48,7 +48,11 @@ METRIC_ALIASES: Dict[str, Dict[str, Optional[Union[str, List[str]]]]] = {
         "boltzgen": "bb_rmsd",
         "rfd": "rmsd",
         "rfd3": "rf3_rmsd_target_aligned_binder_rmsd_all",
-        "bindcraft": "Binder_RMSD",
+        # BindCraft's results table reports the AF2-model-averaged column; a bare
+        # Binder_RMSD does not exist there, so canonical "rmsd" silently resolved to
+        # nothing for every bindcraft design (it is kept as a fallback candidate in
+        # case an older/derived table has it).
+        "bindcraft": ["Average_Binder_RMSD", "Binder_RMSD"],
     },
     "pae_interaction": {
         "rfd": "pae_interaction",

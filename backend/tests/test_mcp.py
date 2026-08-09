@@ -149,6 +149,332 @@ class TestAuth:
                 await client.list_tools()
 
 
+class TestOptionalExtra:
+    def test_without_fastmcp_the_server_is_disabled_not_broken(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The desktop bundle ships without the mcp extra; it must still start.
+
+        A hard dependency here would fail at first import inside PyInstaller, whose spec
+        does not declare fastmcp's transitive backends.
+        """
+        import builtins
+
+        import backend.mcp_server.server as server_mod
+
+        real_import = builtins.__import__
+
+        def blocked(name, *args, **kwargs):
+            if name == "fastmcp" or name.startswith("fastmcp."):
+                raise ImportError("simulated: extra not installed")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", blocked)
+        assert server_mod.mcp_available() is False
+        assert server_mod.build_mcp_http_app() is None
+
+
+@pytest.fixture
+def designs_loaded():
+    """Two runs of different methods, so per-method column resolution is exercised.
+
+    bindcraft reports iptm as Average_i_pTM and rfd reports its (lower-is-better)
+    pae_interaction under that name -- a selection spanning both is exactly where the
+    REST API's raw column names stop working.
+    """
+    import backend.cache as cache_mod
+
+    cache_mod.run_cache.clear()
+    cache_mod.designs_by_run_id.clear()
+    cache_mod.designs_cache.clear()
+
+    cache_mod.run_cache["bc"] = {
+        "run_id": "bc",
+        "project_id": "proj",
+        "method": "bindcraft",
+        "metadata": {"name": "bc-run"},
+        "pdb_files": ["/data/bc/d1.pdb", "/data/bc/d2.pdb"],
+    }
+    cache_mod.run_cache["rf"] = {
+        "run_id": "rf",
+        "project_id": "proj",
+        "method": "rfd",
+        "metadata": {"name": "rf-run"},
+        "pdb_files": ["/data/rf/r1.pdb"],
+    }
+    cache_mod.designs_by_run_id["bc"] = [
+        {
+            "run_id": "bc",
+            "design_id": "d1",
+            "method": "bindcraft",
+            "Average_i_pTM": 0.91234567,
+            "Average_i_pAE": 7.5,
+            "pdb_file": "/data/bc/d1.pdb",
+            "Sequence": "AAAAAAAAAA",
+        },
+        {
+            "run_id": "bc",
+            "design_id": "d2",
+            "method": "bindcraft",
+            "Average_i_pTM": 0.55,
+            "Average_i_pAE": 18.0,
+            "pdb_file": "/data/bc/d2.pdb",
+            "Sequence": "CCCCCCCCCC",
+        },
+    ]
+    cache_mod.designs_by_run_id["rf"] = [
+        {
+            "run_id": "rf",
+            "design_id": "r1",
+            "method": "rfd",
+            "pae_interaction": 6.0,
+            "rmsd": 1.2,
+            "pdb_file": "/data/rf/r1.pdb",
+            "Sequence": "DDDDDDDDDD",
+        }
+    ]
+    cache_mod._rebuild_flat_cache_from_index()
+    yield
+    cache_mod.run_cache.clear()
+    cache_mod.designs_by_run_id.clear()
+    cache_mod.designs_cache.clear()
+
+
+class TestQueryDesigns:
+    async def test_canonical_column_resolves_per_method(self, app, seeded, designs_loaded):
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "query_designs",
+                {"run_ids": ["bc", "rf"], "columns": ["iptm", "pae_interaction"], "limit": 10},
+            )
+        data = result.data
+        rows = {r[data["columns"].index("design_id")]: r for r in data["rows"]}
+        iptm = data["columns"].index("iptm")
+        pae = data["columns"].index("pae_interaction")
+        # bindcraft's Average_i_pTM and Average_i_pAE, rfd's pae_interaction.
+        assert rows["d1"][iptm] == 0.9123  # four significant figures
+        assert rows["d1"][pae] == 7.5
+        assert rows["r1"][iptm] is None
+        assert rows["r1"][pae] == 6.0
+
+    async def test_server_paths_are_never_returned(self, app, seeded, designs_loaded):
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool("query_designs", {"run_ids": ["bc"]})
+        assert "pdb_file" not in result.data["columns"]
+        row = result.data["rows"][0]
+        assert "/data/bc/" not in str(row)
+        filename = row[result.data["columns"].index("structure_filename")]
+        assert filename in ("d1.pdb", "d2.pdb")
+
+    async def test_wrong_sort_direction_warns_rather_than_lying(
+        self, app, seeded, designs_loaded
+    ):
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "query_designs",
+                {"run_ids": ["rf"], "sort": "pae_interaction", "order": "desc"},
+            )
+        codes = {w["code"] for w in result.data["warnings"]}
+        assert "SORT_DIRECTION_OVERRIDE" in codes
+
+    async def test_unknown_column_suggests_alternatives(self, app, seeded, designs_loaded):
+        with pytest.raises(Exception) as exc:
+            async with mcp_client(app, seeded["token"]) as client:
+                await client.call_tool(
+                    "query_designs", {"run_ids": ["bc"], "columns": ["iptm_typo"]}
+                )
+        assert "UNKNOWN_COLUMN" in str(exc.value)
+
+    async def test_oversized_request_is_refused_not_truncated(
+        self, app, seeded, designs_loaded, monkeypatch
+    ):
+        import backend.mcp_server.tables as tables_mod
+
+        monkeypatch.setattr(tables_mod, "MAX_CELLS", 1)
+        with pytest.raises(Exception) as exc:
+            async with mcp_client(app, seeded["token"]) as client:
+                await client.call_tool("query_designs", {"run_ids": ["bc"]})
+        assert "RESPONSE_TOO_LARGE" in str(exc.value)
+
+    async def test_empty_result_explains_the_filters(self, app, seeded, designs_loaded):
+        with pytest.raises(Exception) as exc:
+            async with mcp_client(app, seeded["token"]) as client:
+                await client.call_tool(
+                    "query_designs",
+                    {
+                        "run_ids": ["bc"],
+                        "filters": [{"column": "iptm", "operator": ">", "threshold": 0.99}],
+                    },
+                )
+        assert "EMPTY_SELECTION" in str(exc.value)
+
+
+    async def test_canonical_name_that_is_also_a_raw_column_still_resolves(
+        self, app, seeded, designs_loaded
+    ):
+        """`pae_interaction` is rfd's own column name AND the canonical name.
+
+        Preferring the literal column returns rfd's values and null for bindcraft,
+        which reads as missing data rather than a resolution failure.
+        """
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "query_designs",
+                {"run_ids": ["bc", "rf"], "columns": ["pae_interaction"], "limit": 10},
+            )
+        data = result.data
+        pae = data["columns"].index("pae_interaction")
+        design = data["columns"].index("design_id")
+        values = {r[design]: r[pae] for r in data["rows"]}
+        assert values == {"d1": 7.5, "d2": 18.0, "r1": 6.0}
+
+    async def test_default_sort_is_iptm_desc_then_pae_asc(self, app, seeded, designs_loaded):
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "query_designs", {"run_ids": ["bc", "rf"], "limit": 10}
+            )
+        data = result.data
+        assert data["sorted_by"] == "default"
+        order = [r[data["columns"].index("design_id")] for r in data["rows"]]
+        # d1 (iptm 0.91) then d2 (0.55); r1 has no iptm at all, so it sorts after both
+        # on pae_interaction rather than landing in arbitrary order.
+        assert order == ["d1", "d2", "r1"]
+
+    async def test_primary_score_sort_is_still_available(self, app, seeded, designs_loaded):
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "query_designs",
+                {"run_ids": ["bc", "rf"], "limit": 10, "sort": "primary_score"},
+            )
+        assert result.data["sorted_by"] == "primary_score"
+        assert result.data["returned"] == 3
+
+
+class TestSummarize:
+    async def test_grouped_summary_reports_direction(self, app, seeded, designs_loaded):
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "summarize_designs",
+                {"run_ids": ["bc", "rf"], "columns": ["iptm"], "group_by": "method"},
+            )
+        groups = {g["group"]: g for g in result.data["groups"]}
+        assert groups["bindcraft"]["columns"]["iptm"]["coverage"] == 2
+        assert groups["bindcraft"]["columns"]["iptm"]["higher_is_better"] is True
+        assert groups["rfd"]["columns"]["iptm"]["coverage"] == 0
+
+
+class TestRanking:
+    async def test_unresolvable_metric_is_an_error_not_a_silent_skip(
+        self, app, seeded, designs_loaded
+    ):
+        with pytest.raises(Exception) as exc:
+            async with mcp_client(app, seeded["token"]) as client:
+                await client.call_tool(
+                    "rank_designs",
+                    {"run_ids": ["rf"], "metrics": [{"column": "hbonds"}]},
+                )
+        assert "NO_RANKABLE_METRICS" in str(exc.value)
+
+    async def test_ranking_reports_what_each_metric_resolved_to(
+        self, app, seeded, designs_loaded
+    ):
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "rank_designs",
+                {"run_ids": ["bc"], "metrics": [{"column": "iptm"}], "limit": 5},
+            )
+        resolved = result.data["metrics_resolved"]
+        assert resolved[0]["column"] == "iptm"
+        assert resolved[0]["higher_is_better"] is True
+        assert resolved[0]["designs_with_value"] == 2
+
+
+class TestDiversityAndSavedSets:
+    async def test_missing_sequences_are_reported_not_silently_selected(
+        self, app, seeded, designs_loaded
+    ):
+        import backend.cache as cache_mod
+
+        for row in cache_mod.designs_by_run_id["bc"]:
+            row["Sequence"] = None
+        cache_mod._rebuild_flat_cache_from_index()
+
+        with pytest.raises(Exception) as exc:
+            async with mcp_client(app, seeded["token"]) as client:
+                await client.call_tool(
+                    "select_diverse_designs",
+                    {"run_ids": ["bc"], "metrics": [{"column": "iptm"}], "budget": 2},
+                )
+        assert "SEQUENCES_REQUIRED" in str(exc.value)
+
+    async def test_shortfall_against_budget_is_warned_about(
+        self, app, seeded, designs_loaded
+    ):
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "select_diverse_designs",
+                {"run_ids": ["bc"], "metrics": [{"column": "iptm"}], "budget": 10},
+            )
+        codes = {w["code"] for w in result.data["warnings"]}
+        assert "RESULT_SMALLER_THAN_BUDGET" in codes
+        assert result.data["returned"] == 2
+
+    async def test_save_as_creates_a_set_visible_to_the_rest_api(
+        self, app, seeded, designs_loaded
+    ):
+        async with mcp_client(app, seeded["token"]) as client:
+            created = await client.call_tool(
+                "select_diverse_designs",
+                {
+                    "run_ids": ["bc"],
+                    "metrics": [{"column": "iptm"}],
+                    "budget": 2,
+                    "save_as": "mcp panel",
+                },
+            )
+            listed = await client.call_tool("saved_sets", {"action": "list"})
+
+        assert created.data["saved_set_name"] == "mcp panel"
+        names = {s["name"] for s in listed.data["saved_sets"]}
+        assert "mcp panel" in names
+
+        async with http_client(app) as http:
+            resp = await http.get(
+                "/api/saved-sets", headers={"Authorization": f"Bearer {seeded['token']}"}
+            )
+        assert resp.status_code == 200
+        assert "mcp panel" in {s["name"] for s in resp.json()["saved_sets"]}
+
+    async def test_saved_set_get_defaults_to_the_panel_not_the_pool(
+        self, app, seeded, designs_loaded
+    ):
+        async with mcp_client(app, seeded["token"]) as client:
+            created = await client.call_tool(
+                "select_diverse_designs",
+                {
+                    "run_ids": ["bc"],
+                    "metrics": [{"column": "iptm"}],
+                    "budget": 1,
+                    "save_as": "panel",
+                },
+            )
+            panel = await client.call_tool(
+                "saved_sets",
+                {"action": "get", "saved_set_id": created.data["saved_set_id"]},
+            )
+            pool = await client.call_tool(
+                "saved_sets",
+                {
+                    "action": "get",
+                    "saved_set_id": created.data["saved_set_id"],
+                    "in_diverse_set_only": False,
+                },
+            )
+        assert panel.data["returned"] == 1
+        assert pool.data["returned"] == 2
+        assert "TRUNCATED" in {w["code"] for w in pool.data["warnings"]}
+
+
 class TestDiscoveryTools:
     async def test_describe_methods_states_sort_directions(self, app, seeded):
         async with mcp_client(app, seeded["token"]) as client:
