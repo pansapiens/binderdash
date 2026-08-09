@@ -25,13 +25,24 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Optional: fastmcp pulls ~30 transitive distributions (keyring, jeepney/SecretStorage,
+# aiofile/caio, …) that resolve backends through entry points and D-Bus and are absent
+# from desktop/binderdash.spec's hiddenimports. Keeping it out of the default set leaves
+# the PyInstaller desktop bundle and the production image resolution unchanged; the MCP
+# server simply does not mount when it isn't installed.
+mcp = [
+    "fastmcp>=3.4,<4",
+]
 dev = [
     "pytest",
     "pytest-timeout",
+    "pytest-asyncio",
+    "fastmcp>=3.4,<4",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = [".."]
+asyncio_mode = "auto"
 markers = [
     "timeout(seconds): fail if test exceeds given duration",
 ]

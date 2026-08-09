@@ -272,6 +272,19 @@ def _lookup(token: str) -> Optional[ApiKeyPrincipal]:
     return principal
 
 
+def principal_for_token(token: str) -> Optional[ApiKeyPrincipal]:
+    """Authenticate a bare token, for callers with no ``Request`` to memoise on.
+
+    The MCP server's TokenVerifier gets a token, not a request. Routing it through
+    ``_lookup`` keeps one TTL cache and one ``last_used_at`` debounce per process, so
+    revoking a key takes effect for MCP and REST at the same moment.
+    """
+    token = (token or "").strip()
+    if not token or not api_keys_available():
+        return None
+    return _lookup(token)
+
+
 def token_from_request(request: Any) -> Optional[str]:
     header_key = (request.headers.get("X-Binderdash-Api-Key") or "").strip()
     if header_key:

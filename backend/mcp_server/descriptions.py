@@ -1,0 +1,186 @@
+"""Tool descriptions.
+
+These are the only documentation an agent gets, so treat edits as behaviour changes.
+Each follows the same shape: what it does, when to call it, what to call instead, the
+gotcha that would otherwise produce a confidently wrong answer, and the size budget.
+"""
+
+LIST_RUNS = """List the binder design runs available in Binderdash.
+
+Start here. Every other tool takes `run_id` values from this one.
+
+Each run has a `method` (bindcraft, boltzgen, rfd, rfd3, ...), which determines what
+columns its designs carry — there is no fixed schema across methods. Runs sharing a
+`merge_group` are separate folders of the same logical campaign; designs from them can
+collide on `design_id`, which is why `source_path` exists.
+
+`design_count` is null for runs whose designs are not yet loaded into the server's
+cache; pass `run_ids` to load and count specific runs. Cheap; returns metadata only.
+"""
+
+DESCRIBE_METHODS = """Explain the metric vocabulary: canonical names, sort directions, ranking presets.
+
+Call this before your first `query_designs` sort or any `rank_designs` call, and
+whenever you are about to reason about a metric by name.
+
+The critical content is sort direction. Binderdash metrics do NOT share one: `iptm`
+and `ptm` are higher-is-better, while `pae_interaction` and `rmsd` are
+LOWER-is-better. Ranking a run by `pae_interaction` descending returns the worst
+designs while looking entirely successful. Use canonical names and `order="auto"` and
+the direction is applied for you.
+
+Canonical names (`iptm`, `pae_interaction`, ...) resolve per-row to whichever raw
+column that design's method actually uses — `Average_i_pTM` for bindcraft,
+`design_to_target_iptm` for boltzgen, and so on. Prefer them over raw column names,
+which silently match only one method. Tiny response; no run data involved.
+"""
+
+DESCRIBE_COLUMNS = """List the columns available across a set of runs, with per-method coverage and ranges.
+
+Call this after `list_runs` when you need to know what is actually measurable for a
+selection — particularly before filtering on a column you have not confirmed exists.
+
+`coverage` is what matters in a mixed-method selection: a column present for only one
+of three methods will filter out every design from the other two, which reads as a
+harsh threshold rather than a missing column.
+
+By default only canonical metrics and commonly useful columns are returned. Set
+`include_raw=true` for every raw column name, which for a four-method selection is
+150+ entries and several thousand tokens.
+"""
+
+QUERY_DESIGNS = """Query the design table: filter, sort, page, and choose columns.
+
+The workhorse. Use it to inspect designs, pull metrics for your own analysis, and
+gather data to plot yourself — there is no server-side plotting tool because you can
+chart these rows directly.
+
+Sorting defaults to `sort="primary_score"`, which sorts each design by its OWN
+method's primary score in that method's own correct direction, so a mixed-method
+selection comes back in a meaningful order from one call. Any other `sort` uses
+`order="auto"` by default, applying the metric's known direction (see
+`describe_methods`) rather than a guess.
+
+Filters are `{column, operator, value}`. Numeric operators are `<`, `<=`, `>`, `>=`;
+string operators are `contains`, `not_contains`, `starts_with`, `ends_with`, `equals`,
+`not_equals`, `regex`. Canonical column names resolve per method; raw names do not.
+
+Budget: `limit` defaults to 25 and caps at 200, and rows x columns may not exceed
+4000 cells — an oversized request is rejected with a suggested narrower call rather
+than truncated, so what you receive is always the complete answer to what you asked.
+Ask for the columns you need; the default column set is deliberately small.
+"""
+
+SUMMARIZE_DESIGNS = """Summarise metric distributions without returning individual designs.
+
+Call this to answer "is this run any good", "how do these two runs compare", or "where
+should I put the threshold" — it is far cheaper than pulling rows and reducing them
+yourself, and it works over selections too large for `query_designs` to return.
+
+Returns count, min/max, mean, median, quartiles and optional histogram bins per
+column, optionally grouped by another column (`run_id`, `method`, ...).
+
+Budget: up to 6 columns, 40 groups and 20 histogram bins.
+"""
+
+RANK_DESIGNS = """Rank designs by one or more metrics, using Binderdash's rank-based scoring.
+
+Call this when you want the best designs by a composite of several metrics, rather
+than a single sort. Scoring is rank-based rather than absolute, so metrics on
+different scales combine sensibly and results stay meaningful across runs.
+
+Each metric has a `weight` (higher = more important) and `higher_is_better`. Omit
+`higher_is_better` for a canonical metric and the known direction is used. Optional
+`filters` are hard thresholds applied first; designs that fail are ranked but flagged,
+never silently dropped, and the per-filter cascade counts tell you which threshold did
+the damage.
+
+Unlike the REST endpoint, a metric that resolves for no design in the selection is an
+error rather than a silently skipped term — a "ranking" that quietly ignored half your
+criteria is worse than no ranking.
+
+Use `select_diverse_designs` instead when you want a non-redundant panel to order,
+rather than a leaderboard.
+"""
+
+SELECT_DIVERSE_DESIGNS = """Select a diverse, high-quality panel of designs — filter, rank, then de-duplicate by sequence.
+
+This is what you want when picking designs to actually order and test: the top N by
+score are often near-identical sequences, and a panel of near-identical binders wastes
+the experiment. Selection trades quality against pairwise sequence dissimilarity via
+`alpha` (higher = more weight on diversity).
+
+Requires sequences. Designs without one are EXCLUDED from the pool rather than
+treated as maximally dissimilar, so the returned panel can be smaller than `budget`;
+when that happens you get a warning saying exactly how many designs lacked sequences
+and what to do about it. Set `auto_extract_sequences=true` to extract them from
+structures first (slower, and it writes to the server's derived cache).
+
+Set `save_as` to persist the result as a Saved Set, which appears in the Binderdash web
+UI for a human to review — the natural way to hand a curated panel back.
+
+Returns only the selected designs, not the whole ranked pool. Selection is
+compute-heavy (pairwise alignment); expect seconds to a minute on large selections.
+"""
+
+SAVED_SETS = """List, read, or rename Saved Sets — curated design panels shared with the Binderdash web UI.
+
+`action="list"` gives every saved set with its name, creation time, source runs and
+counts. `action="get"` returns its designs; `action="rename"` renames one.
+
+A saved set stores the entire ranked pool with an `in_diverse_set` flag, not just the
+selection, so a "24-design panel" contains thousands of rows. `get` therefore defaults
+to `in_diverse_set_only=true`; set it false only when you specifically want the ranked
+pool, and page through it.
+
+Create saved sets with `select_diverse_designs(save_as=...)`. Deleting them is
+deliberately not available here — do that in the web UI.
+"""
+
+INSPECT_STRUCTURES = """Analyse the 3D structures of specific designs: chains, roles, sequences, and interface metrics.
+
+Call this to reason about the binder itself rather than its scores — which chain is
+the binder, how long it is, how much surface it buries, whether the interface is
+plausible.
+
+Returns per design: chain IDs with binder/target roles, residue counts, sequences,
+Binderdash's own computed interface metrics (`binderdash_*`, computed from the
+as-generated structure and distinct from the pipeline's own reported values), and a
+`structure_url` for downloading the file. It never returns a server filesystem path.
+
+Metrics are computed on demand and cached; expect seconds per structure the first
+time. Capped at 12 designs per call (24 maximum) — that is a compute limit, not just
+a token one. Use `read_structure_file` if you genuinely need the atom records.
+"""
+
+READ_STRUCTURE_FILE = """Return the raw text of one design's structure file (PDB or mmCIF).
+
+Call this ONLY when you must read atom records yourself. For chains, sequences,
+interface metrics or anything you would otherwise derive by parsing, call
+`inspect_structures` — it is far cheaper and already computed.
+
+Structure files are large: a 2 MB mmCIF is roughly 600k tokens and will not fit. The
+default cap is 20 KB and the maximum is 200 KB; a file over the cap is an error naming
+its size, not a silent truncation that would leave you parsing half a molecule.
+"""
+
+EXPORT_STRUCTURES = """Bundle the structure files for a set of designs into a downloadable archive.
+
+Call this to hand a panel of structures to a human, or to fetch many structures at
+once for local analysis. Returns a URL and the manifest of what it contains, not the
+bytes — the archive is built by the same endpoint the web UI uses.
+
+Use `saved_sets(action="get")` or `select_diverse_designs` to choose the designs first.
+"""
+
+EXTRACT_SEQUENCES = """Extract amino-acid sequences from designs' structure files and cache them.
+
+Call this when a tool has told you sequences are missing — typically
+`select_diverse_designs`, which cannot work without them. Sequences are read from the
+structure files and written to the server's derived cache, so this only needs doing
+once per run.
+
+This is the one genuinely slow read-side operation: it parses every structure in the
+selection. Prefer `select_diverse_designs(auto_extract_sequences=true)`, which does it
+only for the designs that actually need it.
+"""

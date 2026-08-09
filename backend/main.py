@@ -1,5 +1,5 @@
 import logging
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import CSRF_COOKIE_NAME, request_has_valid_api_key
+from .mcp_server import MCP_MOUNT_PATH, build_mcp_http_app
 from .routers import api_keys as api_keys_routes
 from .routers import auth as auth_routes
 from .routers import designs as designs_routes
@@ -37,6 +38,9 @@ _STATIC_ROOT = static_root()
 _STATIC_ASSETS = _STATIC_ROOT / "assets"
 
 
+_MCP_APP = build_mcp_http_app()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db_url = (raw_settings.database or "").strip() or default_sqlite_url()
@@ -45,10 +49,37 @@ async def lifespan(app: FastAPI):
 
     hydrate_caches_from_repository()
     _sync_admin_flags()
-    yield
+    async with AsyncExitStack() as stack:
+        if _MCP_APP is not None:
+            # Mounting does not start the streamable-HTTP session manager -- that
+            # happens in the sub-app's own lifespan, which Starlette does not run for
+            # mounted apps. Skip this and every tool call fails at runtime with "Task
+            # group is not initialized", never at import and never in a smoke test that
+            # only checks for a 401. AsyncExitStack keeps the single yield an
+            # asynccontextmanager requires and unwinds on the task that entered, which
+            # the anyio cancel scopes inside the session manager demand.
+            inner = _MCP_APP.app  # unwrap the header shim
+            await stack.enter_async_context(inner.router.lifespan_context(inner))
+            _warn_if_mcp_unusable()
+        yield
     from .api_keys import flush_last_used
 
     flush_last_used()
+
+
+def _warn_if_mcp_unusable() -> None:
+    """Auth on but no key store means every MCP request 401s, indistinguishably.
+
+    Only meaningful once the repository is initialised, hence inside the lifespan.
+    """
+    from .api_keys import api_keys_available
+
+    if not settings.auth_disabled and not api_keys_available():
+        logger.warning(
+            "MCP is mounted at %s but API keys are unavailable (no DATABASE); every "
+            "request will be rejected with 401",
+            MCP_MOUNT_PATH,
+        )
 
 
 def _sync_admin_flags() -> None:
@@ -113,6 +144,15 @@ async def csrf_protection(request: Request, call_next):
         "/api/auth/google/login",
         "/api/auth/google/callback",
     ]:
+        return await call_next(request)
+    path = request.url.path
+    if path == MCP_MOUNT_PATH or path.startswith(MCP_MOUNT_PATH + "/"):
+        # The MCP sub-app authenticates with a bearer token and never reads a cookie,
+        # so there is no ambient credential for a hostile page to abuse -- CSRF has
+        # nothing to defend here. Leaving it on would answer a missing or revoked key
+        # with a text/plain 403 "CSRF token missing" that no MCP client can parse,
+        # instead of the protocol's 401 with WWW-Authenticate. Exact-or-slash, not a
+        # bare startswith, so a future /api/mcp-admin is not silently exempted too.
         return await call_next(request)
     if settings.auth_disabled:
         return await call_next(request)
@@ -194,3 +234,8 @@ app.include_router(filtering_routes.router)
 app.include_router(saved_sets_routes.router)
 if settings.binderdash_desktop:
     app.include_router(desktop_routes.router)
+
+if _MCP_APP is not None:
+    # Endpoint is /api/mcp/ (trailing slash); POST /api/mcp 307-redirects to it.
+    app.mount(MCP_MOUNT_PATH, _MCP_APP, name="mcp")
+    logger.info("MCP server mounted at %s/", MCP_MOUNT_PATH)
