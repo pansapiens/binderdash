@@ -355,6 +355,10 @@ class SqliteDesignsRepository:
             identifier = (row["identifier"] or "").strip()
             if not provider or not identifier:
                 continue
+            # Normalise exactly as upsert_login_identity does, or the next
+            # login creates a second identity row for the same person.
+            if provider != "google" or "@" in identifier:
+                identifier = identifier.lower()
             already = c.execute(
                 "SELECT 1 FROM binderdash_user_identities WHERE provider = ? AND identifier = ?",
                 (provider, identifier),
