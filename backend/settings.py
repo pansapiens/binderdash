@@ -9,6 +9,11 @@ class RawSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
+        # pydantic-settings forbids unknown fields by default, which would turn
+        # every removed setting into a startup crash for anyone whose .env
+        # still mentions it (BINDERDASH_API_KEY being the first such case).
+        # A stale line in .env should be inert, not fatal.
+        extra="ignore",
     )
     database: str = ""
     run_base_dirs: str = ""
