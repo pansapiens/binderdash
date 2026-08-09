@@ -96,6 +96,8 @@ async def read_users_me(current_user: AuthUser = Depends(get_current_active_user
 @router.get("/status")
 async def auth_status():
     from ..api_keys import api_keys_available
+    from ..mcp_server import MCP_MOUNT_PATH
+    from ..mcp_server.server import mcp_available
 
     google_login_path = "/api/auth/google/login"
     if settings.auth_disabled:
@@ -116,6 +118,9 @@ async def auth_status():
             },
         },
         "api_keys": {"enabled": keys_reason is None, "reason": keys_reason},
+        # The MCP server is an optional extra, so the UI must not offer client setup
+        # instructions for an endpoint this deployment does not serve.
+        "mcp": {"enabled": mcp_available(), "path": f"{MCP_MOUNT_PATH}/"},
     }
 
 

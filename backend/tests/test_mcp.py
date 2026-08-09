@@ -149,6 +149,19 @@ class TestAuth:
                 await client.list_tools()
 
 
+class TestStatusAdvertisesMcp:
+    async def test_status_reports_mcp_so_the_ui_can_offer_client_setup(self, app):
+        """The account UI shows MCP client config only when this says enabled.
+
+        Without it the "New API key created" panel would hand out setup
+        instructions for an endpoint a deployment without the extra never serves.
+        """
+        async with http_client(app) as http:
+            resp = await http.get("/api/auth/status")
+        assert resp.status_code == 200
+        assert resp.json()["mcp"] == {"enabled": True, "path": "/api/mcp/"}
+
+
 class TestOptionalExtra:
     def test_without_fastmcp_the_server_is_disabled_not_broken(
         self, monkeypatch: pytest.MonkeyPatch

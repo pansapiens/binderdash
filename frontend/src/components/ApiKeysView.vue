@@ -28,6 +28,54 @@
         @click="curlExpanded = !curlExpanded"
       />
       <pre v-if="curlExpanded" class="api-keys-view__curl">{{ curlSnippet }}</pre>
+
+      <template v-if="mcpEnabled">
+        <Button
+          :label="mcpExpanded ? 'Hide AI agent (MCP) setup' : 'Use with Claude Code or another AI agent (MCP)'"
+          :icon="mcpExpanded ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+          text
+          size="small"
+          class="api-keys-view__curl-toggle"
+          @click="mcpExpanded = !mcpExpanded"
+        />
+        <div v-if="mcpExpanded" class="api-keys-view__mcp">
+          <p class="api-keys-view__mcp-intro">
+            Binderdash speaks <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP</a>,
+            so an agent can query runs, rank and filter designs, and inspect interfaces directly.
+          </p>
+
+          <div class="api-keys-view__mcp-step">
+            <h4>Claude Code — one command</h4>
+            <p class="api-keys-view__mcp-hint">
+              Run this in a terminal. Use <code>--scope project</code> instead to share it with
+              collaborators via a <code>.mcp.json</code> in the repo (it would contain your key,
+              so only do that for a key you are happy to share).
+            </p>
+            <div class="api-keys-view__snippet-row">
+              <pre class="api-keys-view__curl">{{ mcpCliSnippet }}</pre>
+              <Button icon="pi pi-copy" size="small" text v-tooltip.top="'Copy'" @click="copyText(mcpCliSnippet, 'Command copied.')" />
+            </div>
+          </div>
+
+          <div class="api-keys-view__mcp-step">
+            <h4>Or edit the config file directly</h4>
+            <p class="api-keys-view__mcp-hint">
+              Add to <code>~/.claude.json</code> (all projects) or <code>.mcp.json</code> in a
+              project directory. Other MCP clients take the same <code>mcpServers</code> shape;
+              see their docs for the file location.
+            </p>
+            <div class="api-keys-view__snippet-row">
+              <pre class="api-keys-view__curl">{{ mcpJsonSnippet }}</pre>
+              <Button icon="pi pi-copy" size="small" text v-tooltip.top="'Copy'" @click="copyText(mcpJsonSnippet, 'Config copied.')" />
+            </div>
+          </div>
+
+          <Message severity="info" :closable="false">
+            The key goes in a header, so it is stored in that config file in plain text. Prefer a
+            dedicated, expiring key for each agent, and revoke it here when you are done.
+          </Message>
+        </div>
+      </template>
     </Panel>
 
     <Panel header="Create a new key">
@@ -124,12 +172,14 @@ import Message from 'primevue/message'
 import { useToast } from 'primevue/usetoast'
 import { apiKeysApi, parseApiTimestamp } from '../webapi'
 import type { ApiKeyDto, CreatedApiKeyDto } from '../webapi'
+import { useAuthStore } from '../stores/auth'
 
 const emit = defineEmits<{
   back: []
 }>()
 
 const toast = useToast()
+const authStore = useAuthStore()
 
 const keys = ref<ApiKeyDto[]>([])
 const loading = ref(false)
@@ -148,14 +198,48 @@ const creating = ref(false)
 
 const issuedKey = ref<CreatedApiKeyDto | null>(null)
 const curlExpanded = ref(false)
+const mcpExpanded = ref(false)
 const secretCodeRef = ref<HTMLElement | null>(null)
 
 const revokingId = ref<number | null>(null)
+
+// The MCP server is an optional backend extra; don't advertise setup for an endpoint
+// this deployment doesn't serve.
+const mcpEnabled = computed(() => authStore.authStatus?.mcp?.enabled === true)
+const mcpUrl = computed(
+  () => `${window.location.origin}${authStore.authStatus?.mcp?.path ?? '/api/mcp/'}`
+)
 
 const curlSnippet = computed(() => {
   if (!issuedKey.value) return ''
   const origin = window.location.origin
   return `curl -H "X-Binderdash-Api-Key: ${issuedKey.value.key}" ${origin}/api/runs`
+})
+
+const mcpCliSnippet = computed(() => {
+  if (!issuedKey.value) return ''
+  return [
+    'claude mcp add --transport http --scope user binderdash \\',
+    `  ${mcpUrl.value} \\`,
+    `  --header "Authorization: Bearer ${issuedKey.value.key}"`
+  ].join('\n')
+})
+
+const mcpJsonSnippet = computed(() => {
+  if (!issuedKey.value) return ''
+  return JSON.stringify(
+    {
+      mcpServers: {
+        binderdash: {
+          type: 'http',
+          url: mcpUrl.value,
+          headers: { Authorization: `Bearer ${issuedKey.value.key}` }
+        }
+      }
+    },
+    null,
+    2
+  )
 })
 
 function formatDate(value: string): string {
@@ -241,22 +325,38 @@ async function confirmRevoke(key: ApiKeyDto) {
   }
 }
 
-async function copySecret() {
-  const secret = issuedKey.value?.key
-  if (!secret) return
-
+/** Copy to the clipboard. Returns false so callers can offer their own fallback. */
+async function copyText(text: string, successDetail: string, quiet = false): Promise<boolean> {
+  if (!text) return false
   // navigator.clipboard is undefined outside a secure context (e.g. served over
-  // plain HTTP on the LAN), so fall back to selecting the text for manual copy.
+  // plain HTTP on the LAN).
   if (navigator.clipboard) {
     try {
-      await navigator.clipboard.writeText(secret)
-      toast.add({ severity: 'success', summary: 'Copied', detail: 'API key copied to clipboard.', life: 3000 })
-      return
+      await navigator.clipboard.writeText(text)
+      toast.add({ severity: 'success', summary: 'Copied', detail: successDetail, life: 3000 })
+      return true
     } catch (error) {
       console.error('Clipboard write failed:', error)
     }
   }
+  if (!quiet) {
+    toast.add({
+      severity: 'info',
+      summary: 'Clipboard unavailable',
+      detail: 'Clipboard access is unavailable here — select the text and copy it manually.',
+      life: 6000
+    })
+  }
+  return false
+}
 
+async function copySecret() {
+  const secret = issuedKey.value?.key
+  if (!secret) return
+
+  if (await copyText(secret, 'API key copied to clipboard.', true)) return
+
+  // Fall back to selecting the key text so it can be copied by hand.
   const el = secretCodeRef.value
   if (el) {
     const range = document.createRange()
@@ -318,6 +418,39 @@ onMounted(loadKeys)
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.api-keys-view__mcp {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.api-keys-view__mcp-intro,
+.api-keys-view__mcp-hint {
+  margin: 0 0 0.5rem;
+  color: #495057;
+}
+
+.api-keys-view__mcp-hint {
+  font-size: 0.875rem;
+}
+
+.api-keys-view__mcp-step h4 {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+}
+
+.api-keys-view__snippet-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.api-keys-view__snippet-row .api-keys-view__curl {
+  flex: 1 1 auto;
+  margin-top: 0;
 }
 
 .api-keys-view__create-row {

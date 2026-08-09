@@ -13,6 +13,8 @@ interface AuthStatus {
         google: { enabled: boolean; login_url: string }
     }
     api_keys: { enabled: boolean; reason?: string }
+    // Absent on older servers, and on any deployment built without the fastmcp extra.
+    mcp?: { enabled: boolean; path: string }
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -118,7 +120,8 @@ export const useAuthStore = defineStore('auth', () => {
                     google: { enabled: false, login_url: '/api/auth/google/login' }
                 },
                 // Fail closed on a status fetch failure — never assume keys are available.
-                api_keys: { enabled: false, reason: 'status_unavailable' }
+                api_keys: { enabled: false, reason: 'status_unavailable' },
+                mcp: { enabled: false, path: '/api/mcp/' }
             }
             setAuthStatus(fallback)
             return fallback

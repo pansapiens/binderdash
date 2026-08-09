@@ -20,6 +20,11 @@ uv pip install -r backend/requirements.txt
 uv pip install "fastmcp>=3.4,<4"     # or: uv pip install -e "backend[mcp]"
 ```
 
+There is **no env var** to turn it on or off — the mount is gated purely on whether
+`fastmcp` imports. A flag would be untestable (the mount happens at module import,
+before tests can patch settings) and would add a second way for the endpoint to be
+silently missing.
+
 It is optional rather than required because it pulls roughly thirty transitive
 distributions (`keyring`, `jeepney`/`SecretStorage`, `aiofile`/`caio`, …) that resolve
 backends through entry points and D-Bus and are not declared in
@@ -45,6 +50,23 @@ rejected with 401 (the startup log warns about this explicitly). With
 
 ### Client configuration
 
+The web UI does this for you: **account menu → API keys → Create**, then expand
+*"Use with Claude Code or another AI agent (MCP)"* on the new-key panel for a ready-made
+command and JSON snippet with the key and this server's URL already filled in. The
+section only appears when the server actually has MCP mounted (`GET /api/auth/status`
+reports `mcp.enabled`).
+
+Claude Code, in one command:
+
+```bash
+claude mcp add --transport http --scope user binderdash \
+  https://binderdash.example.org/api/mcp/ \
+  --header "Authorization: Bearer bd_your_key_here"
+```
+
+Or edit `~/.claude.json` (all projects) or `.mcp.json` (one project) directly — this is
+exactly what the command above writes, and other MCP clients take the same shape:
+
 ```json
 {
   "mcpServers": {
@@ -56,6 +78,11 @@ rejected with 401 (the startup log warns about this explicitly). With
   }
 }
 ```
+
+The key is stored in that file in plain text, so prefer a dedicated expiring key per
+agent and revoke it from the UI when finished. A project-scoped `.mcp.json` is shared
+with anyone who clones the repo, and Claude Code asks each of them to approve the server
+before first use.
 
 ## Tools
 

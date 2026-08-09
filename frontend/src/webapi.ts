@@ -1136,6 +1136,7 @@ export interface AuthStatusDto {
         google: { enabled: boolean; login_url: string }
     }
     api_keys: { enabled: boolean; reason?: string }
+    mcp?: { enabled: boolean; path: string }
 }
 
 export const authApi = {
