@@ -42,14 +42,21 @@ def create_repository(database_url: Optional[str]) -> Any:
         repo = SqliteDesignsRepository(raw)
         repo.init_schema()
         return repo
+    # A *misconfigured* DATABASE must not degrade quietly. Falling back to the
+    # noop repository here would silently discard designs, login history, and
+    # every API key while the app looked healthy. Leaving DATABASE unset is the
+    # supported way to run without persistence; a URL we cannot honour is a
+    # configuration error and should stop the process.
     if scheme in ("postgresql", "postgres"):
-        logger.error(
-            "DATABASE URL uses %s; Postgres repository not implemented yet",
-            scheme,
+        raise RuntimeError(
+            f"DATABASE URL uses {scheme!r}, but the Postgres repository is not "
+            "implemented. Use a sqlite:/// URL, or unset DATABASE to run "
+            "without persistence (this disables API keys)."
         )
-        return NoopDesignsRepository()
-    logger.warning("Unknown DATABASE scheme %r; persistence disabled", scheme)
-    return NoopDesignsRepository()
+    raise RuntimeError(
+        f"Unknown DATABASE scheme {scheme!r}. Use a sqlite:/// URL, or unset "
+        "DATABASE to run without persistence (this disables API keys)."
+    )
 
 
 def get_designs_repository() -> Any:
