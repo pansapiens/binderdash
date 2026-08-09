@@ -25,6 +25,7 @@ import { buildDesignKey } from '../utils/designKey'
 import { useDesignsStore } from './designs'
 import { PERSISTENCE_KEYS } from '../persistence/keys'
 import { kvGet, kvSet } from '../persistence/store'
+import { DEFAULT_RANKING_METRICS } from '../config/rankingPresets'
 
 /** Debounce window for hard-filter round-trips (see plan §7A.2 — cheap, ~0.16s/60k rows). */
 const APPLY_DEBOUNCE_MS = 300
@@ -37,6 +38,17 @@ export interface RankedDesignInfo {
     quality_score: number | null
 }
 
+export interface FilterChainItem {
+    index: number
+    type: 'filter' | 'diversity'
+    column: string
+    operator: string
+    threshold: number | null
+    text_value: string | null
+    enabled: boolean
+    remaining: number | null
+}
+
 export const useFilteringStore = defineStore('filtering', () => {
     // Available columns (union across the active Designs-tab run scope)
     const availableColumns = ref<ColumnInfoDto[]>([])
@@ -45,9 +57,15 @@ export const useFilteringStore = defineStore('filtering', () => {
 
     // Filter set configuration
     const filters = ref<FilterSpecDto[]>([])
-    const rankingMetrics = ref<RankingMetricDto[]>([])
+    // Fresh sessions (no persisted/loaded state) start with a single iptm@1.0 metric
+    // rather than an empty list — see setRankingMetrics/RANKING_PRESETS for the
+    // "iptm"/"BoltzGen" preset dropdown that can replace this.
+    const rankingMetrics = ref<RankingMetricDto[]>(DEFAULT_RANKING_METRICS.map((m) => ({ ...m })))
     const budget = ref<number>(24)
-    const alpha = ref<number>(0.1)
+    // BoltzGen's own default is 0.01 for its "peptide-anything" protocol but 0.001 for
+    // everything else (see `--alpha` docs) — 0.001 ("protein") is the safer default here
+    // since most Binderdash runs are protein binder design, not peptide.
+    const alpha = ref<number>(0.001)
     const sizeBuckets = ref<SizeBucketDto[]>([])
 
     // Live-filter result: null = no active filter (show everything); otherwise the set
@@ -69,6 +87,13 @@ export const useFilteringStore = defineStore('filtering', () => {
     const diversityLoading = ref(false)
     const diversityError = ref<string | null>(null)
     const lastDiversityResult = ref<{ passing_filters: number; diverse_set_count: number; total_designs: number } | null>(null)
+
+    // The raw diverse subset from the last "Apply Diversity Filter" run, kept separate
+    // from `passingDesignKeys` (which reflects hard filters only) so the diversity step
+    // can be toggled off — reverting to the hard-filter-only set — without re-running
+    // the (slow, pairwise-alignment-based) diversity selection.
+    const diverseDesignKeys = ref<Set<string> | null>(null)
+    const diversityEnabled = ref(true)
 
     // Preview (filter cascade) — unchanged behaviour, now against designsStore.selectedRunIds
     const previewResult = ref<FilteringPreviewResponseDto | null>(null)
@@ -108,6 +133,22 @@ export const useFilteringStore = defineStore('filtering', () => {
 
     const hasActiveFilters = computed(() => activeFilters.value.length > 0)
 
+    // Indices of enabled ranking-metric rows whose column isn't in availableColumns —
+    // i.e. no currently-selected run's method has any non-null value for it (see
+    // backend compute_available_columns, which already excludes entirely-null columns,
+    // so "absent from availableColumns" covers both "doesn't exist" and "exists but is
+    // all null/NA for this run scope"). Most likely to fire when applying a
+    // method-specific preset (e.g. "BoltzGen") to a run of a different method — see
+    // RANKING_PRESETS in config/rankingPresets.ts. Empty while columns are still loading
+    // or no runs are selected, to avoid false positives before data arrives.
+    const rankingMetricWarnings = computed<number[]>(() => {
+        if (!hasSelectedRuns.value || columnsLoading.value) return []
+        const known = new Set(availableColumns.value.map((c) => c.name))
+        return rankingMetrics.value
+            .map((m, idx) => (m.enabled !== false && m.column && !known.has(m.column) ? idx : -1))
+            .filter((idx) => idx >= 0)
+    })
+
     const canCreateSavedSet = computed(
         () => hasSelectedRuns.value && budget.value > 0 && !creatingSavedSet.value
     )
@@ -117,20 +158,29 @@ export const useFilteringStore = defineStore('filtering', () => {
     // zero filters configured — see runPreview).
     const initialDesignCount = computed<number | null>(() => previewResult.value?.total_designs ?? null)
 
+    // The key set that actually narrows the Designs table: diversity selection's result
+    // when it has been run and is still enabled, else the hard-filter-only set. See
+    // diverseDesignKeys/diversityEnabled above — toggling diversity off reverts here
+    // without discarding the cached diverse subset.
+    const effectivePassingKeys = computed<Set<string> | null>(() =>
+        diversityEnabled.value && diverseDesignKeys.value ? diverseDesignKeys.value : passingDesignKeys.value
+    )
+
     // Per-filter cascade, positioned for UI consumers that render the filter list as a
-    // chain (FilterChainSummary.vue). Each row pairs a configured filter (including
-    // disabled ones) with the "designs
-    // remaining" count after that stage — per_filter_counts is computed server-side
-    // from activeFilters (enabled-only, same relative order), so it's zipped
-    // positionally against just the enabled rows here. Guarded by a length check so a
-    // stale (pre-debounce) preview doesn't get paired with the wrong filter while an
-    // edit is in flight.
-    const filterChain = computed(() => {
+    // chain (FilterChainSummary.vue, and FilterSetBuilder.vue's cascade table). Each row
+    // pairs a configured filter (including disabled ones) with the "designs remaining"
+    // count after that stage — per_filter_counts is computed server-side from
+    // activeFilters (enabled-only, same relative order), so it's zipped positionally
+    // against just the enabled rows here. Guarded by a length check so a stale
+    // (pre-debounce) preview doesn't get paired with the wrong filter while an edit is
+    // in flight. If diversity selection has been run, it's appended as a final,
+    // separately-toggleable stage (see diversityEnabled).
+    const filterChain = computed<FilterChainItem[]>(() => {
         const stages = previewResult.value?.per_filter_counts ?? []
         const enabledCount = filters.value.filter((f) => f.enabled !== false).length
         const stagesMatch = stages.length === enabledCount
         let stageIdx = 0
-        return filters.value.map((filter, index) => {
+        const items: FilterChainItem[] = filters.value.map((filter, index) => {
             const enabled = filter.enabled !== false
             let remaining: number | null = null
             if (enabled) {
@@ -139,6 +189,7 @@ export const useFilteringStore = defineStore('filtering', () => {
             }
             return {
                 index,
+                type: 'filter',
                 column: filter.column,
                 operator: filter.operator,
                 threshold: filter.threshold ?? null,
@@ -147,6 +198,22 @@ export const useFilteringStore = defineStore('filtering', () => {
                 remaining
             }
         })
+        if (lastDiversityResult.value) {
+            items.push({
+                index: -1,
+                type: 'diversity',
+                column: 'Diversity Selection',
+                operator: `budget=${budget.value}, α=${alpha.value}`,
+                threshold: null,
+                text_value: null,
+                enabled: diversityEnabled.value,
+                // Only counts as narrowing the cascade while enabled — matches disabled
+                // hard filters above (remaining=null), so cascade-final-row logic that
+                // walks backward for the last non-null remaining skips it when off.
+                remaining: diversityEnabled.value ? lastDiversityResult.value.diverse_set_count : null
+            })
+        }
+        return items
     })
 
     // --- Available columns ---
@@ -282,8 +349,11 @@ export const useFilteringStore = defineStore('filtering', () => {
                 if (d.in_diverse_set) diverseKeys.add(key)
             }
             rankedDesigns.value = rankMap
-            // Narrow passingDesignKeys to just the diverse subset.
-            passingDesignKeys.value = diverseKeys
+            // Kept separate from passingDesignKeys (hard-filter-only) — see
+            // effectivePassingKeys — so the step can be toggled off without discarding
+            // the computed diverse subset.
+            diverseDesignKeys.value = diverseKeys
+            diversityEnabled.value = true
             lastDiversityResult.value = {
                 passing_filters: res.passing_filters,
                 diverse_set_count: res.diverse_set_count,
@@ -307,6 +377,8 @@ export const useFilteringStore = defineStore('filtering', () => {
         rankError.value = null
         diversityError.value = null
         lastDiversityResult.value = null
+        diverseDesignKeys.value = null
+        diversityEnabled.value = true
     }
 
     const disableAllFilters = () => {
@@ -321,6 +393,11 @@ export const useFilteringStore = defineStore('filtering', () => {
         if (!filter) return
         filter.enabled = filter.enabled === false ? true : false
         scheduleApply()
+    }
+
+    /** Toggle the diversity-selection stage on/off without re-running selection. */
+    const toggleDiversityEnabled = () => {
+        diversityEnabled.value = !diversityEnabled.value
     }
 
     // --- Preview (cascade) ---
@@ -367,6 +444,13 @@ export const useFilteringStore = defineStore('filtering', () => {
 
     const removeRankingMetric = (index: number) => {
         rankingMetrics.value.splice(index, 1)
+    }
+
+    /** Wholesale-replace the ranking metrics list — backs the presets dropdown
+     * (RANKING_PRESETS in config/rankingPresets.ts). Clones so mutating a row afterwards
+     * (e.g. tweaking a weight) doesn't touch the shared preset constant. */
+    const setRankingMetrics = (metrics: RankingMetricDto[]) => {
+        rankingMetrics.value = metrics.map((m) => ({ ...m }))
     }
 
     const addSizeBucket = () => {
@@ -432,9 +516,9 @@ export const useFilteringStore = defineStore('filtering', () => {
 
     const resetFilterSet = () => {
         filters.value = []
-        rankingMetrics.value = []
+        rankingMetrics.value = DEFAULT_RANKING_METRICS.map((m) => ({ ...m }))
         budget.value = 24
-        alpha.value = 0.1
+        alpha.value = 0.001
         sizeBuckets.value = []
         previewResult.value = null
         previewError.value = null
@@ -457,7 +541,7 @@ export const useFilteringStore = defineStore('filtering', () => {
         filters.value = recipe.filters ? recipe.filters.map((f) => ({ ...f, enabled: true })) : []
         rankingMetrics.value = recipe.metrics ? recipe.metrics.map((m) => ({ ...m, enabled: true })) : []
         budget.value = recipe.budget ?? 24
-        alpha.value = recipe.alpha ?? 0.1
+        alpha.value = recipe.alpha ?? 0.001
         sizeBuckets.value = recipe.size_buckets ? [...recipe.size_buckets] : []
         clearAppliedFilters()
         scheduleApply()
@@ -539,6 +623,8 @@ export const useFilteringStore = defineStore('filtering', () => {
         diversityLoading,
         diversityError,
         lastDiversityResult,
+        diverseDesignKeys,
+        diversityEnabled,
         previewResult,
         previewLoading,
         previewError,
@@ -553,8 +639,10 @@ export const useFilteringStore = defineStore('filtering', () => {
         activeRunIds,
         hasSelectedRuns,
         hasActiveFilters,
+        rankingMetricWarnings,
         canCreateSavedSet,
         initialDesignCount,
+        effectivePassingKeys,
         filterChain,
 
         // Actions
@@ -566,11 +654,13 @@ export const useFilteringStore = defineStore('filtering', () => {
         clearAppliedFilters,
         disableAllFilters,
         toggleFilterEnabled,
+        toggleDiversityEnabled,
         runPreview,
         addFilter,
         removeFilter,
         addRankingMetric,
         removeRankingMetric,
+        setRankingMetrics,
         addSizeBucket,
         removeSizeBucket,
         fetchSavedSets,

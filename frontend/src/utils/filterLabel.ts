@@ -36,3 +36,8 @@ export function formatFilterLabel(item: FilterLabelParts): string {
     }
     return `${item.column} ${opLabel}`
 }
+
+/** Diversity-selection chain items use their own label (no threshold/operator symbol lookup). */
+export function formatDiversityLabel(budget: number, alpha: number): string {
+    return `Diversity: budget=${budget}, α=${alpha}`
+}

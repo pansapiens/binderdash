@@ -302,18 +302,19 @@ export const useDesignsStore = defineStore('designs', () => {
     // Getters — `designs` holds only rows for the current selected runs after fetch.
     // Hard filtering (column/operator/threshold rules) now lives entirely on the
     // backend filtering engine (see plan §7A) — a design passes when
-    // filteringStore.passingDesignKeys is null (no active filter) or contains this
+    // filteringStore.effectivePassingKeys is null (no active filter) or contains this
     // design's key. The legacy client-side custom-filter system (per-row
     // column/operator/value rules re-implemented in JS) has been removed in favour of
     // this single source of truth; see the Filtering tab for building filters.
     const filteredDesigns = computed(() => {
         let filtered = designs.value
 
-        // Apply backend-driven hard filters from the Filtering tab (see plan §7A) —
-        // null means no active filter (show everything); otherwise keep only designs
-        // whose key is in the passing set. Lazily looked up to avoid a circular
-        // store-init dependency (filteringStore.activeRunIds reads this store).
-        const passingKeys = useFilteringStore().passingDesignKeys
+        // Apply backend-driven hard filters + (if enabled) diversity selection from the
+        // Filtering tab (see plan §7A) — null means no active filter (show everything);
+        // otherwise keep only designs whose key is in the passing set. Lazily looked up
+        // to avoid a circular store-init dependency (filteringStore.activeRunIds reads
+        // this store).
+        const passingKeys = useFilteringStore().effectivePassingKeys
         if (passingKeys) {
             filtered = filtered.filter(design => passingKeys.has(buildDesignKey(design)))
         }

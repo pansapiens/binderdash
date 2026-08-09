@@ -15,8 +15,9 @@ import Checkbox from 'primevue/checkbox'
 import { useToast } from 'primevue/usetoast'
 import { useDesignsStore, useFilteringStore } from '../stores'
 import { getMethodTagStyle } from '../config/pipelineDisplay'
+import { RANKING_PRESETS } from '../config/rankingPresets'
 import MetricColumnSelector from './MetricColumnSelector.vue'
-import type { FilterSpecDto } from '../webapi'
+import type { FilterSpecDto, RankingMetricDto } from '../webapi'
 import type { InputNumberInputEvent } from 'primevue/inputnumber'
 
 const filteringStore = useFilteringStore()
@@ -63,6 +64,31 @@ function isEmptyOperator(operator: string): boolean {
 }
 
 const savedSetName = ref('')
+
+// Presets dropdown for "2. Ranking Metrics" — a one-shot action (replaces the whole
+// list), not stored as its own persisted state. Its displayed value is derived from
+// filteringStore.rankingMetrics itself (below), not tracked separately, so it stays
+// accurate no matter how those metrics got there: the fresh-session default (iptm@1.0
+// — see DEFAULT_RANKING_METRICS), a hydrated-from-IndexedDB previous session, or a
+// loaded Saved Set recipe. It reverts to the empty placeholder once the metrics no
+// longer match any preset exactly (e.g. after editing a weight).
+function metricsEqual(a: RankingMetricDto[], b: RankingMetricDto[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((m, i) => m.column === b[i].column && m.weight === b[i].weight && m.higher_is_better === b[i].higher_is_better)
+  )
+}
+
+const selectedPreset = computed<string | null>(
+  () => RANKING_PRESETS.find((p) => metricsEqual(filteringStore.rankingMetrics, p.metrics))?.key ?? null
+)
+
+function handleApplyPreset(key: string | null) {
+  const preset = RANKING_PRESETS.find((p) => p.key === key)
+  if (!preset) return
+  filteringStore.setRankingMetrics(preset.metrics)
+  toast.add({ severity: 'success', summary: `"${preset.label}" preset applied`, life: 3000 })
+}
 
 onMounted(async () => {
   if (filteringStore.hasSelectedRuns) {
@@ -143,6 +169,15 @@ const handleDisableAllFilters = () => {
   toast.add({ severity: 'info', summary: 'All filters disabled', life: 3000 })
 }
 
+const handleToggleDiversityEnabled = () => {
+  filteringStore.toggleDiversityEnabled()
+  toast.add({
+    severity: 'info',
+    summary: filteringStore.diversityEnabled ? 'Diversity selection re-enabled' : 'Diversity selection disabled',
+    life: 3000
+  })
+}
+
 const handleCreateSavedSet = async () => {
   const name = savedSetName.value.trim()
   if (!name) {
@@ -188,17 +223,16 @@ interface CascadeRow {
   remaining: number | null
   enabled: boolean
   isFinal: boolean
+  isDiversity: boolean
 }
 
-// Every configured filter is listed (including disabled ones, via filteringStore's
-// shared filterChain — see stores/filtering.ts), each with a "remaining" count.
-// Diversity selection is a separate, explicit action (not part of the hard-filter
-// cascade the backend computes for /api/filtering/preview — see plan §7A.2), but it's
-// conceptually the cascade's next stage, so it's appended here client-side rather than
-// requiring the backend to know about it. "Final set" is always its own trailing
+// Every configured filter is listed (including disabled ones), plus diversity
+// selection once it's been run — both sourced from filteringStore's shared
+// filterChain (see stores/filtering.ts) so this table and the top-of-page
+// FilterChainSummary chain never drift apart. "Final set" is always its own trailing
 // summary row — no threshold, and its remaining count mirrors whichever stage above it
-// last actually narrowed the set (diversity selection if applied, else the last
-// enabled filter, else the unfiltered total when no filters are configured/enabled).
+// last actually narrowed the set (diversity selection if applied and enabled, else the
+// last enabled filter, else the unfiltered total when nothing is configured/enabled).
 const cascadeRows = computed<CascadeRow[]>(() => {
   const rows: CascadeRow[] = filteringStore.filterChain.map((item) => ({
     column: item.column,
@@ -206,20 +240,9 @@ const cascadeRows = computed<CascadeRow[]>(() => {
     threshold: item.threshold,
     remaining: item.remaining,
     enabled: item.enabled,
-    isFinal: false
+    isFinal: false,
+    isDiversity: item.type === 'diversity'
   }))
-
-  const diversity = filteringStore.lastDiversityResult
-  if (diversity) {
-    rows.push({
-      column: 'Diversity Selection',
-      operator: `budget=${filteringStore.budget}, α=${filteringStore.alpha.toFixed(2)}`,
-      threshold: null,
-      remaining: diversity.diverse_set_count,
-      enabled: true,
-      isFinal: false
-    })
-  }
 
   let finalRemaining = filteringStore.initialDesignCount ?? 0
   for (let i = rows.length - 1; i >= 0; i--) {
@@ -234,15 +257,43 @@ const cascadeRows = computed<CascadeRow[]>(() => {
     threshold: null,
     remaining: finalRemaining,
     enabled: true,
-    isFinal: true
+    isFinal: true,
+    isDiversity: false
   })
 
   return rows
 })
 
 function cascadeRowClass(data: CascadeRow) {
-  return { 'fsb-cascade-row--final': data.isFinal, 'fsb-cascade-row--disabled': !data.enabled }
+  return {
+    'fsb-cascade-row--final': data.isFinal,
+    'fsb-cascade-row--disabled': !data.enabled,
+    'fsb-cascade-row--diversity': data.isDiversity
+  }
 }
+
+// Alpha (quality<->diversity trade-off) is meaningful across orders of magnitude near
+// zero — BoltzGen's own defaults are 0.001/0.01 (see docs quoted below) — so a linear
+// 0-1 slider leaves almost no usable range near the defaults. Driven on a log10 scale
+// instead, from 1e-4 (as close to "quality only" as the slider goes) up to 1.0
+// ("diversity only"); exact values (including 0) are still enterable via the InputNumber.
+const ALPHA_LOG_MIN = -4
+const ALPHA_LOG_MAX = 0
+const ALPHA_MARKS: { value: number; label: string }[] = [
+  { value: 0.001, label: 'protein (0.001)' },
+  { value: 0.01, label: 'peptide (0.01)' }
+]
+
+function alphaMarkPosition(value: number): number {
+  return ((Math.log10(value) - ALPHA_LOG_MIN) / (ALPHA_LOG_MAX - ALPHA_LOG_MIN)) * 100
+}
+
+const alphaLogSlider = computed<number>({
+  get: () => Math.log10(Math.max(filteringStore.alpha, 10 ** ALPHA_LOG_MIN)),
+  set: (v: number) => {
+    filteringStore.alpha = Math.round(10 ** v * 1e6) / 1e6
+  }
+})
 </script>
 
 <template>
@@ -389,11 +440,27 @@ function cascadeRowClass(data: CascadeRow) {
         metrics (boltzgen's "Algorithm 2" — see plan §2.2). Weight is inverse
         importance: a larger weight de-emphasises that metric.
       </p>
+      <label class="fsb-preset-row">
+        Preset
+        <Select
+          :model-value="selectedPreset"
+          :options="RANKING_PRESETS"
+          option-label="label"
+          option-value="key"
+          placeholder="Load a preset…"
+          class="fsb-preset-row__select"
+          @update:model-value="handleApplyPreset"
+        />
+        <span class="fsb-hint fsb-preset-row__hint">Replaces the metrics below.</span>
+      </label>
       <div
         v-for="(metric, idx) in filteringStore.rankingMetrics"
         :key="idx"
         class="fsb-metric-row"
-        :class="{ 'fsb-row--disabled': metric.enabled === false }"
+        :class="{
+          'fsb-row--disabled': metric.enabled === false,
+          'fsb-row--warning': filteringStore.rankingMetricWarnings.includes(idx)
+        }"
       >
         <ToggleSwitch
           v-model="metric.enabled"
@@ -406,6 +473,7 @@ function cascadeRowClass(data: CascadeRow) {
           v-model="metric.column"
           :columns="filteringStore.availableColumns"
           :disabled="metric.enabled === false"
+          :invalid="filteringStore.rankingMetricWarnings.includes(idx)"
           class="fsb-metric-row__column"
         />
         <label class="fsb-metric-row__weight-label">
@@ -455,6 +523,18 @@ function cascadeRowClass(data: CascadeRow) {
       <Message v-if="filteringStore.rankError" severity="error" :closable="false" class="fsb-preview-error">
         {{ filteringStore.rankError }}
       </Message>
+      <Message
+        v-if="filteringStore.rankingMetricWarnings.length > 0"
+        severity="warn"
+        :closable="false"
+        class="fsb-preview-error"
+      >
+        These metrics don't resolve to any data for the currently selected run(s) — no
+        method has a non-null value for them, so they're being ignored in ranking:
+        <strong>{{ filteringStore.rankingMetricWarnings.map((i) => filteringStore.rankingMetrics[i].column).join(', ') }}</strong>.
+        This can happen after applying a preset built for a different pipeline method
+        (e.g. "BoltzGen" on a non-BoltzGen run).
+      </Message>
       <p class="fsb-hint">
         Ranking is not applied automatically — click "Apply Ranking" after configuring
         metrics. This attaches <code>final_rank</code>/<code>quality_score</code> to the
@@ -469,9 +549,32 @@ function cascadeRowClass(data: CascadeRow) {
           <InputNumber v-model="filteringStore.budget" :min="1" show-buttons />
         </label>
         <label class="fsb-diversity-field fsb-diversity-field--alpha">
-          Quality ↔ Diversity (α = {{ filteringStore.alpha.toFixed(2) }})
-          <Slider v-model="filteringStore.alpha" :min="0" :max="1" :step="0.05" />
-          <span class="fsb-hint">0 = quality only, 1 = diversity only</span>
+          Quality ↔ Diversity (α = {{ filteringStore.alpha }})
+          <div class="fsb-alpha-slider-wrap">
+            <Slider v-model="alphaLogSlider" :min="ALPHA_LOG_MIN" :max="ALPHA_LOG_MAX" :step="0.01" />
+            <span
+              v-for="mark in ALPHA_MARKS"
+              :key="mark.value"
+              class="fsb-alpha-mark"
+              :style="{ left: alphaMarkPosition(mark.value) + '%' }"
+            >{{ mark.label }}</span>
+          </div>
+          <div class="fsb-alpha-manual">
+            <InputNumber
+              v-model="filteringStore.alpha"
+              :min="0"
+              :max="1"
+              :step="0.001"
+              :min-fraction-digits="0"
+              :max-fraction-digits="6"
+              size="small"
+              class="fsb-alpha-input"
+            />
+            <span class="fsb-hint">
+              0 = quality only, 1 = diversity only. BoltzGen defaults: 0.001 (protein), 0.01
+              (peptide-anything protocol).
+            </span>
+          </div>
         </label>
       </div>
 
@@ -522,8 +625,18 @@ function cascadeRowClass(data: CascadeRow) {
           :disabled="!filteringStore.hasSelectedRuns"
           @click="handleApplyDiversity"
         />
+        <Button
+          v-if="filteringStore.lastDiversityResult"
+          :label="filteringStore.diversityEnabled ? 'Disable diversity selection' : 'Enable diversity selection'"
+          :icon="filteringStore.diversityEnabled ? 'pi pi-ban' : 'pi pi-check'"
+          text
+          size="small"
+          severity="secondary"
+          @click="handleToggleDiversityEnabled"
+        />
         <span v-if="filteringStore.lastDiversityResult" class="fsb-apply-status">
           {{ filteringStore.lastDiversityResult.diverse_set_count }} diverse designs selected
+          <template v-if="!filteringStore.diversityEnabled"> (disabled)</template>
         </span>
       </div>
       <Message v-if="filteringStore.diversityError" severity="error" :closable="false" class="fsb-preview-error">
@@ -682,6 +795,32 @@ function cascadeRowClass(data: CascadeRow) {
   opacity: 0.55;
 }
 
+.fsb-row--warning {
+  background-color: #fff5f5;
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  margin-left: -0.5rem;
+  margin-right: -0.5rem;
+}
+
+.fsb-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 0.75rem;
+}
+
+.fsb-preset-row__select {
+  min-width: 14rem;
+}
+
+.fsb-preset-row__hint {
+  margin: 0;
+  font-weight: 400;
+}
+
 .fsb-filter-row__column,
 .fsb-metric-row__column {
   flex: 1 1 260px;
@@ -745,6 +884,39 @@ function cascadeRowClass(data: CascadeRow) {
   flex: 1;
 }
 
+.fsb-alpha-slider-wrap {
+  position: relative;
+  padding-bottom: 1.1rem;
+}
+
+.fsb-alpha-mark {
+  position: absolute;
+  top: 0.85rem;
+  transform: translateX(-50%);
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: #6c757d;
+  white-space: nowrap;
+}
+
+.fsb-alpha-manual {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  font-weight: 400;
+}
+
+.fsb-alpha-input {
+  width: 8rem;
+  flex-shrink: 0;
+}
+
+.fsb-alpha-input :deep(input) {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .fsb-best-mpnn-row {
   display: flex;
   align-items: center;
@@ -784,6 +956,11 @@ function cascadeRowClass(data: CascadeRow) {
 .fsb-cascade-row--disabled {
   opacity: 0.5;
   text-decoration: line-through;
+}
+
+.fsb-cascade-row--diversity:not(.fsb-cascade-row--disabled) {
+  background-color: #fff8e6 !important;
+  font-style: italic;
 }
 
 .fsb-preview-error {

@@ -2,7 +2,8 @@
 import Tag from 'primevue/tag'
 import Button from 'primevue/button'
 import { useAppStore, useFilteringStore } from '../stores'
-import { formatFilterLabel } from '../utils/filterLabel'
+import { formatFilterLabel, formatDiversityLabel } from '../utils/filterLabel'
+import type { FilterChainItem } from '../stores/filtering'
 
 withDefaults(
   defineProps<{
@@ -15,8 +16,23 @@ withDefaults(
 const filteringStore = useFilteringStore()
 const appStore = useAppStore()
 
-function toggleFilter(index: number) {
-  filteringStore.toggleFilterEnabled(index)
+function itemLabel(item: FilterChainItem): string {
+  const base =
+    item.type === 'diversity' ? formatDiversityLabel(filteringStore.budget, filteringStore.alpha) : formatFilterLabel(item)
+  return item.remaining != null ? `${base} (${item.remaining})` : base
+}
+
+function itemTooltip(item: FilterChainItem): string {
+  const noun = item.type === 'diversity' ? 'diversity selection' : 'this filter'
+  return item.enabled ? `Click to disable ${noun}` : `Click to enable ${noun}`
+}
+
+function toggleItem(item: FilterChainItem) {
+  if (item.type === 'diversity') {
+    filteringStore.toggleDiversityEnabled()
+  } else {
+    filteringStore.toggleFilterEnabled(item.index)
+  }
 }
 </script>
 
@@ -29,14 +45,18 @@ function toggleFilter(index: number) {
         :value="filteringStore.initialDesignCount != null ? String(filteringStore.initialDesignCount) : '…'"
         v-tooltip.bottom="'Total designs before filtering'"
       />
-      <template v-for="item in filteringStore.filterChain" :key="item.index">
+      <template v-for="(item, idx) in filteringStore.filterChain" :key="`${item.type}-${item.index}-${idx}`">
         <i class="pi pi-angle-right filter-chain-summary__arrow" aria-hidden="true" />
         <Tag
-          :value="item.remaining != null ? `${formatFilterLabel(item)} (${item.remaining})` : formatFilterLabel(item)"
-          :severity="item.enabled ? 'info' : 'secondary'"
-          :class="['filter-chain-summary__tag', { 'filter-chain-summary__tag--disabled': !item.enabled }]"
-          v-tooltip.bottom="item.enabled ? 'Click to disable this filter' : 'Click to enable this filter'"
-          @click="toggleFilter(item.index)"
+          :value="itemLabel(item)"
+          :severity="item.enabled ? (item.type === 'diversity' ? 'warning' : 'info') : 'secondary'"
+          :class="[
+            'filter-chain-summary__tag',
+            item.type === 'diversity' ? 'filter-chain-summary__tag--diversity' : null,
+            { 'filter-chain-summary__tag--disabled': !item.enabled }
+          ]"
+          v-tooltip.bottom="itemTooltip(item)"
+          @click="toggleItem(item)"
         />
       </template>
       <span v-if="filteringStore.filterChain.length === 0" class="filter-chain-summary__empty-hint">
@@ -93,5 +113,9 @@ function toggleFilter(index: number) {
 .filter-chain-summary__tag--disabled {
   opacity: 0.5;
   text-decoration: line-through;
+}
+
+.filter-chain-summary__tag--diversity {
+  font-style: italic;
 }
 </style>

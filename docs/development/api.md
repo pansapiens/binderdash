@@ -414,7 +414,7 @@ Run scope for every `/api/filtering/*` call is an explicit `run_ids` list — th
 2. **Ranking** (`RankingMetric`) — `{ "column": "...", "weight": 1.0, "higher_is_better": true }`. Implements boltzgen's Algorithm 2: each design's rank on every metric is scaled by `1/weight`, and the *worst* (max) scaled rank across metrics becomes `final_rank`/`quality_score`. Designs that fail more hard filters rank worse automatically (`num_filters_passed` is folded into the sort) but are **not dropped** — `ranked` always covers every input design so the full table can show pass/fail per row.
 3. **Diversity selection** (`select_diverse`) — lazy-greedy selection over binder sequence similarity + `quality_score`, controlled by `budget` (final set size), `alpha` (0 = quality only, 1 = diversity only), and optional `size_buckets` (`{"min", "max", "num_designs"}`, caps selections per sequence-length range). **Only designs that passed every hard filter are eligible** — a design failing a filter can never end up in the diverse/saved set, however small `passing_filters` is relative to `budget`.
 
-`POST /api/filtering/run` body is `FilteringRunRequest`: `name`, `run_ids`, `filters`, `metrics`, `budget` (default 24), `alpha` (default 0.1), `size_buckets`, `random_state`. Response:
+`POST /api/filtering/run` body is `FilteringRunRequest`: `name`, `run_ids`, `filters`, `metrics`, `budget` (default 24), `alpha` (default 0.001 — BoltzGen's own default for non-peptide protocols; 0.01 for its peptide-anything protocol), `size_buckets`, `random_state`. Response:
 
 ```json
 {

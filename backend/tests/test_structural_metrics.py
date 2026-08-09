@@ -57,8 +57,8 @@ def synthetic_complex_pdb(tmp_path_factory) -> str:
 class TestAminoAcidComposition:
     def test_fractions_sum_to_one(self):
         fractions = amino_acid_composition_fractions("MAAGVKQL")
-        assert fractions["ALA_fraction"] == pytest.approx(2 / 8)
-        assert fractions["GLY_fraction"] == pytest.approx(1 / 8)
+        assert fractions["binderdash_ALA_fraction"] == pytest.approx(2 / 8)
+        assert fractions["binderdash_GLY_fraction"] == pytest.approx(1 / 8)
         assert sum(fractions.values()) == pytest.approx(1.0)
 
     def test_empty_sequence_is_nan(self):
@@ -66,7 +66,7 @@ class TestAminoAcidComposition:
         assert all(np.isnan(v) for v in fractions.values())
 
     def test_lowercase_input_normalised(self):
-        assert amino_acid_composition_fractions("aaaa")["ALA_fraction"] == 1.0
+        assert amino_acid_composition_fractions("aaaa")["binderdash_ALA_fraction"] == 1.0
 
 
 class TestHydrophobicity:
@@ -128,12 +128,12 @@ class TestHbondSaltbridgeCounts:
         result = hbond_saltbridge_counts(
             synthetic_complex_pdb, binder_chain_ids=["B"], target_chain_ids=["A"]
         )
-        assert result["structural_saltbridge"] > 0
-        assert result["structural_hbonds"] >= 0
+        assert result["binderdash_saltbridge"] > 0
+        assert result["binderdash_hbonds"] >= 0
 
     def test_empty_chain_ids_returns_zeros(self, synthetic_complex_pdb):
         result = hbond_saltbridge_counts(synthetic_complex_pdb, binder_chain_ids=[], target_chain_ids=["A"])
-        assert result == {"structural_hbonds": 0, "structural_saltbridge": 0}
+        assert result == {"binderdash_hbonds": 0, "binderdash_saltbridge": 0}
 
 
 class TestComputeStructuralMetrics:
@@ -142,12 +142,12 @@ class TestComputeStructuralMetrics:
             synthetic_complex_pdb, binder_chain_ids=["B"], target_chain_ids=["A"]
         )
         for key in (
-            "helix_fraction",
-            "sheet_fraction",
-            "loop_fraction",
-            "delta_sasa",
-            "hydrophobic_patch_area",
-            "structural_hbonds",
-            "structural_saltbridge",
+            "binderdash_helix_fraction",
+            "binderdash_sheet_fraction",
+            "binderdash_loop_fraction",
+            "binderdash_delta_sasa",
+            "binderdash_hydrophobic_patch_area",
+            "binderdash_hbonds",
+            "binderdash_saltbridge",
         ):
             assert key in metrics

@@ -10,11 +10,15 @@ const props = withDefaults(
     placeholder?: string
     disabled?: boolean
     inputId?: string
+    /** Highlights the select with PrimeVue's invalid (red-border) styling — used to flag
+     * a configured column that doesn't resolve to any data for the current run scope. */
+    invalid?: boolean
   }>(),
   {
     placeholder: 'Select a column…',
     disabled: false,
-    inputId: undefined
+    inputId: undefined,
+    invalid: false
   }
 )
 
@@ -70,6 +74,7 @@ const equivalentColumnsText = computed<string | null>(() => {
       filter-placeholder="Search columns…"
       :placeholder="placeholder"
       :disabled="disabled"
+      :invalid="invalid"
       show-clear
       class="metric-column-selector__select"
     />

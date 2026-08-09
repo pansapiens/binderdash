@@ -22,12 +22,17 @@ reference geometry but usually isn't at neutral pH). ``_SALT_BRIDGE_POSITIVE`` /
 ``_SALT_BRIDGE_NEGATIVE`` below mirror that table exactly (verified against source, not
 the general "count every charged oxygen/nitrogen" convention other tools like PLIP use).
 
-Output keys are prefixed ``structural_hbonds``/``structural_saltbridge`` (not plain
-``hbonds``/``saltbridge``) to avoid colliding with ``filtering.metrics.METRIC_ALIASES``'s
-canonical ``hbonds``/``saltbridge`` entries, which map to *provider-reported* CSV columns
-(e.g. boltzgen's own ``plip_hbonds_refolded``) computed by a different method on a
-different structure (refolded, not the as-generated one) — a different quantity, not a
-duplicate, so it must not share a column name.
+Every metric this module (plus the sequence-only helpers below) computes is prefixed
+``binderdash_`` — ``binderdash_hbonds``, ``binderdash_delta_sasa``,
+``binderdash_ALA_fraction``, etc. — to keep them unambiguously distinct from
+*provider-reported* CSV columns for the same or a similar concept (e.g. boltzgen's own
+``plip_hbonds_refolded``/``delta_sasa_refolded``, or even boltzgen's own
+``ALA_fraction`` column), which are typically computed by a different method on a
+different structure (refolded, not the as-generated one) and so are not guaranteed to
+be identical values — this makes it explicit, everywhere a column name is shown, which
+number came from which computation, and leaves ``filtering.metrics.METRIC_ALIASES``
+free to define canonical cross-method names (e.g. ``hbonds``, ``delta_sasa``) that
+resolve to the *provider's* column without any name collision against these.
 """
 
 from __future__ import annotations
@@ -64,8 +69,10 @@ _SALT_BRIDGE_NEGATIVE = {("ASP", "OD2"), ("GLU", "OE2")}
 
 
 def amino_acid_composition_fractions(sequence: str) -> Dict[str, float]:
-    """Per-residue-type fraction of ``sequence`` (e.g. ``ALA_fraction``), matching
-    boltzgen's ``<AA>_fraction`` filter columns. Sequence-only, no structure needed.
+    """Per-residue-type fraction of ``sequence`` (e.g. ``binderdash_ALA_fraction``) — the
+    same concept as boltzgen's own ``<AA>_fraction`` filter columns, but prefixed (see
+    module docstring) since it's computed independently here, not read from boltzgen's
+    output. Sequence-only, no structure needed.
     """
     seq = (sequence or "").upper()
     length = len(seq)
@@ -74,7 +81,7 @@ def amino_acid_composition_fractions(sequence: str) -> Dict[str, float]:
         if ch in one_letter_counts:
             one_letter_counts[ch] += 1
     return {
-        f"{three}_fraction": (one_letter_counts[one] / length if length else float("nan"))
+        f"binderdash_{three}_fraction": (one_letter_counts[one] / length if length else float("nan"))
         for three, one in _THREE_TO_ONE.items()
     }
 
@@ -133,17 +140,25 @@ def secondary_structure_fractions(
     if chain_ids:
         atoms = atoms[np.isin(atoms.chain_id, list(chain_ids))]
     if len(atoms) == 0:
-        return {"helix_fraction": float("nan"), "sheet_fraction": float("nan"), "loop_fraction": float("nan")}
+        return {
+            "binderdash_helix_fraction": float("nan"),
+            "binderdash_sheet_fraction": float("nan"),
+            "binderdash_loop_fraction": float("nan"),
+        }
 
     sse = struc.annotate_sse(atoms)
     total = len(sse)
     if total == 0:
-        return {"helix_fraction": float("nan"), "sheet_fraction": float("nan"), "loop_fraction": float("nan")}
+        return {
+            "binderdash_helix_fraction": float("nan"),
+            "binderdash_sheet_fraction": float("nan"),
+            "binderdash_loop_fraction": float("nan"),
+        }
 
     return {
-        "helix_fraction": float(np.sum(sse == "a")) / total,
-        "sheet_fraction": float(np.sum(sse == "b")) / total,
-        "loop_fraction": float(np.sum(sse == "c")) / total,
+        "binderdash_helix_fraction": float(np.sum(sse == "a")) / total,
+        "binderdash_sheet_fraction": float(np.sum(sse == "b")) / total,
+        "binderdash_loop_fraction": float(np.sum(sse == "c")) / total,
     }
 
 
@@ -226,7 +241,7 @@ def hbond_saltbridge_counts(
     import biotite.structure as struc
     import hydride
 
-    result = {"structural_hbonds": 0, "structural_saltbridge": 0}
+    result = {"binderdash_hbonds": 0, "binderdash_saltbridge": 0}
     if not binder_chain_ids or not target_chain_ids:
         return result
 
@@ -256,9 +271,9 @@ def hbond_saltbridge_counts(
             (np.isin(donor_chain, list(binder_ids)) & np.isin(acceptor_chain, list(target_ids)))
             | (np.isin(donor_chain, list(target_ids)) & np.isin(acceptor_chain, list(binder_ids)))
         )
-        result["structural_hbonds"] = int(cross.sum())
+        result["binderdash_hbonds"] = int(cross.sum())
     except Exception:
-        result["structural_hbonds"] = 0
+        result["binderdash_hbonds"] = 0
 
     # --- salt bridges ---
     charge = np.zeros(len(atoms), dtype=int)
@@ -284,7 +299,7 @@ def hbond_saltbridge_counts(
             (np.isin(pos_chain, list(binder_ids)) & np.isin(neg_chain, list(target_ids)))
             | (np.isin(pos_chain, list(target_ids)) & np.isin(neg_chain, list(binder_ids)))
         )
-        result["structural_saltbridge"] = int(cross.sum())
+        result["binderdash_saltbridge"] = int(cross.sum())
 
     return result
 
@@ -304,9 +319,9 @@ def compute_structural_metrics(
     metrics.update(secondary_structure_fractions(structure_path, binder_chain_ids))
     sasa = delta_sasa(structure_path, target_chain_ids, binder_chain_ids)
     if sasa is not None:
-        metrics["delta_sasa"] = sasa
+        metrics["binderdash_delta_sasa"] = sasa
     patch = hydrophobic_patch_area(structure_path, binder_chain_ids)
     if patch is not None:
-        metrics["hydrophobic_patch_area"] = patch
+        metrics["binderdash_hydrophobic_patch_area"] = patch
     metrics.update(hbond_saltbridge_counts(structure_path, binder_chain_ids, target_chain_ids))
     return metrics

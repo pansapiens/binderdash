@@ -45,8 +45,8 @@ def test_structural_metrics_computes_and_returns_result(api_client, sqlite_desig
     assert row["binder_chain_ids"] == ["B"]
     assert row["target_chain_ids"] == ["A"]
     assert row["metrics"] is not None
-    assert "helix_fraction" in row["metrics"]
-    assert "ALA_fraction" in row["metrics"]
+    assert "binderdash_helix_fraction" in row["metrics"]
+    assert "binderdash_ALA_fraction" in row["metrics"]
 
 
 def test_structural_metrics_second_call_hits_cache(api_client, sqlite_designs_repo) -> None:

@@ -111,8 +111,12 @@ class FilteringRunRequest(BaseModel):
     run_ids: List[str]
     filters: List[FilterSpec] = Field(default_factory=list)
     metrics: List[RankingMetric] = Field(default_factory=list)
-    budget: int = 30
-    alpha: float = 0.1
+    budget: int = 24
+    # BoltzGen's own default is 0.01 for its "peptide-anything" protocol but 0.001 for
+    # everything else (see its --alpha docs) — 0.001 ("protein") is the safer default
+    # here since most Binderdash runs are protein binder design, not peptide. Matches
+    # the frontend's own default (see stores/filtering.ts).
+    alpha: float = 0.001
     size_buckets: List[SizeBucket] = Field(default_factory=list)
     random_state: int = 0
 
@@ -219,8 +223,8 @@ class FilteringDiversityRequest(BaseModel):
     run_ids: List[str]
     filters: List[FilterSpec] = Field(default_factory=list)
     metrics: List[RankingMetric] = Field(default_factory=list)
-    budget: int = 30
-    alpha: float = 0.1
+    budget: int = 24
+    alpha: float = 0.001
     size_buckets: List[SizeBucket] = Field(default_factory=list)
     random_state: int = 0
 

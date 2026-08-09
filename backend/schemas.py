@@ -225,8 +225,11 @@ class StructuralMetricsRow(BaseModel):
     pdb_file: Optional[str] = None
     binder_chain_ids: Optional[List[str]] = None
     target_chain_ids: Optional[List[str]] = None
-    # Flat metric name -> value (helix_fraction, sheet_fraction, loop_fraction, delta_sasa,
-    # hydrophobic_patch_area, hbonds, saltbridge, hydrophobicity, <AA>_fraction, ...); see
+    # Flat metric name -> value, all prefixed binderdash_ (binderdash_helix_fraction,
+    # binderdash_sheet_fraction, binderdash_loop_fraction, binderdash_delta_sasa,
+    # binderdash_hydrophobic_patch_area, binderdash_hbonds, binderdash_saltbridge,
+    # binderdash_hydrophobicity, binderdash_<AA>_fraction, ...) to distinguish them from
+    # provider-reported columns for the same/a similar concept; see
     # filtering.structural_metrics. Not a fixed schema, matching the rest of BinderDash's
     # method-dependent flat design dicts.
     metrics: Optional[Dict[str, float]] = None

@@ -75,6 +75,17 @@ METRIC_ALIASES: Dict[str, Dict[str, Optional[Union[str, List[str]]]]] = {
     "saltbridge": {
         "boltzgen": "plip_saltbridge_refolded",
     },
+    # Buried/change-in-solvent-accessible-surface-area at the binder-target interface
+    # upon complex formation, as reported by the provider's own pipeline (refolded
+    # structure for boltzgen, AF2-model-averaged for bindcraft) — distinct from
+    # Binderdash's own independently-computed `binderdash_delta_sasa` (as-generated
+    # structure, any method; see filtering.structural_metrics), which is deliberately
+    # not folded into this alias to avoid conflating two different computations of a
+    # similar-but-not-identical quantity under one name.
+    "delta_sasa": {
+        "boltzgen": "delta_sasa_refolded",
+        "bindcraft": "Average_dSASA",
+    },
 }
 
 

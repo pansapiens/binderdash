@@ -740,7 +740,7 @@ def _structural_metrics_sync(body: StructuralMetricsRequest) -> StructuralMetric
             chain_seqs = get_chain_sequences(str(pdb_path), binder_ids)
             binder_sequence = "".join(chain_seqs.get(c, "") for c in binder_ids)
             metrics.update(amino_acid_composition_fractions(binder_sequence))
-            metrics["hydrophobicity"] = hydrophobicity_score(binder_sequence)
+            metrics["binderdash_hydrophobicity"] = hydrophobicity_score(binder_sequence)
         except Exception as e:
             results.append(
                 StructuralMetricsRow(
