@@ -31,42 +31,53 @@ Protected routes require credentials unless `DISABLE_AUTHENTICATION=true` (all e
 GET /api/auth/status
 ```
 
-Response includes `auth_disabled` and `providers` (`local`, `pam`, `google`, `api_key`).
+Response includes `auth_disabled` and `providers` (`local`, `pam`, `google`) plus a top-level `api_keys: {enabled, reason}` (`reason` is `null`, `"auth_disabled"`, or `"persistence_disabled"`).
 
 Configure auth via `.env` (see `.env.example`). Relevant variables:
 
 | Variable | Purpose |
 | -------- | ------- |
 | `DISABLE_AUTHENTICATION` | When `true`, skip all auth and CSRF checks |
-| `BINDERDASH_API_KEY` | When non-empty, enables static API key auth (see below) |
 | `LOCAL_USERS` | `user:bcrypt_hash,...` for `POST /api/auth/login` |
 | `PAM_LOCAL_*` | Optional Unix PAM after local users |
+| `PAM_GECOS_EMAIL` | When `true`, resolve a PAM user's email from the GECOS "other" (5th) field only |
 | `GOOGLE_AUTH_*` | Optional Google OAuth |
 | `SECRET_KEY` | JWT signing for session cookies |
+| `BINDERDASH_ADMIN_USERS` | Comma-separated allowlist (email, `provider:identifier`, or bare username) granting admin; re-applied at every startup and login |
+| `DATABASE` | Required for per-user API keys to exist at all — they live in the DB |
 
 ### API key (scripts and automation)
 
-When `BINDERDASH_API_KEY` is set on the server, clients send it on **every** request, including `POST` / `PATCH` / `DELETE`. No session cookie or CSRF header is required.
+API keys are **per-user, named, expiring, and revocable** — there is no single shared server secret. Get one from the web UI (account menu, top-right → "API keys") or via CLI:
+
+```bash
+python -m backend.cli user create --email you@example.org --admin
+python -m backend.cli key create you@example.org --name bootstrap
+```
+
+The token is printed to stdout alone (a warning goes to stderr) and shown only once — the server stores a SHA-256 hash, not the plaintext. Keys require `DATABASE`; with no persistence, key endpoints return `503`.
+
+Once you have a token, send it on **every** request, including `POST` / `PATCH` / `DELETE`. No session cookie or CSRF header is required.
 
 Supported headers (either is fine):
 
-- `Authorization: Bearer <BINDERDASH_API_KEY>`
-- `X-Binderdash-Api-Key: <BINDERDASH_API_KEY>`
+- `Authorization: Bearer <token>`
+- `X-Binderdash-Api-Key: <token>`
 
 ```bash
-export BINDERDASH_API_KEY='your-long-random-secret'
+export BINDERDASH_TOKEN='<token from `key create`>'
 export BASE='https://binderdash.knottlab.cloud.edu.au'
 
-curl -sS -H "Authorization: Bearer $BINDERDASH_API_KEY" "$BASE/api/runs"
+curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" "$BASE/api/runs"
 ```
 
-`GET /api/auth/status` reports `providers.api_key.enabled: true` when configured. Invalid or missing keys receive `401 Authentication required`.
+`GET /api/auth/status` reports `api_keys.enabled: true` when keys are usable (auth is enabled and `DATABASE` is configured). Invalid, expired, or missing keys receive `401 Authentication required`.
 
-Generate a key with e.g. `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Do not commit keys to the repository.
+Keys are managed via `GET/POST /api/api-keys` and `PATCH/DELETE /api/api-keys/{id}` — but only with a **browser session**; an API-key-authenticated request to those routes gets `403` (a leaked key must not be able to mint its own replacement). `GET /api/users` is admin-only, session-only. Do not commit keys to the repository.
 
 ### Browser session (SPA)
 
-For interactive login when no API key is configured:
+For interactive login (also required to create or manage API keys):
 
 1. **`POST /api/auth/login`** — body `{"username": "...", "password": "..."}`. Sets an HTTP-only session cookie and returns `csrf_token` and `user`.
 2. **CSRF** — state-changing methods (`POST`, `PUT`, `PATCH`, `DELETE`) must send header `X-CSRF-Token` matching the `binderdash_csrf` cookie. `GET` / `HEAD` / `OPTIONS` are exempt. Failure → `403` with plain text `CSRF token missing` or `CSRF token mismatch`.
@@ -74,7 +85,11 @@ For interactive login when no API key is configured:
 
 Google OAuth: `GET /api/auth/google/login` and `GET /api/auth/google/callback` (browser redirect flow).
 
-**`GET /api/auth/me`** — current user (requires session; not used with API key alone).
+**`GET /api/auth/me`** — current user; requires a session cookie (API key alone is not accepted here — deliberately, see `backend/auth.py`). Returns `username`, `provider`, `email`, `display_name`, `picture_url`, `user_id`, `is_admin`, `auth_method`, `last_login_at`. The login response (`POST /api/auth/login`, and the Google callback) returns the same shape under `user`.
+
+### User model
+
+A **user** is a person; an **identity** is one login method, `(provider, identifier)` — e.g. `local:alice`, `google:alice@example.org`, `pam:alice`. Identities merge onto the same user only when they share a **verified email**; users are auto-created on first login. `BINDERDASH_ADMIN_USERS` (comma-separated; matches email, `provider:identifier`, or bare username — no `*` wildcard) grants `is_admin` and is re-applied at every startup and login, so admin status set only via the CLI (`user set-admin`) will not stick unless the user is also listed there.
 
 ## Data model
 
@@ -250,7 +265,7 @@ For custom analysis, prefer `GET /api/designs` or `GET /api/runs/{run_id}/table`
 ### List runs
 
 ```bash
-curl -sS -H "Authorization: Bearer $BINDERDASH_API_KEY" "$BASE/api/runs" \
+curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" "$BASE/api/runs" \
   | jq '.runs[] | {run_id, project_id, name: .metadata.name, method}'
 ```
 
@@ -260,10 +275,10 @@ Filtering and sorting are client-side. Only `run_ids` is supported server-side.
 
 ```bash
 proj="my_project"
-runs=$(curl -sS -H "Authorization: Bearer $BINDERDASH_API_KEY" "$BASE/api/runs" \
+runs=$(curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" "$BASE/api/runs" \
   | jq -r --arg p "$proj" '.runs[] | select(.project_id==$p) | .run_id' | paste -sd,)
 
-curl -sS -H "Authorization: Bearer $BINDERDASH_API_KEY" \
+curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" \
   "$BASE/api/designs?run_ids=$runs" \
   | jq -r '
       .designs
@@ -280,7 +295,7 @@ Use `sort_by(.pae_interaction // 1e30)` for ascending metrics. Export CSV with `
 ```bash
 run_id="..."
 filename="design_model.cif"   # from design.pdb_file
-curl -sS -H "Authorization: Bearer $BINDERDASH_API_KEY" \
+curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" \
   -o "${filename}" \
   "$BASE/api/runs/${run_id}/files/structure/$(python3 -c "import urllib.parse; print(urllib.parse.quote('$filename'))")"
 ```
@@ -288,11 +303,11 @@ curl -sS -H "Authorization: Bearer $BINDERDASH_API_KEY" \
 ### Bulk download structures as tar
 
 ```bash
-items=$(curl -sS -H "Authorization: Bearer $BINDERDASH_API_KEY" \
+items=$(curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" \
   "$BASE/api/designs?run_ids=$runs" \
   | jq '[.designs[] | select(.good==true) | {run_id, filename: .pdb_file}]')
 
-curl -sS -H "Authorization: Bearer $BINDERDASH_API_KEY" \
+curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" \
   -H 'Content-Type: application/json' \
   -X POST "$BASE/api/pdbs/tar" \
   -d "$(jq -n --argjson items "$items" '{items:$items}')" \

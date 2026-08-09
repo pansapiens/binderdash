@@ -4,7 +4,7 @@ priority: 5
 description: >
   Documents the Binderdash REST API for agents — projects, runs, designs, PDB/CIF
   downloads, DNA codon optimisation (DnaChisel), and tag placement. Agents should
-  use this skill when the user mentions Binderdash, BINDERDASH_API_KEY, Bearer or
+  use this skill when the user mentions Binderdash, Binderdash API keys, Bearer or
   API-key auth, fetches designs/runs/PDBs from binderdash.knottlab.cloud.edu.au,
   wants design tables sorted by metrics (iptm, pae_interaction, Average_i_pTM,
   rf3_ipsae_min, design_to_target_iptm), adds N-/C-terminal tags (His, FLAG, HA,
@@ -20,7 +20,7 @@ Binderdash is a web app + FastAPI service that aggregates the results of de novo
 ## When to Use This Skill
 
 - User mentions **Binderdash** or `binderdash.knottlab.cloud.edu.au` (or a local Binderdash instance)
-- Working with `BINDERDASH_API_KEY`, `Authorization: Bearer`, or `X-Binderdash-Api-Key` headers
+- Working with Binderdash API keys, `Authorization: Bearer`, or `X-Binderdash-Api-Key` headers
 - Fetching designs, runs, or PDB/CIF structure files via the Binderdash API
 - Producing TSV/CSV/JSON design tables sorted by metrics (`iptm`, `pae_interaction`, `Average_i_pTM`, `rf3_ipsae_min`, `design_to_target_iptm`)
 - Adding **N- or C-terminal tags** (His, FLAG, HA, cMyc, G4S linker) to binder sequences
@@ -38,7 +38,8 @@ Binderdash is a web app + FastAPI service that aggregates the results of de novo
 - **NEVER** assume a universal "iptm" column exists — the JSON key differs by method (`Average_i_pTM`, `iptm`, `design_to_target_iptm`, `pae_interaction`); always check the method first and use the correct column name and sort direction from the per-method table below
 - **NEVER** use the plotting endpoints (`/api/runs/plots/*`) — all numeric columns are already in `/api/designs`; plot locally
 - **NEVER** guess the response shape for an undocumented endpoint — fetch `/openapi.json` and read the schema first
-- **NEVER** hardcode `BINDERDASH_API_KEY` in scripts — use environment variables only
+- **NEVER** hardcode an API key token in scripts — use environment variables only
+- **NEVER** try to create or manage an API key via the API — key management (`/api/api-keys/*`) is session-cookie-only by design; keys can only be obtained from the web UI or the CLI (`python -m backend.cli key create`)
 - **NEVER** assume `Sequence` is populated on every design — it is extracted on demand; if null, call `POST /api/designs/sequences` first
 
 ## Before calling any endpoint
@@ -66,22 +67,31 @@ BASE="https://binderdash.knottlab.cloud.edu.au"   # or http://localhost:8911 in 
 Protected endpoints require credentials unless the deployment sets `DISABLE_AUTHENTICATION=true` (all endpoints public). Check what is enabled:
 
 ```bash
-curl -sS "$BASE/api/auth/status" | jq '{auth_disabled, providers}'
+curl -sS "$BASE/api/auth/status" | jq '{auth_disabled, providers, api_keys}'
 ```
 
 ### API key (preferred for agents and scripts)
 
-When the server has a non-empty `BINDERDASH_API_KEY` in its environment (see `.env.example`), send that value on **every** request - including `POST`/`PATCH`/`DELETE`. No login, session cookie, or CSRF token is needed.
+Binderdash API keys are **per-user, named, expiring, and revocable** — there is no single shared server secret to export. An agent cannot mint its own key; ask the user for one, obtained from the web UI (account menu, top-right → "API keys") or via CLI:
+
+```bash
+python -m backend.cli user create --email you@example.org --admin
+python -m backend.cli key create you@example.org --name bootstrap
+```
+
+The token prints to stdout alone and is shown once (the server stores only a hash). Keys require `DATABASE` to be configured on the server; without persistence, key endpoints return `503`.
+
+Once you have a token, send it on **every** request - including `POST`/`PATCH`/`DELETE`. No login, session cookie, or CSRF token is needed.
 
 Either header form works:
 
-- `Authorization: Bearer <BINDERDASH_API_KEY>`
-- `X-Binderdash-Api-Key: <BINDERDASH_API_KEY>`
+- `Authorization: Bearer <token>`
+- `X-Binderdash-Api-Key: <token>`
 
 ```bash
-export BINDERDASH_API_KEY='your-long-random-secret'
+export BINDERDASH_TOKEN='<token from the UI or `key create`>'
 BASE="https://binderdash.knottlab.cloud.edu.au"
-AUTH=(-H "Authorization: Bearer $BINDERDASH_API_KEY")
+AUTH=(-H "Authorization: Bearer $BINDERDASH_TOKEN")
 ```
 
 Examples:
@@ -96,7 +106,7 @@ curl -sS "${AUTH[@]}" -H 'Content-Type: application/json' \
     -d '{"sequences":{"d1":"MAEK"},"codon_table_id":"e_coli_316407","method":"match_codon_usage","constraints":[]}'
 ```
 
-`GET /api/auth/status` reports `providers.api_key.enabled: true` when the key is configured. Wrong or missing keys return `401 Authentication required`.
+`GET /api/auth/status` reports a top-level `api_keys: {enabled, reason}` (`reason` is `null`, `"auth_disabled"`, or `"persistence_disabled"`) rather than a per-provider entry. Wrong, expired, or missing keys return `401 Authentication required`. Note `/api/api-keys/*` (creating/renaming/revoking keys) and admin-only `/api/users` reject API-key auth with `403` — those routes are session-cookie-only, so an agent holding only a token cannot manage keys, only use one.
 
 ### Browser session (username/password + CSRF)
 
@@ -119,7 +129,7 @@ curl -sS -b "$COOKIES" -H "X-CSRF-Token: $CSRF" \
 
 When auth is fully disabled, plain `curl "$BASE/api/runs"` is enough for all methods.
 
-> **Convention:** All examples below use `${AUTH[@]}` (API key header). When `BINDERDASH_API_KEY` is not set and auth is enabled, replace `${AUTH[@]}` with `-b "$COOKIES" -H "X-CSRF-Token: $CSRF"` for state-changing requests, or omit for `GET`.
+> **Convention:** All examples below use `${AUTH[@]}` (API key header). When no API key token is available and auth is enabled, replace `${AUTH[@]}` with `-b "$COOKIES" -H "X-CSRF-Token: $CSRF"` for state-changing requests, or omit for `GET`.
 
 ## Data model
 

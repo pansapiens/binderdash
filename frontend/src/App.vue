@@ -7,7 +7,6 @@ import TabPanels from 'primevue/tabpanels'
 import TabPanel from 'primevue/tabpanel'
 import Toast from 'primevue/toast'
 import { useToast } from 'primevue/usetoast'
-import Button from 'primevue/button'
 import RunsView from './components/DesignsView.vue'
 import PrepareSequencesView from './components/PrepareSequencesView.vue'
 import PlotsView from './components/PlotsView.vue'
@@ -16,6 +15,9 @@ import SavedSetsView from './components/SavedSetsView.vue'
 import FolderBrowser from './components/FolderBrowser.vue'
 import SelectRunsPanel from './components/SelectRunsPanel.vue'
 import LoginView from './components/LoginView.vue'
+import UserMenu from './components/UserMenu.vue'
+import AccountView from './components/AccountView.vue'
+import ApiKeysView from './components/ApiKeysView.vue'
 import { useAppStore, useDesignsStore, usePlotsStore, useRunsStore, useAuthStore } from './stores'
 
 // Use Pinia stores
@@ -37,10 +39,14 @@ const onIngestComplete = async (): Promise<void> => {
   }
 }
 
-// Valid Tab `value`s from the TabList below — kept in sync with the URL hash so a
-// reload (or browser back/forward) lands back on the same tab instead of always
-// resetting to Designs, and tabs are bookmarkable/shareable.
-const VALID_TABS = ['designs', 'plots', 'filtering', 'saved-sets', 'seq-prep', 'select-runs', 'ingest'] as const
+// Tab `value`s with a matching Tab in the TabList below.
+const TAB_IDS = ['designs', 'plots', 'filtering', 'saved-sets', 'seq-prep', 'select-runs', 'ingest'] as const
+// "Overlay" views have a TabPanel but deliberately no matching Tab — PrimeVue's
+// TabPanel renders on `equals(d_value, value)` alone (verified in
+// node_modules/primevue/tabpanel), so this swaps the panel area without a nav
+// entry, reusing the tab-panel card chrome for the Account/API-keys screens.
+const OVERLAY_VIEWS = ['account', 'api-keys'] as const
+const VALID_TABS = [...TAB_IDS, ...OVERLAY_VIEWS] as const
 type TabId = (typeof VALID_TABS)[number]
 
 function isValidTab(value: string): value is TabId {
@@ -59,6 +65,25 @@ const mainTab = computed<string>({
   set: (tab) => appStore.setActiveTab(tab)
 })
 
+const isOverlayView = computed(() => (OVERLAY_VIEWS as readonly string[]).includes(mainTab.value))
+
+// Remembers the last real tab so closing an overlay view (Account/API keys)
+// returns the user to where they were, rather than always landing on Designs.
+const previousTab = ref<string>(mainTab.value)
+watch(mainTab, (tab, oldTab) => {
+  if (!(OVERLAY_VIEWS as readonly string[]).includes(oldTab)) {
+    previousTab.value = oldTab
+  }
+})
+
+function closeOverlayView() {
+  mainTab.value = previousTab.value
+}
+
+function handleUserMenuNavigate(view: 'account' | 'api-keys') {
+  mainTab.value = view
+}
+
 watch(mainTab, (tab) => {
   if (window.location.hash.slice(1) !== tab) {
     window.location.hash = tab
@@ -74,6 +99,17 @@ function handleHashChange() {
 
 onMounted(() => window.addEventListener('hashchange', handleHashChange))
 onUnmounted(() => window.removeEventListener('hashchange', handleHashChange))
+
+// Overlay views (Account/API keys) require an authenticated session — bounce
+// back to Designs if auth status resolves to "not authenticated" while one is open.
+watch(
+  () => [isOverlayView.value, authStore.isAuthEnabled, authStore.isAuthenticated] as const,
+  ([overlay, authEnabled, authenticated]) => {
+    if (overlay && authEnabled && !authenticated) {
+      mainTab.value = 'designs'
+    }
+  }
+)
 
 watch(
   () => [mainTab.value, authStore.canLoadData] as const,
@@ -157,15 +193,7 @@ const shouldShowLoading = computed(() => {
           v-if="authStore.isAuthEnabled && authStore.isAuthenticated"
           class="app-header__actions"
         >
-          <Button
-            type="button"
-            label="Logout"
-            icon="pi pi-sign-out"
-            severity="secondary"
-            size="small"
-            class="logout-button"
-            @click="authStore.logout"
-          />
+          <UserMenu @navigate="handleUserMenuNavigate" />
         </div>
         <div class="banner-overlay">
           <h1>Binderdash</h1>
@@ -174,7 +202,11 @@ const shouldShowLoading = computed(() => {
       </header>
 
       <main class="app-main">
-        <Tabs v-model:value="mainTab" class="binderdash-main-tabs">
+        <Tabs
+          v-model:value="mainTab"
+          class="binderdash-main-tabs"
+          :class="{ 'binderdash-main-tabs--overlay': isOverlayView }"
+        >
           <TabList>
             <Tab value="designs">
               <span class="binderdash-tab-label">
@@ -250,6 +282,15 @@ const shouldShowLoading = computed(() => {
             </TabPanel>
             <TabPanel value="ingest">
               <FolderBrowser @ingest-complete="onIngestComplete" />
+            </TabPanel>
+            <!-- Overlay views: no matching Tab in the TabList above, so `lazy`
+                 defaults to false and these would otherwise mount (and fetch)
+                 on every load — gated with v-if instead. -->
+            <TabPanel value="account">
+              <AccountView v-if="mainTab === 'account'" @back="closeOverlayView" />
+            </TabPanel>
+            <TabPanel value="api-keys">
+              <ApiKeysView v-if="mainTab === 'api-keys'" @back="closeOverlayView" />
             </TabPanel>
           </TabPanels>
         </Tabs>
@@ -338,28 +379,6 @@ body {
   justify-content: flex-end;
 }
 
-.logout-button {
-  font-size: 0.8rem !important;
-  padding: 0.45rem 0.85rem !important;
-  flex-shrink: 0;
-}
-
-/* Keep logout readable on the banner (global .p-component rules fight header) */
-.app-header .logout-button.p-button {
-  color: #fff !important;
-  background: rgba(0, 0, 0, 0.35) !important;
-  border: 1px solid rgba(255, 255, 255, 0.55) !important;
-}
-
-.app-header .logout-button.p-button .p-button-icon {
-  color: #fff !important;
-}
-
-.app-header .logout-button.p-button:hover {
-  background: rgba(0, 0, 0, 0.5) !important;
-  border-color: rgba(255, 255, 255, 0.75) !important;
-}
-
 .loading-container {
   display: flex;
   justify-content: center;
@@ -418,6 +437,12 @@ p, span, div, label, input, textarea, select, button, a, h1, h2, h3, h4, h5, h6 
 .app-main .binderdash-main-tabs .p-tablist {
   border-radius: 8px 8px 0 0 !important;
   overflow: hidden;
+}
+
+/* Overlay views (Account/API keys) have no matching Tab, so the ink bar would
+   otherwise sit frozen under whichever real tab was last active — hide it. */
+.app-main .binderdash-main-tabs--overlay .p-tablist-active-bar {
+  display: none !important;
 }
 
 .app-main .binderdash-main-tabs .binderdash-tab-label {

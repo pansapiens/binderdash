@@ -38,7 +38,9 @@
 - Expected variables:
   - `RUN_BASE_DIRS="/data/runs,/data2/runs"` (comma-separated list of base directories)
   - `DISABLE_AUTHENTICATION="true|false"`
-  - `BINDERDASH_API_KEY` (optional; when set, API clients use `Authorization: Bearer <key>` or `X-Binderdash-Api-Key` instead of login + CSRF)
+  - `BINDERDASH_ADMIN_USERS` (optional; comma-separated; matches a user's email, `provider:identifier`, or bare username; re-applied at every startup and login, so this file is authoritative; no `*` wildcard)
+  - `PAM_GECOS_EMAIL` (optional, default false; read a PAM user's email from the **5th GECOS field only** so their PAM and Google logins share one account. Field 5 is used because `chfn` cannot write it — the earlier fields are user-editable under the usual `CHFN_RESTRICT="rwh"`, so trusting them would allow account takeover. Set with `sudo usermod -c "user,,,,addr@example.org" user`.)
+  - `BINDERDASH_API_KEY` (**deprecated**, pending removal; a single shared key belonging to no user. Per-user API keys — named, expiring, revocable — are created in the UI account menu or via `python -m backend.cli key create <user> --name <name>`, and sent as `Authorization: Bearer <key>` or `X-Binderdash-Api-Key`. They require `DATABASE`.)
   - `LOCAL_USERS="user1:$2b$...,user2:$2b$..."` (optional; bcrypt hashes; enabled when non-empty)
   - `PAM_LOCAL_ENABLED` / `PAM_LOCAL_ALLOWED_USERS` / `PAM_LOCAL_SERVICE` (optional; PAM after `LOCAL_USERS`; default service `common-auth`; Docker: either `LOCAL_USERS`, add users in the image, or optional bind-mounts of host `/etc/passwd` + `/etc/group` + `/etc/shadow` — commented in `docker-compose.yml`, security-sensitive)
   - `GOOGLE_AUTH_ENABLED`, `GOOGLE_AUTH_CLIENT_ID`, `GOOGLE_AUTH_CLIENT_SECRET`, `GOOGLE_AUTH_REDIRECT_URI`, `GOOGLE_AUTH_ALLOWED_USERS` (optional; Google OAuth; emails case-insensitive)

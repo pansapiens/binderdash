@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import CSRF_COOKIE_NAME, request_has_valid_api_key
+from .routers import api_keys as api_keys_routes
 from .routers import auth as auth_routes
 from .routers import designs as designs_routes
 from .routers import files as files_routes
@@ -43,7 +44,45 @@ async def lifespan(app: FastAPI):
     from .cache import hydrate_caches_from_repository
 
     hydrate_caches_from_repository()
+    _sync_admin_flags()
     yield
+    from .api_keys import flush_last_used
+
+    flush_last_used()
+
+
+def _sync_admin_flags() -> None:
+    """Re-apply BINDERDASH_ADMIN_USERS to every stored user at startup.
+
+    Login-time sync alone is not enough: a demoted admin who never logs in
+    again would keep admin rights on their API keys indefinitely. The allowlist
+    is read from the environment at import time, so it can only change across a
+    restart -- which makes "sync on boot + sync on login" complete.
+    """
+    try:
+        from .persistence.factory import get_designs_repository
+
+        repo = get_designs_repository()
+        if not repo.is_enabled():
+            return
+        admin_ids: list[int] = []
+        for user in repo.list_users():
+            uid = user.get("id")
+            if uid is None:
+                continue
+            identities = repo.list_user_identities(int(uid))
+            if any(
+                settings.is_admin_identity(
+                    i.get("provider") or "", i.get("identifier") or "", user.get("email")
+                )
+                for i in identities
+            ):
+                admin_ids.append(int(uid))
+        changed = repo.sync_admin_flags(admin_ids)
+        if changed:
+            logger.info("Admin flags synced from BINDERDASH_ADMIN_USERS: %d changed", changed)
+    except Exception:
+        logger.exception("Admin flag sync failed")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -143,6 +182,7 @@ async def serve_frontend():
 
 
 app.include_router(auth_routes.router)
+app.include_router(api_keys_routes.router)
 app.include_router(runs_routes.router)
 app.include_router(designs_routes.router)
 app.include_router(files_routes.router)

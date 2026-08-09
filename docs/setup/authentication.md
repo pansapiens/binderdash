@@ -6,7 +6,7 @@ Binderdash supports five authentication modes:
 - Session auth via local bcrypt users
 - Session auth via PAM (Unix accounts)
 - Session auth via Google OAuth (OIDC)
-- Static API key auth for scripted access
+- Per-user API key auth for scripted access
 
 You can enable multiple auth providers at the same time. The sections below describe how to configure each mode and how precedence works when multiple are enabled.
 
@@ -14,20 +14,21 @@ You can enable multiple auth providers at the same time. The sections below desc
 
 - `DISABLE_AUTHENTICATION="true"` makes all protected endpoints public and bypasses provider checks.
 - Session auth uses cookies (`binderdash_session`) and CSRF protection for non-GET requests.
-- API key auth uses either `Authorization: Bearer <key>` or `X-Binderdash-Api-Key: <key>`.
+- API key auth uses either `Authorization: Bearer <key>` or `X-Binderdash-Api-Key: <key>`. Keys are per-user, named, expiring, and revocable — there is no single shared server secret — and require `DATABASE` to be configured.
 - Username/password login (`POST /api/auth/login`) checks local users first, then PAM (if enabled).
 - Google OAuth signs in through `/api/auth/google/login` and creates the same session cookies as local/PAM login.
+- Every successful login resolves to a **user** (see "User model and admin allowlist" below); `BINDERDASH_ADMIN_USERS` is re-applied on every startup and login.
 
 ## Environment Variables
 
 These are the auth-related variables currently supported in `.env.example`:
 
 - `DISABLE_AUTHENTICATION`
-- `BINDERDASH_API_KEY`
 - `LOCAL_USERS`
 - `PAM_LOCAL_ENABLED`
 - `PAM_LOCAL_ALLOWED_USERS`
 - `PAM_LOCAL_SERVICE`
+- `PAM_GECOS_EMAIL`
 - `GOOGLE_AUTH_ENABLED`
 - `GOOGLE_AUTH_CLIENT_ID`
 - `GOOGLE_AUTH_CLIENT_SECRET`
@@ -35,6 +36,8 @@ These are the auth-related variables currently supported in `.env.example`:
 - `GOOGLE_AUTH_ALLOWED_USERS`
 - `SECRET_KEY`
 - `ACCESS_TOKEN_EXPIRE_MINUTES`
+- `BINDERDASH_ADMIN_USERS`
+- `DATABASE` (required for per-user API keys to exist at all)
 
 ## Provider Precedence and Coexistence
 
@@ -185,25 +188,36 @@ Notes:
 - If `GOOGLE_AUTH_ALLOWED_USERS` is empty, Google sign-in is effectively denied for everyone.
 - Successful callback issues the same session cookies as local/PAM login.
 
-## Auth Type 5: Static API Key
+## Auth Type 5: Per-User API Key
 
 Use this for scripts/agents without browser session or CSRF handling.
 
+Unlike the other four modes, this isn't a server-wide toggle — it's a capability of the user model, gated on persistence:
+
 ```bash
-BINDERDASH_API_KEY="your-long-random-secret"
+DATABASE="sqlite:///./binderdash.db"   # or Postgres URL; keys live in the DB
 DISABLE_AUTHENTICATION="false"
 ```
+
+Create a user and a key for them, either via the web UI (account menu, top-right → "API keys") or the CLI:
+
+```bash
+python -m backend.cli user create --email you@example.org --admin
+python -m backend.cli key create you@example.org --name bootstrap
+```
+
+The token prints to stdout alone (a warning goes to stderr) and is shown **once** — the server stores only a SHA-256 hash. Other CLI subcommands: `user list|show|link-identity|set-admin`, `key list|revoke`.
 
 Use either header format:
 
 ```http
-Authorization: Bearer your-long-random-secret
+Authorization: Bearer <token>
 ```
 
 or
 
 ```http
-X-Binderdash-Api-Key: your-long-random-secret
+X-Binderdash-Api-Key: <token>
 ```
 
 Notes:
@@ -211,6 +225,21 @@ Notes:
 - For state-changing requests, API key auth bypasses CSRF checks.
 - On protected routes, a valid API key is accepted before cookie auth.
 - `/api/auth/me` requires cookie session auth (it does not accept API key auth).
+- Keys are named, can have an expiry (`--expires-days`), and are individually revocable (`key revoke <id>`); revocation takes effect immediately.
+- With no `DATABASE` configured, `GET /api/auth/status` reports `api_keys.enabled: false, reason: "persistence_disabled"` and the key-management endpoints return `503`.
+- **Key management is session-only.** `GET/POST /api/api-keys` and `PATCH/DELETE /api/api-keys/{id}` reject API-key-authenticated requests with `403` — a leaked key must not be able to mint its own replacement or see other keys. `GET /api/users` is additionally admin-only.
+
+## User model and admin allowlist
+
+A **user** is a person. An **identity** is one login method, keyed on `(provider, identifier)` — e.g. `local:alice`, `pam:alice`, `google:alice@example.org`. A user is auto-created on first successful login. Two identities are merged onto the same user only when they share a **verified email** (so, for example, PAM login for `alice` and Google login for `alice@example.org` merge only if `PAM_GECOS_EMAIL` resolves the same address — see below — otherwise they stay separate users).
+
+`BINDERDASH_ADMIN_USERS` is a comma-separated allowlist granting `is_admin`. Each entry matches against a login's email, its `provider:identifier` pair, or a bare username/identifier — there is deliberately **no `*` wildcard** (unlike `PAM_LOCAL_ALLOWED_USERS`, "everyone is an admin" should never be a one-character mistake). The allowlist is re-applied at every startup and at every login, so revoking admin access just means removing the entry and waiting for the next login (or restart) — `is_admin` set only via `python -m backend.cli user set-admin` will not stick if the user isn't also in `BINDERDASH_ADMIN_USERS`.
+
+### `PAM_GECOS_EMAIL`
+
+Default `false`. When `true`, PAM login resolves the user's email from the **5th GECOS field only** ("other"), never fields 1–4 ("full name", "room", "work phone", "home phone").
+
+This is a security boundary, not a formatting preference: `chfn` lets ordinary users rewrite their own GECOS, and `/etc/login.defs`'s `CHFN_RESTRICT` commonly ships as `"rwh"` — meaning room, work phone, and home phone are user-writable, but there is no `chfn` flag for the 5th field, so only root can set it (and `chfn` rejects commas in input, so a user can't smuggle extra fields in). Trusting an earlier, user-writable field would let any shell user run `chfn` to claim a colleague's email address and get merged into their Binderdash account — inheriting their API keys and admin rights.
 
 ## Session and CSRF Behaviour
 
@@ -243,18 +272,21 @@ Response shape:
 ```json
 {
   "auth_disabled": false,
+  "desktop_mode": false,
   "providers": {
     "local": { "enabled": true },
     "pam": { "enabled": false },
-    "google": { "enabled": true, "login_url": "/api/auth/google/login" },
-    "api_key": { "enabled": true }
-  }
+    "google": { "enabled": true, "login_url": "/api/auth/google/login" }
+  },
+  "api_keys": { "enabled": true, "reason": null }
 }
 ```
+
+`api_keys.reason` is `null` when keys are usable, `"auth_disabled"` when `DISABLE_AUTHENTICATION=true` (there is nothing to scope a key to), or `"persistence_disabled"` when no `DATABASE` is configured.
 
 ## Recommended Combinations
 
 - **Local dev (public)**: `DISABLE_AUTHENTICATION="true"`
 - **Team dev (session login)**: local users and/or PAM, `DISABLE_AUTHENTICATION="false"`
 - **Production user login**: Google OAuth + allowlist, `DISABLE_AUTHENTICATION="false"`
-- **Automation access**: set `BINDERDASH_API_KEY` (can coexist with any session provider)
+- **Automation access**: configure `DATABASE`, then mint per-user keys via the UI or `python -m backend.cli key create` (coexists with any session provider)

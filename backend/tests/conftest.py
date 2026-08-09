@@ -7,6 +7,20 @@ from backend.persistence.noop_repo import NoopDesignsRepository
 from backend.persistence.sqlite_repo import SqliteDesignsRepository
 
 
+@pytest.fixture(autouse=True)
+def _reset_api_key_cache():
+    """backend/api_keys.py holds module-level mutable cache state.
+
+    Without this, a positive/negative cache entry from one test can leak into
+    the next and make results depend on test ordering.
+    """
+    from backend.api_keys import reset_cache
+
+    reset_cache()
+    yield
+    reset_cache()
+
+
 @pytest.fixture
 def sqlite_designs_repo(tmp_path: Path):
     url = f"sqlite:///{tmp_path}/designs.sqlite"

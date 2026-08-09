@@ -15,7 +15,6 @@ ALGORITHM = "HS256"
 COOKIE_NAME = "binderdash_session"
 CSRF_COOKIE_NAME = "binderdash_csrf"
 API_KEY_HEADER = "X-Binderdash-Api-Key"
-API_KEY_USER = AuthUser(username="api", provider="api_key", email=None)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -53,29 +52,28 @@ def get_token_from_cookie(request: Request) -> Optional[str]:
     return request.cookies.get(COOKIE_NAME)
 
 
-def _api_key_from_request(request: Request) -> Optional[str]:
-    header_key = (request.headers.get(API_KEY_HEADER) or "").strip()
-    if header_key:
-        return header_key
-    auth = (request.headers.get("Authorization") or "").strip()
-    if auth.lower().startswith("bearer "):
-        return auth[7:].strip()
-    return None
-
-
 def request_has_valid_api_key(request: Request) -> bool:
-    if not settings.api_key_enabled():
-        return False
-    provided = _api_key_from_request(request)
-    if not provided:
-        return False
-    return secrets.compare_digest(provided, settings.binderdash_api_key)
+    from .api_keys import resolve_principal
+
+    return resolve_principal(request) is not None
 
 
 def user_from_api_key(request: Request) -> Optional[AuthUser]:
-    if request_has_valid_api_key(request):
-        return API_KEY_USER
-    return None
+    from .api_keys import resolve_principal
+
+    principal = resolve_principal(request)
+    if principal is None:
+        return None
+    return AuthUser(
+        username=principal.username,
+        provider=principal.provider,
+        email=principal.email,
+        display_name=principal.display_name,
+        user_id=principal.user_id,
+        is_admin=principal.is_admin,
+        auth_method="api_key",
+        api_key_id=principal.key_id,
+    )
 
 
 def generate_csrf_token() -> str:
@@ -130,6 +128,41 @@ def _claims_to_user(sub: str, provider: str, email: Optional[str]) -> AuthUser:
     )
 
 
+def _enrich_from_db(user: AuthUser, uid: Optional[int]) -> AuthUser:
+    """Attach user_id/is_admin to a session user.
+
+    Authorization still comes from settings (``_claims_to_user`` has already
+    re-validated the allowlists); the database only enriches. Any failure here
+    degrades to "not an admin" rather than rejecting the request.
+    """
+    try:
+        from .persistence.factory import get_designs_repository
+
+        repo = get_designs_repository()
+        row = None
+        if uid is not None:
+            row = repo.get_user_by_id(uid)
+        if row is None:
+            # Cookie issued before this release, or the user was merged away.
+            row = repo.get_user_by_identity(user.provider, identity_for(user))
+        if row is None:
+            return user
+        return user.model_copy(
+            update={
+                "user_id": row.get("id"),
+                "is_admin": bool(row.get("is_admin")),
+                "display_name": user.display_name or row.get("display_name"),
+                "picture_url": user.picture_url or row.get("picture_url"),
+                "email": user.email or row.get("email"),
+            }
+        )
+    except RuntimeError:
+        return user
+    except Exception:
+        logger.exception("Failed to enrich session user from repository")
+        return user
+
+
 def _decode_user_from_payload(payload: dict[str, Any]) -> AuthUser:
     sub = payload.get("sub")
     if sub is None:
@@ -142,7 +175,10 @@ def _decode_user_from_payload(payload: dict[str, Any]) -> AuthUser:
     email = payload.get("email")
     if email is not None and not isinstance(email, str):
         email = str(email)
-    return _claims_to_user(str(sub), str(provider), email)
+    user = _claims_to_user(str(sub), str(provider), email)
+    raw_uid = payload.get("uid")
+    uid = int(raw_uid) if isinstance(raw_uid, (int, str)) and str(raw_uid).isdigit() else None
+    return _enrich_from_db(user, uid)
 
 
 async def get_current_user(request: Request) -> AuthUser:
@@ -219,17 +255,38 @@ async def get_current_user_optional_with_query(
     )
 
 
-def record_login_audit(user: AuthUser) -> None:
+def identity_for(user: AuthUser) -> str:
+    """The stable per-provider identifier used to key an identity row."""
+    return user.username
+
+
+def record_login_audit(user: AuthUser) -> Optional[dict[str, Any]]:
+    """Upsert the user + identity for a successful login. Returns the user row.
+
+    Never raises: a database blip must not stop someone logging in. The caller
+    simply issues a token without a ``uid`` claim in that case.
+    """
     try:
         from .persistence.factory import get_designs_repository
 
         repo = get_designs_repository()
-        ident = user.email if user.provider == "google" else user.username
-        repo.record_login(user.provider, ident, user.email)
+        return repo.upsert_login_identity(
+            provider=user.provider,
+            identifier=identity_for(user),
+            email=user.email,
+            display_name=user.display_name,
+            picture_url=user.picture_url,
+            is_admin=settings.is_admin_identity(
+                user.provider, identity_for(user), user.email
+            ),
+        )
     except RuntimeError:
-        pass
+        # Repository not initialised (no persistence configured).
+        logger.warning("Login not recorded: designs repository is not initialised")
+        return None
     except Exception:
-        logger.exception("record_login failed")
+        logger.exception("upsert_login_identity failed")
+        return None
 
 
 def issue_session_cookies(response: Response, user: AuthUser) -> str:
@@ -240,6 +297,20 @@ def issue_session_cookies(response: Response, user: AuthUser) -> str:
     }
     if user.email:
         token_data["email"] = user.email
+    row = record_login_audit(user)
+    if row and row.get("id") is not None:
+        # Cached so per-request auth needs no database round trip. is_admin is
+        # deliberately NOT in the token: the cookie lives 24h, so a demoted
+        # admin would keep their rights for a day. It is resolved per request.
+        token_data["uid"] = int(row["id"])
+        # Fill in what only the database knows, so the login response carries
+        # the same shape as /api/auth/me and the client is not left with a
+        # user object missing is_admin until its next refresh.
+        user.user_id = int(row["id"])
+        user.is_admin = bool(row.get("is_admin"))
+        user.display_name = user.display_name or row.get("display_name")
+        user.picture_url = user.picture_url or row.get("picture_url")
+        user.email = user.email or row.get("email")
     access_token = create_access_token(
         data=token_data,
         expires_delta=access_token_expires,
@@ -247,5 +318,4 @@ def issue_session_cookies(response: Response, user: AuthUser) -> str:
     set_auth_cookie(response, access_token, access_token_expires)
     csrf = generate_csrf_token()
     set_csrf_cookie(response, csrf)
-    record_login_audit(user)
     return csrf

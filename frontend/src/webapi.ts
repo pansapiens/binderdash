@@ -3,6 +3,20 @@
  * All API calls should go through this module
  */
 
+/**
+ * Thrown from every throw site inside apiRequest() so callers can distinguish
+ * "server said no" (with a real HTTP status) from a network/parsing failure.
+ */
+export class ApiError extends Error {
+    status: number
+
+    constructor(message: string, status: number) {
+        super(message)
+        this.name = 'ApiError'
+        this.status = status
+    }
+}
+
 // Basic type definitions
 interface ApiRequestOptions {
     method?: string;
@@ -247,7 +261,7 @@ async function apiRequest<T = any>(url: string, options: ApiRequestOptions = {})
                 } catch (error) {
                     // Auth store might not be available yet, ignore
                 }
-                throw new Error('Authentication required')
+                throw new ApiError('Authentication required', response.status)
             }
 
             // Handle forbidden errors (403) - check if user is authenticated
@@ -260,18 +274,18 @@ async function apiRequest<T = any>(url: string, options: ApiRequestOptions = {})
                     if (authStore.isAuthEnabled && !authStore.isAuthenticated) {
                         // User is not authenticated, logout and show login page
                         await authStore.logout()
-                        throw new Error('Authentication required')
+                        throw new ApiError('Authentication required', response.status)
                     }
                 } catch (error) {
                     // If we can't check auth status or logout fails, just throw the original error
-                    if (error instanceof Error && error.message === 'Authentication required') {
+                    if (error instanceof ApiError && error.message === 'Authentication required') {
                         throw error
                     }
                 }
-                throw new Error(`Access forbidden: ${response.status}`)
+                throw new ApiError(`Access forbidden: ${response.status}`, response.status)
             }
 
-            throw new Error(await errorDetailFromResponse(response))
+            throw new ApiError(await errorDetailFromResponse(response), response.status)
         }
 
         return await response.json()
@@ -1093,6 +1107,35 @@ export const desktopApi = {
     }
 }
 
+/**
+ * Shape of `GET /api/auth/me` (and the `user` field of login). Collapses the
+ * duplicated `User` interfaces previously declared separately in this file and
+ * in stores/auth.ts. All the user-model fields are optional since a bare
+ * local-auth install predates the user model and won't populate them.
+ */
+export interface AuthUserDto {
+    username: string
+    provider?: string
+    email?: string | null
+    user_id?: number | null
+    is_admin?: boolean
+    auth_method?: 'session' | 'api_key'
+    display_name?: string | null
+    picture_url?: string | null
+    last_login_at?: string | null
+}
+
+export interface AuthStatusDto {
+    auth_disabled: boolean
+    desktop_mode: boolean
+    providers: {
+        local: { enabled: boolean }
+        pam: { enabled: boolean }
+        google: { enabled: boolean; login_url: string }
+    }
+    api_keys: { enabled: boolean; reason?: string }
+}
+
 export const authApi = {
     /**
      * Login with username and password
@@ -1102,12 +1145,12 @@ export const authApi = {
      */
     async login(username: string, password: string): Promise<{
         message: string
-        user: { username: string; provider: string; email: string | null }
+        user: AuthUserDto
         csrf_token: string
     }> {
         const response = await apiRequest<{
             message: string
-            user: { username: string; provider: string; email: string | null }
+            user: AuthUserDto
             csrf_token: string
         }>(`${API_BASE}/api/auth/login`, {
             method: 'POST',
@@ -1141,8 +1184,8 @@ export const authApi = {
      * Get current user information
      * @returns Promise with user data
      */
-    async getMe(): Promise<{ username: string; provider: string; email: string | null }> {
-        return await apiRequest<{ username: string; provider: string; email: string | null }>(
+    async getMe(): Promise<AuthUserDto> {
+        return await apiRequest<AuthUserDto>(
             `${API_BASE}/api/auth/me`,
             { requireAuth: true }
         )
@@ -1152,26 +1195,64 @@ export const authApi = {
      * Check authentication status
      * @returns Promise with auth status
      */
-    async getStatus(): Promise<{
-        auth_disabled: boolean
-        desktop_mode: boolean
-        providers: {
-            local: { enabled: boolean }
-            pam: { enabled: boolean }
-            google: { enabled: boolean; login_url: string }
-            api_key?: { enabled: boolean }
-        }
-    }> {
-        return await apiRequest<{
-            auth_disabled: boolean
-            desktop_mode: boolean
-            providers: {
-                local: { enabled: boolean }
-                pam: { enabled: boolean }
-                google: { enabled: boolean; login_url: string }
-                api_key?: { enabled: boolean }
-            }
-        }>(`${API_BASE}/api/auth/status`, { requireAuth: false })
+    async getStatus(): Promise<AuthStatusDto> {
+        return await apiRequest<AuthStatusDto>(`${API_BASE}/api/auth/status`, { requireAuth: false })
+    }
+}
+
+/**
+ * Timestamps from the API are UTC but shaped `YYYY-MM-DD HH:MM:SS` (no `Z`/offset),
+ * so `new Date(s)` would misparse them as local time. Callers needing a Date should
+ * go via this helper rather than constructing one directly from the raw string.
+ */
+export function parseApiTimestamp(value: string): Date {
+    return new Date(`${value.replace(' ', 'T')}Z`)
+}
+
+export interface ApiKeyDto {
+    id: number
+    name: string
+    key_prefix: string
+    created_at: string
+    last_used_at: string | null
+    expires_at: string | null
+    revoked_at: string | null
+    status: 'active' | 'expired' | 'revoked'
+}
+
+export interface CreatedApiKeyDto extends ApiKeyDto {
+    /** Plaintext secret — present only on the response to the create call, never again. */
+    key: string
+}
+
+export const apiKeysApi = {
+    async list(): Promise<{ keys: ApiKeyDto[] }> {
+        return await apiRequest<{ keys: ApiKeyDto[] }>(`${API_BASE}/api/api-keys`, {
+            requireAuth: true
+        })
+    },
+
+    async create(name: string, expiresInDays: number | null): Promise<CreatedApiKeyDto> {
+        return await apiRequest<CreatedApiKeyDto>(`${API_BASE}/api/api-keys`, {
+            method: 'POST',
+            body: JSON.stringify({ name, expires_in_days: expiresInDays }),
+            requireAuth: true
+        })
+    },
+
+    async rename(id: number, name: string): Promise<ApiKeyDto> {
+        return await apiRequest<ApiKeyDto>(`${API_BASE}/api/api-keys/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ name }),
+            requireAuth: true
+        })
+    },
+
+    async revoke(id: number): Promise<MessageResponse> {
+        return await apiRequest<MessageResponse>(`${API_BASE}/api/api-keys/${id}`, {
+            method: 'DELETE',
+            requireAuth: true
+        })
     }
 }
 
@@ -1187,5 +1268,6 @@ export default {
     filtering: filteringApi,
     savedSets: savedSetsApi,
     auth: authApi,
+    apiKeys: apiKeysApi,
     desktop: desktopApi
 }
