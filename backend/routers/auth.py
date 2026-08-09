@@ -52,11 +52,7 @@ async def login(login_request: LoginRequest, response: Response):
     csrf_token = issue_session_cookies(response, user)
     return {
         "message": "Login successful",
-        "user": {
-            "username": user.username,
-            "provider": user.provider,
-            "email": user.email,
-        },
+        "user": _user_payload(user),
         "csrf_token": csrf_token,
     }
 
@@ -68,18 +64,46 @@ async def logout(response: Response):
     return {"message": "Logout successful"}
 
 
+def _user_payload(user: AuthUser) -> dict:
+    last_login = None
+    if user.user_id is not None:
+        try:
+            from ..persistence.factory import get_designs_repository
+
+            row = get_designs_repository().get_user_by_id(user.user_id)
+            if row:
+                last_login = row.get("last_login_at")
+        except Exception:
+            pass
+    return {
+        "username": user.username,
+        "provider": user.provider,
+        "email": user.email,
+        "display_name": user.display_name,
+        "picture_url": user.picture_url,
+        "user_id": user.user_id,
+        "is_admin": user.is_admin,
+        "auth_method": user.auth_method,
+        "last_login_at": last_login,
+    }
+
+
 @router.get("/me")
 async def read_users_me(current_user: AuthUser = Depends(get_current_active_user)):
-    return {
-        "username": current_user.username,
-        "provider": current_user.provider,
-        "email": current_user.email,
-    }
+    return _user_payload(current_user)
 
 
 @router.get("/status")
 async def auth_status():
+    from ..api_keys import api_keys_available
+
     google_login_path = "/api/auth/google/login"
+    if settings.auth_disabled:
+        keys_reason = "auth_disabled"
+    elif not api_keys_available():
+        keys_reason = "persistence_disabled"
+    else:
+        keys_reason = None
     return {
         "auth_disabled": settings.auth_disabled,
         "desktop_mode": settings.binderdash_desktop,
@@ -90,8 +114,8 @@ async def auth_status():
                 "enabled": google_oauth_configured(),
                 "login_url": google_login_path,
             },
-            "api_key": {"enabled": settings.api_key_enabled()},
         },
+        "api_keys": {"enabled": keys_reason is None, "reason": keys_reason},
     }
 
 
@@ -146,7 +170,16 @@ async def google_callback(request: Request):
         return RedirectResponse(url="/?auth_error=not_allowed", status_code=302)
 
     next_url = safe_next_url(request.session.pop("post_oauth_next", None))
-    user = AuthUser(username=email, provider="google", email=email)
+    # The identity stays keyed on the email (not the opaque `sub`) so existing
+    # sessions and the allowlist check in _claims_to_user keep working; `name`
+    # and `picture` were previously fetched and thrown away.
+    user = AuthUser(
+        username=email,
+        provider="google",
+        email=email,
+        display_name=(userinfo.get("name") or "").strip() or None,
+        picture_url=(userinfo.get("picture") or "").strip() or None,
+    )
     resp = RedirectResponse(url=next_url, status_code=302)
     issue_session_cookies(resp, user)
     return resp

@@ -55,6 +55,16 @@ def _design_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     )
 
 
+def _normalise_email(value: Any) -> Optional[str]:
+    """Lowercase/strip an email, mapping blanks and non-emails to None."""
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text or "@" not in text:
+        return None
+    return text
+
+
 def _sqlite_path_from_url(database_url: str) -> Path:
     u = database_url.strip()
     if not u.lower().startswith("sqlite:"):
@@ -93,12 +103,19 @@ class SqliteDesignsRepository:
                 check_same_thread=False,
             )
             self._conn.row_factory = sqlite3.Row
+            # These are per-connection, so they belong here rather than in
+            # init_schema. busy_timeout in particular matters now that
+            # `python -m backend.cli` writes to the same file as a running
+            # server: the default of 0 turns any overlap into an immediate
+            # "database is locked".
+            self._conn.execute("PRAGMA foreign_keys = ON")
+            self._conn.execute("PRAGMA journal_mode = WAL")
+            self._conn.execute("PRAGMA busy_timeout = 5000")
         return self._conn
 
     def init_schema(self) -> None:
         with self._lock:
             c = self._get_conn()
-            c.execute("PRAGMA foreign_keys = ON")
             c.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS binderdash_runs (
@@ -129,6 +146,9 @@ class SqliteDesignsRepository:
                 );
                 CREATE INDEX IF NOT EXISTS idx_designs_run_id
                     ON binderdash_designs(run_id);
+                -- Legacy login audit table. Superseded by binderdash_users +
+                -- binderdash_user_identities, but deliberately left in place so
+                -- rolling back to an earlier release still logs people in.
                 CREATE TABLE IF NOT EXISTS binderdash_auth_users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     provider TEXT NOT NULL,
@@ -138,6 +158,55 @@ class SqliteDesignsRepository:
                     last_login_at TEXT NOT NULL DEFAULT (datetime('now')),
                     UNIQUE(provider, identifier)
                 );
+                CREATE TABLE IF NOT EXISTS binderdash_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT,
+                    display_name TEXT,
+                    picture_url TEXT,
+                    is_admin INTEGER NOT NULL DEFAULT 0,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    last_login_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                -- Partial index: many users may have no email (local/pam), but a
+                -- non-null email identifies exactly one user and is what cross-
+                -- provider account merging keys on.
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
+                    ON binderdash_users(email) WHERE email IS NOT NULL;
+                CREATE TABLE IF NOT EXISTS binderdash_user_identities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    provider TEXT NOT NULL,
+                    identifier TEXT NOT NULL,
+                    email TEXT,
+                    display_name TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    last_login_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    UNIQUE(provider, identifier),
+                    FOREIGN KEY(user_id) REFERENCES binderdash_users(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_user_identities_user_id
+                    ON binderdash_user_identities(user_id);
+                CREATE TABLE IF NOT EXISTS binderdash_api_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    key_prefix TEXT NOT NULL,
+                    key_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    expires_at TEXT,
+                    revoked_at TEXT,
+                    last_used_at TEXT,
+                    FOREIGN KEY(user_id) REFERENCES binderdash_users(id) ON DELETE CASCADE
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_hash
+                    ON binderdash_api_keys(key_hash);
+                CREATE INDEX IF NOT EXISTS idx_api_keys_user_id
+                    ON binderdash_api_keys(user_id);
+                -- Names are unique only among live keys, so a name can be reused
+                -- once the old key is revoked.
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_user_name
+                    ON binderdash_api_keys(user_id, name) WHERE revoked_at IS NULL;
                 CREATE TABLE IF NOT EXISTS binderdash_tag_metrics_cache (
                     run_id TEXT NOT NULL,
                     design_id TEXT NOT NULL,
@@ -211,9 +280,10 @@ class SqliteDesignsRepository:
             self._migrate_short_name_column(c)
             self._migrate_extra_data_column(c)
             self._migrate_run_path_column(c)
+            self._migrate_auth_users_to_user_model(c)
             c.commit()
 
-    def _migrate_binder_chain_column(self, c: sqlite3.Cursor) -> None:
+    def _migrate_binder_chain_column(self, c: sqlite3.Connection) -> None:
         info = c.execute("PRAGMA table_info(binderdash_designs)").fetchall()
         names = {row[1] for row in info}
         if "binder_chain" in names:
@@ -224,7 +294,7 @@ class SqliteDesignsRepository:
             if "duplicate column" not in str(e).lower():
                 raise
 
-    def _migrate_short_name_column(self, c: sqlite3.Cursor) -> None:
+    def _migrate_short_name_column(self, c: sqlite3.Connection) -> None:
         info = c.execute("PRAGMA table_info(binderdash_designs)").fetchall()
         names = {row[1] for row in info}
         if "short_name" in names:
@@ -235,7 +305,7 @@ class SqliteDesignsRepository:
             if "duplicate column" not in str(e).lower():
                 raise
 
-    def _migrate_extra_data_column(self, c: sqlite3.Cursor) -> None:
+    def _migrate_extra_data_column(self, c: sqlite3.Connection) -> None:
         info = c.execute("PRAGMA table_info(binderdash_designs)").fetchall()
         names = {row[1] for row in info}
         if "extra_data" in names:
@@ -248,7 +318,7 @@ class SqliteDesignsRepository:
             if "duplicate column" not in str(e).lower():
                 raise
 
-    def _migrate_run_path_column(self, c: sqlite3.Cursor) -> None:
+    def _migrate_run_path_column(self, c: sqlite3.Connection) -> None:
         info = c.execute("PRAGMA table_info(binderdash_runs)").fetchall()
         names = {row[1] for row in info}
         if "run_path" in names:
@@ -260,6 +330,80 @@ class SqliteDesignsRepository:
         except sqlite3.OperationalError as e:
             if "duplicate column" not in str(e).lower():
                 raise
+
+    def _migrate_auth_users_to_user_model(self, c: sqlite3.Connection) -> None:
+        """Backfill binderdash_users/_user_identities from the legacy audit table.
+
+        Idempotent: an identity row already existing for (provider, identifier)
+        is the whole guard, so re-running init_schema is a no-op. The legacy
+        table is read-only here and is never dropped.
+        """
+        exists = c.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='binderdash_auth_users'"
+        ).fetchone()
+        if not exists:
+            return
+        rows = c.execute(
+            """
+            SELECT provider, identifier, email, created_at, last_login_at
+            FROM binderdash_auth_users
+            ORDER BY (email IS NULL), created_at, id
+            """
+        ).fetchall()
+        for row in rows:
+            provider = (row["provider"] or "").strip()
+            identifier = (row["identifier"] or "").strip()
+            if not provider or not identifier:
+                continue
+            already = c.execute(
+                "SELECT 1 FROM binderdash_user_identities WHERE provider = ? AND identifier = ?",
+                (provider, identifier),
+            ).fetchone()
+            if already:
+                continue
+
+            email = _normalise_email(row["email"])
+            if email is None and provider == "google":
+                # Google identities historically stored the email as identifier.
+                email = _normalise_email(identifier)
+            created_at = row["created_at"]
+            last_login_at = row["last_login_at"]
+
+            user_id: Optional[int] = None
+            if email is not None:
+                found = c.execute(
+                    "SELECT id FROM binderdash_users WHERE email = ?", (email,)
+                ).fetchone()
+                if found is not None:
+                    user_id = int(found["id"])
+                    c.execute(
+                        """
+                        UPDATE binderdash_users
+                        SET created_at = MIN(created_at, ?),
+                            last_login_at = MAX(last_login_at, ?)
+                        WHERE id = ?
+                        """,
+                        (created_at, last_login_at, user_id),
+                    )
+            if user_id is None:
+                # No email means local/pam, which can never be merged safely.
+                cur = c.execute(
+                    """
+                    INSERT INTO binderdash_users (email, created_at, last_login_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (email, created_at, last_login_at),
+                )
+                user_id = int(cur.lastrowid or 0)
+
+            c.execute(
+                """
+                INSERT INTO binderdash_user_identities
+                    (user_id, provider, identifier, email, created_at, last_login_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, provider, identifier, email, created_at, last_login_at),
+            )
 
     def get_run_by_group_key(self, run_group_key: str) -> Optional[Dict[str, Any]]:
         with self._lock:
@@ -658,25 +802,430 @@ class SqliteDesignsRepository:
             conn.commit()
             return cur.rowcount > 0
 
-    def record_login(
+    # --- Users, identities, API keys -------------------------------------
+
+    def upsert_login_identity(
         self,
+        *,
         provider: str,
         identifier: str,
         email: Optional[str] = None,
-    ) -> None:
+        display_name: Optional[str] = None,
+        picture_url: Optional[str] = None,
+        is_admin: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        provider = (provider or "").strip()
+        identifier = (identifier or "").strip()
+        if not provider or not identifier:
+            return None
+        # Google's `sub` is case-sensitive and opaque; usernames and emails are not.
+        if provider != "google" or "@" in identifier:
+            identifier = identifier.lower()
+        email_n = _normalise_email(email)
+
         with self._lock:
             conn = self._get_conn()
-            conn.execute(
+            for attempt in (0, 1):
+                try:
+                    user_id = self._link_identity(
+                        conn, provider, identifier, email_n, display_name
+                    )
+                    conn.execute(
+                        """
+                        UPDATE binderdash_users
+                        SET last_login_at = datetime('now'),
+                            is_admin = ?,
+                            display_name = COALESCE(?, display_name),
+                            picture_url = COALESCE(?, picture_url),
+                            email = COALESCE(email, ?)
+                        WHERE id = ?
+                        """,
+                        (
+                            1 if is_admin else 0,
+                            display_name,
+                            picture_url,
+                            email_n,
+                            user_id,
+                        ),
+                    )
+                    conn.execute(
+                        """
+                        UPDATE binderdash_user_identities
+                        SET last_login_at = datetime('now'),
+                            email = COALESCE(?, email),
+                            display_name = COALESCE(?, display_name)
+                        WHERE provider = ? AND identifier = ?
+                        """,
+                        (email_n, display_name, provider, identifier),
+                    )
+                    # Dual-write the legacy audit table so rolling back to a
+                    # previous release does not lose recent logins.
+                    conn.execute(
+                        """
+                        INSERT INTO binderdash_auth_users
+                            (provider, identifier, email, last_login_at)
+                        VALUES (?, ?, ?, datetime('now'))
+                        ON CONFLICT(provider, identifier) DO UPDATE SET
+                            last_login_at = datetime('now'),
+                            email = COALESCE(excluded.email, binderdash_auth_users.email)
+                        """,
+                        (provider, identifier, email_n),
+                    )
+                    conn.commit()
+                    return self._get_user_row(conn, user_id)
+                except sqlite3.IntegrityError:
+                    # Another process created the same identity/user between our
+                    # SELECT and INSERT. Roll back and re-resolve once.
+                    conn.rollback()
+                    if attempt:
+                        logger.warning(
+                            "upsert_login_identity: integrity conflict for %s:%s",
+                            provider,
+                            identifier,
+                        )
+                        return None
+            return None
+
+    def _link_identity(
+        self,
+        conn: sqlite3.Connection,
+        provider: str,
+        identifier: str,
+        email_n: Optional[str],
+        display_name: Optional[str],
+    ) -> int:
+        """Resolve (provider, identifier) to a user id, creating rows as needed."""
+        row = conn.execute(
+            "SELECT id, user_id FROM binderdash_user_identities"
+            " WHERE provider = ? AND identifier = ?",
+            (provider, identifier),
+        ).fetchone()
+
+        if row is None and provider == "google" and email_n:
+            # Google identities used to be keyed by email. Re-point that row at
+            # the stable `sub` rather than creating a second identity, so the
+            # user keeps their API keys.
+            legacy = conn.execute(
+                "SELECT id, user_id FROM binderdash_user_identities"
+                " WHERE provider = 'google' AND identifier = ?",
+                (email_n,),
+            ).fetchone()
+            if legacy is not None:
+                conn.execute(
+                    "UPDATE binderdash_user_identities SET identifier = ? WHERE id = ?",
+                    (identifier, legacy["id"]),
+                )
+                row = legacy
+
+        if row is not None:
+            user_id = int(row["user_id"])
+            if email_n:
+                user_id = self._reconcile_email(conn, user_id, email_n)
+            return user_id
+
+        if email_n:
+            found = conn.execute(
+                "SELECT id FROM binderdash_users WHERE email = ?", (email_n,)
+            ).fetchone()
+            if found is not None:
+                user_id = int(found["id"])
+                conn.execute(
+                    "INSERT INTO binderdash_user_identities"
+                    " (user_id, provider, identifier, email, display_name)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (user_id, provider, identifier, email_n, display_name),
+                )
+                return user_id
+
+        cur = conn.execute(
+            "INSERT INTO binderdash_users (email, display_name) VALUES (?, ?)",
+            (email_n, display_name),
+        )
+        user_id = int(cur.lastrowid or 0)
+        conn.execute(
+            "INSERT INTO binderdash_user_identities"
+            " (user_id, provider, identifier, email, display_name)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (user_id, provider, identifier, email_n, display_name),
+        )
+        return user_id
+
+    def _reconcile_email(
+        self, conn: sqlite3.Connection, user_id: int, email_n: str
+    ) -> int:
+        """An identity just supplied a verified email; merge users if it belongs
+        to someone else's record. Returns the surviving user id."""
+        current = conn.execute(
+            "SELECT id, email, created_at FROM binderdash_users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if current is None or current["email"] == email_n:
+            return user_id
+        owner = conn.execute(
+            "SELECT id, created_at FROM binderdash_users WHERE email = ?", (email_n,)
+        ).fetchone()
+        if owner is None:
+            return user_id  # caller's UPDATE ... COALESCE(email, ?) claims it
+        winner, loser = int(owner["id"]), user_id
+        if winner == loser:
+            return winner
+        # Oldest record wins, so the longest-lived key history survives.
+        if (current["created_at"] or "") < (owner["created_at"] or ""):
+            winner, loser = loser, winner
+        conn.execute(
+            "UPDATE binderdash_user_identities SET user_id = ? WHERE user_id = ?",
+            (winner, loser),
+        )
+        conn.execute(
+            "UPDATE binderdash_api_keys SET user_id = ? WHERE user_id = ?",
+            (winner, loser),
+        )
+        conn.execute(
+            """
+            UPDATE binderdash_users SET
+                email = COALESCE(email, ?),
+                created_at = MIN(created_at, (SELECT created_at FROM binderdash_users WHERE id = ?)),
+                last_login_at = MAX(last_login_at, (SELECT last_login_at FROM binderdash_users WHERE id = ?)),
+                is_admin = MAX(is_admin, (SELECT is_admin FROM binderdash_users WHERE id = ?))
+            WHERE id = ?
+            """,
+            (email_n, loser, loser, loser, winner),
+        )
+        conn.execute("DELETE FROM binderdash_users WHERE id = ?", (loser,))
+        logger.info("Merged user %s into %s via verified email", loser, winner)
+        return winner
+
+    @staticmethod
+    def _user_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+        out = {k: row[k] for k in row.keys()}
+        out["is_admin"] = bool(out.get("is_admin"))
+        out["is_active"] = bool(out.get("is_active", 1))
+        return out
+
+    def _get_user_row(
+        self, conn: sqlite3.Connection, user_id: int
+    ) -> Optional[Dict[str, Any]]:
+        row = conn.execute(
+            "SELECT * FROM binderdash_users WHERE id = ?", (user_id,)
+        ).fetchone()
+        return self._user_row_to_dict(row) if row is not None else None
+
+    def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            return self._get_user_row(self._get_conn(), user_id)
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        email_n = _normalise_email(email)
+        if email_n is None:
+            return None
+        with self._lock:
+            row = self._get_conn().execute(
+                "SELECT * FROM binderdash_users WHERE email = ?", (email_n,)
+            ).fetchone()
+            return self._user_row_to_dict(row) if row is not None else None
+
+    def get_user_by_identity(
+        self, provider: str, identifier: str
+    ) -> Optional[Dict[str, Any]]:
+        provider = (provider or "").strip()
+        identifier = (identifier or "").strip()
+        if not provider or not identifier:
+            return None
+        if provider != "google" or "@" in identifier:
+            identifier = identifier.lower()
+        with self._lock:
+            row = self._get_conn().execute(
                 """
-                INSERT INTO binderdash_auth_users (provider, identifier, email, last_login_at)
-                VALUES (?, ?, ?, datetime('now'))
-                ON CONFLICT(provider, identifier) DO UPDATE SET
-                    last_login_at = datetime('now'),
-                    email = COALESCE(excluded.email, binderdash_auth_users.email)
+                SELECT u.* FROM binderdash_users u
+                JOIN binderdash_user_identities i ON i.user_id = u.id
+                WHERE i.provider = ? AND i.identifier = ?
                 """,
-                (provider, identifier, email),
+                (provider, identifier),
+            ).fetchone()
+            return self._user_row_to_dict(row) if row is not None else None
+
+    def list_users(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            rows = self._get_conn().execute(
+                """
+                SELECT u.*, (
+                    SELECT COUNT(*) FROM binderdash_api_keys k
+                    WHERE k.user_id = u.id AND k.revoked_at IS NULL
+                ) AS api_key_count
+                FROM binderdash_users u
+                ORDER BY u.email IS NULL, u.email, u.id
+                """
+            ).fetchall()
+            return [self._user_row_to_dict(r) for r in rows]
+
+    def list_user_identities(self, user_id: int) -> List[Dict[str, Any]]:
+        with self._lock:
+            rows = self._get_conn().execute(
+                "SELECT * FROM binderdash_user_identities WHERE user_id = ?"
+                " ORDER BY provider, identifier",
+                (user_id,),
+            ).fetchall()
+            return [{k: r[k] for k in r.keys()} for r in rows]
+
+    def set_user_admin(self, user_id: int, is_admin: bool) -> bool:
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.execute(
+                "UPDATE binderdash_users SET is_admin = ? WHERE id = ?",
+                (1 if is_admin else 0, user_id),
             )
             conn.commit()
+            return cur.rowcount > 0
+
+    def sync_admin_flags(self, admin_user_ids: List[int]) -> int:
+        ids = [int(i) for i in admin_user_ids]
+        with self._lock:
+            conn = self._get_conn()
+            if ids:
+                placeholders = ",".join("?" * len(ids))
+                cur = conn.execute(
+                    f"UPDATE binderdash_users SET is_admin = CASE"
+                    f" WHEN id IN ({placeholders}) THEN 1 ELSE 0 END"
+                    f" WHERE is_admin != CASE WHEN id IN ({placeholders}) THEN 1 ELSE 0 END",
+                    ids + ids,
+                )
+            else:
+                cur = conn.execute(
+                    "UPDATE binderdash_users SET is_admin = 0 WHERE is_admin != 0"
+                )
+            conn.commit()
+            return cur.rowcount
+
+    @staticmethod
+    def _key_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+        out = {k: row[k] for k in row.keys()}
+        out.pop("key_hash", None)  # never leaves the repository
+        if "is_admin" in out:
+            out["is_admin"] = bool(out["is_admin"])
+        return out
+
+    def create_api_key(
+        self,
+        *,
+        user_id: int,
+        name: str,
+        key_hash: str,
+        key_prefix: str,
+        expires_at: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.execute(
+                "INSERT INTO binderdash_api_keys"
+                " (user_id, name, key_prefix, key_hash, expires_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (user_id, name, key_prefix, key_hash, expires_at),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM binderdash_api_keys WHERE id = ?", (cur.lastrowid,)
+            ).fetchone()
+            return self._key_row_to_dict(row) if row is not None else None
+
+    def list_api_keys(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        with self._lock:
+            conn = self._get_conn()
+            if user_id is None:
+                rows = conn.execute(
+                    "SELECT k.*, u.email AS user_email FROM binderdash_api_keys k"
+                    " JOIN binderdash_users u ON u.id = k.user_id"
+                    " ORDER BY k.created_at DESC, k.id DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM binderdash_api_keys WHERE user_id = ?"
+                    " ORDER BY created_at DESC, id DESC",
+                    (user_id,),
+                ).fetchall()
+            return [self._key_row_to_dict(r) for r in rows]
+
+    def get_api_key(self, key_id: int) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            row = self._get_conn().execute(
+                "SELECT * FROM binderdash_api_keys WHERE id = ?", (key_id,)
+            ).fetchone()
+            return self._key_row_to_dict(row) if row is not None else None
+
+    def get_api_key_by_hash(self, key_hash: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            row = self._get_conn().execute(
+                """
+                SELECT k.id, k.user_id, k.name, k.key_prefix, k.expires_at,
+                       k.revoked_at, k.last_used_at,
+                       u.email AS user_email, u.display_name AS user_display_name,
+                       u.is_admin, u.is_active,
+                       (SELECT i.provider FROM binderdash_user_identities i
+                        WHERE i.user_id = u.id
+                        ORDER BY i.last_login_at DESC, i.id LIMIT 1) AS provider,
+                       (SELECT i.identifier FROM binderdash_user_identities i
+                        WHERE i.user_id = u.id
+                        ORDER BY i.last_login_at DESC, i.id LIMIT 1) AS identifier
+                FROM binderdash_api_keys k
+                JOIN binderdash_users u ON u.id = k.user_id
+                WHERE k.key_hash = ?
+                """,
+                (key_hash,),
+            ).fetchone()
+            if row is None:
+                return None
+            out = {k: row[k] for k in row.keys()}
+            out["is_admin"] = bool(out["is_admin"])
+            out["is_active"] = bool(out["is_active"])
+            return out
+
+    def rename_api_key(
+        self, key_id: int, name: str, *, user_id: Optional[int] = None
+    ) -> bool:
+        with self._lock:
+            conn = self._get_conn()
+            if user_id is None:
+                cur = conn.execute(
+                    "UPDATE binderdash_api_keys SET name = ? WHERE id = ?",
+                    (name, key_id),
+                )
+            else:
+                cur = conn.execute(
+                    "UPDATE binderdash_api_keys SET name = ?"
+                    " WHERE id = ? AND user_id = ?",
+                    (name, key_id, user_id),
+                )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def revoke_api_key(self, key_id: int, *, user_id: Optional[int] = None) -> bool:
+        with self._lock:
+            conn = self._get_conn()
+            if user_id is None:
+                cur = conn.execute(
+                    "UPDATE binderdash_api_keys SET revoked_at = datetime('now')"
+                    " WHERE id = ? AND revoked_at IS NULL",
+                    (key_id,),
+                )
+            else:
+                cur = conn.execute(
+                    "UPDATE binderdash_api_keys SET revoked_at = datetime('now')"
+                    " WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
+                    (key_id, user_id),
+                )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def touch_api_keys_last_used(self, items: List[Dict[str, Any]]) -> int:
+        if not items:
+            return 0
+        pairs = [(it["last_used_at"], int(it["id"])) for it in items]
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.executemany(
+                "UPDATE binderdash_api_keys SET last_used_at = ? WHERE id = ?", pairs
+            )
+            conn.commit()
+            return cur.rowcount
 
     def get_tag_metrics_cache(
         self,

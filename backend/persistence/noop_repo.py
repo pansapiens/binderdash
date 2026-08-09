@@ -144,13 +144,76 @@ class NoopDesignsRepository:
     ) -> None:
         pass
 
-    def record_login(
+    # --- Users, identities, API keys -------------------------------------
+    #
+    # With no persistence there is no user table, so there are no API keys
+    # either. Callers treat these falsy returns as "feature unavailable".
+
+    def upsert_login_identity(
         self,
+        *,
         provider: str,
         identifier: str,
         email: Optional[str] = None,
-    ) -> None:
-        pass
+        display_name: Optional[str] = None,
+        picture_url: Optional[str] = None,
+        is_admin: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        return None
+
+    def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        return None
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        return None
+
+    def get_user_by_identity(
+        self, provider: str, identifier: str
+    ) -> Optional[Dict[str, Any]]:
+        return None
+
+    def list_users(self) -> List[Dict[str, Any]]:
+        return []
+
+    def list_user_identities(self, user_id: int) -> List[Dict[str, Any]]:
+        return []
+
+    def set_user_admin(self, user_id: int, is_admin: bool) -> bool:
+        return False
+
+    def sync_admin_flags(self, admin_user_ids: List[int]) -> int:
+        return 0
+
+    def create_api_key(
+        self,
+        *,
+        user_id: int,
+        name: str,
+        key_hash: str,
+        key_prefix: str,
+        expires_at: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        return None
+
+    def list_api_keys(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        return []
+
+    def get_api_key(self, key_id: int) -> Optional[Dict[str, Any]]:
+        return None
+
+    def get_api_key_by_hash(self, key_hash: str) -> Optional[Dict[str, Any]]:
+        return None
+
+    def rename_api_key(
+        self, key_id: int, name: str, *, user_id: Optional[int] = None
+    ) -> bool:
+        return False
+
+    def revoke_api_key(self, key_id: int, *, user_id: Optional[int] = None) -> bool:
+        return False
+
+    def touch_api_keys_last_used(self, items: List[Dict[str, Any]]) -> int:
+        return 0
 
     def create_saved_set(
         self,

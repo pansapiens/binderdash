@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useToast } from 'primevue/usetoast'
-import { authApi, setCsrfToken } from '../webapi'
+import { authApi, setCsrfToken, ApiError } from '../webapi'
+import type { AuthUserDto } from '../webapi'
 
 interface AuthStatus {
     auth_disabled: boolean
@@ -10,19 +11,13 @@ interface AuthStatus {
         local: { enabled: boolean }
         pam: { enabled: boolean }
         google: { enabled: boolean; login_url: string }
-        api_key?: { enabled: boolean }
     }
-}
-
-interface User {
-    username: string
-    provider?: string
-    email?: string | null
+    api_keys: { enabled: boolean; reason?: string }
 }
 
 export const useAuthStore = defineStore('auth', () => {
     // State
-    const user = ref<User | null>(null)
+    const user = ref<AuthUserDto | null>(null)
     const authStatus = ref<AuthStatus | null>(null)
     const isLoading = ref(false)
     const csrfToken = ref<string | null>(null)
@@ -46,6 +41,12 @@ export const useAuthStore = defineStore('auth', () => {
     })
     const shouldShowLogin = computed(() => isAuthEnabled.value && !isAuthenticated.value)
 
+    // Fail closed: hide the API-keys UI unless the server has confirmed it's enabled.
+    const canManageApiKeys = computed(() => {
+        return isAuthenticated.value && authStatus.value?.api_keys?.enabled === true
+    })
+    const canShowAccountUi = computed(() => isAuthenticated.value)
+
     // Actions
     const setCsrfTokenLocal = (token: string) => {
         csrfToken.value = token
@@ -59,7 +60,7 @@ export const useAuthStore = defineStore('auth', () => {
         stopAuthPolling()
     }
 
-    const setUser = (userData: User) => {
+    const setUser = (userData: AuthUserDto) => {
         user.value = userData
     }
 
@@ -82,9 +83,9 @@ export const useAuthStore = defineStore('auth', () => {
             try {
                 await authApi.getMe()
                 // If successful, user is still authenticated
-            } catch (error: any) {
+            } catch (error: unknown) {
                 // If we get a 401, the session has expired - logout
-                if (error?.response?.status === 401) {
+                if (error instanceof ApiError && error.status === 401) {
                     console.log('Session expired, logging out...')
                     clearAuth()
                 }
@@ -115,7 +116,9 @@ export const useAuthStore = defineStore('auth', () => {
                     local: { enabled: false },
                     pam: { enabled: false },
                     google: { enabled: false, login_url: '/api/auth/google/login' }
-                }
+                },
+                // Fail closed on a status fetch failure — never assume keys are available.
+                api_keys: { enabled: false, reason: 'status_unavailable' }
             }
             setAuthStatus(fallback)
             return fallback
@@ -154,10 +157,10 @@ export const useAuthStore = defineStore('auth', () => {
             // Start polling after successful user info fetch
             startAuthPolling()
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Failed to fetch user info:', error)
             // If we get a 401, the session is invalid - clear auth
-            if (error?.response?.status === 401) {
+            if (error instanceof ApiError && error.status === 401) {
                 clearAuth()
             }
             throw error
@@ -238,12 +241,15 @@ export const useAuthStore = defineStore('auth', () => {
         isAuthDisabled,
         shouldShowLogin,
         canLoadData,
+        canManageApiKeys,
+        canShowAccountUi,
 
         // Actions
         login,
         logout,
         initializeAuth,
         checkAuthStatus,
+        fetchUserInfo,
         getCsrfHeader,
         clearAuth,
         startAuthPolling,

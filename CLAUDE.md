@@ -36,7 +36,9 @@ Import from `backend.config` or its submodules. Note `run_discovery` imports `ru
 
 ## Auth model
 
-Multiple auth backends coexist, resolved at request time (`backend/auth.py`, `backend/auth_providers/`): API key (`BINDERDASH_API_KEY` via `Authorization: Bearer` or `X-Binderdash-Api-Key`), `LOCAL_USERS` (bcrypt), PAM, and Google OAuth — or fully disabled via `DISABLE_AUTHENTICATION`. Browser sessions use cookie sessions + **CSRF** (`X-CSRF-Token`); the CSRF middleware in `main.py` exempts GET/HEAD/OPTIONS, the login/logout/status/google routes, valid-API-key requests, and auth-disabled mode. API-key clients skip CSRF entirely. See `AUTHENTICATION.md`.
+Multiple auth backends coexist, resolved at request time (`backend/auth.py`, `backend/auth_providers/`): per-user API keys (`backend/api_keys.py`, via `Authorization: Bearer` or `X-Binderdash-Api-Key`), `LOCAL_USERS` (bcrypt), PAM, and Google OAuth — or fully disabled via `DISABLE_AUTHENTICATION`.
+
+**Users and keys.** A *user* is a person (`binderdash_users`); an *identity* is one way they sign in (`binderdash_user_identities`, keyed `(provider, identifier)`). Identities collapse onto one user only when they assert the same **verified email** — local and PAM supply none, so they stay separate unless `PAM_GECOS_EMAIL` is enabled. Users are auto-created on first login; `is_admin` comes from the `BINDERDASH_ADMIN_USERS` allowlist and is re-synced at startup *and* login, so `.env` is authoritative. API keys are `bd_`-prefixed, stored as SHA-256 (never bcrypt — see the rationale in `backend/api_keys.py`), shown once, and validated through a TTL cache with a debounced `last_used_at` write. The `/api/api-keys` router is **session-cookie only**: an API key may not mint another key. Bootstrap with `python -m backend.cli`. Browser sessions use cookie sessions + **CSRF** (`X-CSRF-Token`); the CSRF middleware in `main.py` exempts GET/HEAD/OPTIONS, the login/logout/status/google routes, valid-API-key requests, and auth-disabled mode. API-key clients skip CSRF entirely. See `AUTHENTICATION.md`.
 
 ## Frontend architecture (`frontend/src/`)
 

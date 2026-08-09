@@ -1,5 +1,5 @@
 import secrets
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,7 +27,8 @@ class RawSettings(BaseSettings):
     google_auth_client_secret: str = ""
     google_auth_redirect_uri: str = ""
     google_auth_allowed_users: str = ""
-    binderdash_api_key: str = ""
+    binderdash_admin_users: str = ""
+    pam_gecos_email: str = ""
     binderdash_desktop: str = ""
 
 
@@ -50,11 +51,9 @@ class AppSettings(BaseModel):
     google_auth_client_secret: str = ""
     google_auth_redirect_uri: str = ""
     google_auth_allowed_users: List[str] = []
-    binderdash_api_key: str = ""
+    binderdash_admin_users: List[str] = []
+    pam_gecos_email: bool = False
     binderdash_desktop: bool = False
-
-    def api_key_enabled(self) -> bool:
-        return bool(self.binderdash_api_key)
 
     def local_auth_enabled(self) -> bool:
         return len(self.local_users) > 0
@@ -76,6 +75,28 @@ class AppSettings(BaseModel):
         if not e or not self.google_auth_allowed_users:
             return False
         return e in self.google_auth_allowed_users
+
+    def is_admin_identity(
+        self, provider: str, identifier: str, email: Optional[str] = None
+    ) -> bool:
+        """Match a login against BINDERDASH_ADMIN_USERS.
+
+        An entry matches the email, a ``provider:identifier`` pair, or a bare
+        username. Deliberately no ``*`` wildcard -- unlike
+        PAM_LOCAL_ALLOWED_USERS, "everyone is an admin" is never intended.
+        """
+        entries = self.binderdash_admin_users
+        if not entries:
+            return False
+        candidates = {
+            f"{provider.strip().lower()}:{identifier.strip().lower()}",
+            identifier.strip().lower(),
+        }
+        if email:
+            candidates.add(email.strip().lower())
+        candidates.discard("")
+        return bool(candidates & set(entries))
+
 
 
 def parse_local_users(local_users_str: str) -> List[LocalUser]:
@@ -145,7 +166,8 @@ settings = AppSettings(
     google_auth_client_secret=(raw_settings.google_auth_client_secret or "").strip(),
     google_auth_redirect_uri=(raw_settings.google_auth_redirect_uri or "").strip(),
     google_auth_allowed_users=_parse_csv_lower(raw_settings.google_auth_allowed_users),
-    binderdash_api_key=(raw_settings.binderdash_api_key or "").strip(),
+    binderdash_admin_users=_parse_csv_lower(raw_settings.binderdash_admin_users),
+    pam_gecos_email=raw_settings.pam_gecos_email.lower() == "true",
     binderdash_desktop=raw_settings.binderdash_desktop.lower() == "true",
 )
 

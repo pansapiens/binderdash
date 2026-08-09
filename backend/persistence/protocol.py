@@ -157,13 +157,97 @@ class DesignsRepository(Protocol):
     ) -> None:
         ...
 
-    def record_login(
+    # --- Users, identities, API keys -------------------------------------
+    #
+    # A user is a person; an identity is one way that person signs in
+    # (local/pam/google). Identities are keyed by (provider, identifier) and
+    # link to a user. Two identities collapse onto one user only when they
+    # assert the same *verified* email -- local and PAM supply no email, so
+    # they stay separate unless the operator opts in to GECOS email lookup.
+
+    def upsert_login_identity(
         self,
+        *,
         provider: str,
         identifier: str,
         email: Optional[str] = None,
-    ) -> None:
-        """Upsert audit row for successful login (SQLite); noop when persistence disabled."""
+        display_name: Optional[str] = None,
+        picture_url: Optional[str] = None,
+        is_admin: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """Find-or-create the identity and its user, then record the login.
+
+        ``is_admin`` is passed in rather than read from settings so the
+        persistence layer stays free of settings imports (tests monkeypatch
+        ``settings`` per-module). Returns the user dict, or None when
+        persistence is disabled.
+        """
+        ...
+
+    def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        ...
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        ...
+
+    def get_user_by_identity(
+        self, provider: str, identifier: str
+    ) -> Optional[Dict[str, Any]]:
+        ...
+
+    def list_users(self) -> List[Dict[str, Any]]:
+        """All users with an ``api_key_count`` of live keys. Admin-facing."""
+        ...
+
+    def list_user_identities(self, user_id: int) -> List[Dict[str, Any]]:
+        ...
+
+    def set_user_admin(self, user_id: int, is_admin: bool) -> bool:
+        ...
+
+    def sync_admin_flags(self, admin_user_ids: List[int]) -> int:
+        """Set is_admin=1 for exactly these users and 0 for everyone else.
+
+        Run at startup so a demotion in BINDERDASH_ADMIN_USERS takes effect
+        even for a user who never logs in again (their API keys would
+        otherwise keep admin rights indefinitely). Returns rows changed.
+        """
+        ...
+
+    def create_api_key(
+        self,
+        *,
+        user_id: int,
+        name: str,
+        key_hash: str,
+        key_prefix: str,
+        expires_at: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        ...
+
+    def list_api_keys(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Keys for one user, or every key when user_id is None (admin)."""
+        ...
+
+    def get_api_key(self, key_id: int) -> Optional[Dict[str, Any]]:
+        ...
+
+    def get_api_key_by_hash(self, key_hash: str) -> Optional[Dict[str, Any]]:
+        """Key joined to its owner, for authenticating a request in one query."""
+        ...
+
+    def rename_api_key(
+        self, key_id: int, name: str, *, user_id: Optional[int] = None
+    ) -> bool:
+        """Rename; when user_id is given, ownership is enforced in SQL."""
+        ...
+
+    def revoke_api_key(self, key_id: int, *, user_id: Optional[int] = None) -> bool:
+        """Soft-revoke; when user_id is given, ownership is enforced in SQL."""
+        ...
+
+    def touch_api_keys_last_used(self, items: List[Dict[str, Any]]) -> int:
+        """Batch-write debounced last_used_at stamps. Items: {id, last_used_at}."""
         ...
 
     def create_saved_set(
