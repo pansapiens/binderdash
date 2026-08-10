@@ -185,15 +185,20 @@ const keys = ref<ApiKeyDto[]>([])
 const loading = ref(false)
 const listError = ref<string | null>(null)
 
+// 0, not null, for "Never": PrimeVue Select decides whether to render a label
+// at all with an emptiness check on the model value, so a null-valued option
+// selects but displays blank. createKey maps 0 back to null for the API.
+const NEVER_EXPIRES = 0
+
 const expiryOptions = [
   { label: '30 days', value: 30 },
   { label: '90 days', value: 90 },
   { label: '365 days', value: 365 },
-  { label: 'Never', value: null }
+  { label: 'Never', value: NEVER_EXPIRES }
 ]
 
 const newKeyName = ref('')
-const newKeyExpiry = ref<number | null>(90)
+const newKeyExpiry = ref<number>(90)
 const creating = ref(false)
 
 const issuedKey = ref<CreatedApiKeyDto | null>(null)
@@ -273,7 +278,10 @@ async function createKey() {
   if (!name) return
   creating.value = true
   try {
-    const created = await apiKeysApi.create(name, newKeyExpiry.value)
+    const created = await apiKeysApi.create(
+      name,
+      newKeyExpiry.value === NEVER_EXPIRES ? null : newKeyExpiry.value
+    )
     issuedKey.value = created
     curlExpanded.value = false
     newKeyName.value = ''
