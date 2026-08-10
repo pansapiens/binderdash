@@ -47,6 +47,12 @@ services:
       # exposes host passwd/shadow to the container — use only on trusted hosts and
       # understand the risk. You may also need nsswitch + pam.d alignment; LDAP/SSSD
       # on the host usually needs more than these three files.
+      # Two things bite here; see AGENTS.md "PAM in Docker":
+      #  1. group_add "42" below is required as well, or every login fails.
+      #  2. These are single-FILE mounts, so they pin an inode. passwd(1)
+      #     REPLACES /etc/shadow, so host password changes and new users are
+      #     invisible to a running container. `docker compose restart` does not
+      #     help; recreate it: `docker compose up -d --force-recreate`.
       # - /etc/passwd:/etc/passwd:ro
       # - /etc/group:/etc/group:ro
       # - /etc/shadow:/etc/shadow:ro
@@ -59,6 +65,15 @@ services:
     restart: unless-stopped
     # Security: run as non-root user
     user: "1000:1000"
+    # --- Required with the PAM mounts above (harmless otherwise, if gid 42 exists)
+    # pam_unix shells out to /sbin/unix_chkpwd, which is setgid `shadow` but
+    # refuses to use that privilege to check a user other than its caller. A
+    # container running as uid 1000 is therefore always making a cross-user
+    # request, and the helper returns PAM_AUTHINFO_UNAVAIL, which pam_unix
+    # reports as an ordinary wrong-password failure. Joining group shadow (gid
+    # 42 on Debian/Ubuntu) lets it read /etc/shadow in its own right.
+    # group_add:
+    #   - "42"
     # Resource limits
     deploy:
       resources:

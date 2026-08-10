@@ -130,9 +130,43 @@ services:
       - /etc/passwd:/etc/passwd:ro
       - /etc/group:/etc/group:ro
       - /etc/shadow:/etc/shadow:ro
+    group_add:
+      - "42"          # gid `shadow` — see below; without it every login fails
 ```
 
-This is already shown as commented examples in `docker-compose.dev.yml`; uncomment them to enable host-user PAM login.
+The mounts are active in `docker-compose.dev.yml` and commented out in `docker-compose.yml`.
+
+#### The `shadow` group is not optional
+
+`pam_unix` does not read `/etc/shadow` itself — it shells out to `/sbin/unix_chkpwd`,
+which is setgid `shadow` but **refuses to use that privilege to check any user other than
+its caller**, so that an unprivileged process cannot brute-force other people's passwords.
+A container running as a non-root `user:` is therefore always making a cross-user request,
+and the helper returns `PAM_AUTHINFO_UNAVAIL`. `pam_unix` surfaces that as an ordinary
+failure, so the symptom is an indistinguishable *"Incorrect username or password"* even
+when the password is right.
+
+Adding gid 42 lets the process read `/etc/shadow` in its own right. To confirm which
+failure you have, run the helper by hand inside the container:
+
+```bash
+docker compose exec binderdash sh -c 'printf %s "$PW" | /sbin/unix_chkpwd someuser nullok; echo $?'
+# 9 = cannot read /etc/shadow (missing shadow group)
+# 7 = read it fine, password genuinely wrong
+```
+
+#### Host account changes need a container recreate
+
+These are single-*file* bind mounts, which pin an inode. `passwd(1)` replaces
+`/etc/shadow` rather than editing it in place, so a running container keeps reading the
+file as it was at start: password changes and newly added users are silently invisible,
+and logins fail against a stale hash. `docker compose restart` does **not** fix it, since
+the container is not recreated. Compare `md5sum /etc/shadow` inside and outside the
+container to confirm, then:
+
+```bash
+docker compose up -d --force-recreate
+```
 
 Recommended matching env:
 

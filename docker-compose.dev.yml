@@ -21,6 +21,12 @@ services:
       - /etc/shadow:/etc/shadow:ro
     working_dir: /app
     command: ["uvicorn", "backend.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+    # gid 42 = shadow. Required for the PAM mounts above to work at all: the
+    # setgid-shadow helper /sbin/unix_chkpwd will not check a user other than
+    # its caller unless the caller can read /etc/shadow itself. See
+    # AGENTS.md "PAM in Docker".
+    group_add:
+      - "42"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
