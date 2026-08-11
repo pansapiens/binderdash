@@ -3,10 +3,12 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import Response
 from ..auth import get_current_user_optional
+from ..auth_providers.base import AuthUser
 from ..cache import (
     designs_cache,
     get_designs_for_run_ids,
@@ -14,7 +16,13 @@ from ..cache import (
     patch_design_in_cache,
     refresh_designs_cache,
 )
+from ..download_tokens import (
+    DownloadTokenError,
+    assert_designs_download_claims,
+    verify_designs_download_token,
+)
 from ..util.design_list import (
+    designs_to_tsv,
     paginate_designs,
     parse_run_ids_param,
     trim_designs_for_list,
@@ -46,7 +54,6 @@ from ..schemas import (
     TagPlacementResultRow,
 )
 from ..persistence.factory import get_designs_repository
-from ..auth_providers.base import AuthUser
 from ..tag_placement import compute_tag_metrics_for_structure_file
 from ..filtering.chain_roles import resolve_chain_roles_cached
 from ..filtering.structural_metrics import (
@@ -58,6 +65,33 @@ from ..filtering.structural_metrics import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/designs", tags=["designs"])
+
+
+async def _authorize_list_designs(
+    request: Request,
+    run_ids: Optional[str] = Query(None),
+    response_format: Literal["json", "tsv"] = Query("json", alias="format"),
+    download_token: Optional[str] = Query(
+        None,
+        description=(
+            "Short-lived JWT scoped to one run_id + format. When valid, no Bearer "
+            "session or API key is required."
+        ),
+    ),
+) -> Optional[AuthUser]:
+    """Session/API-key auth, or a matching object-scoped download_token."""
+    if download_token:
+        try:
+            claims = verify_designs_download_token(download_token)
+            parsed = parse_run_ids_param(run_ids)
+            sole = parsed[0] if parsed and len(parsed) == 1 else None
+            assert_designs_download_claims(
+                claims, run_id=sole, fmt=response_format
+            )
+        except DownloadTokenError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from e
+        return None
+    return await get_current_user_optional(request)
 
 
 def _log_list_designs_timing(
@@ -94,7 +128,19 @@ async def list_designs(
     page_size: Optional[int] = Query(
         50, ge=1, le=1000, description="Page size when page is set."
     ),
-    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+    response_format: Literal["json", "tsv"] = Query(
+        "json",
+        alias="format",
+        description="Response format: json envelope (default) or tab-separated values.",
+    ),
+    download_token: Optional[str] = Query(
+        None,
+        description=(
+            "Short-lived JWT scoped to one run_id + format. When valid, no Bearer "
+            "session or API key is required."
+        ),
+    ),
+    current_user: Optional[AuthUser] = Depends(_authorize_list_designs),
 ):
     """List designs from cache/DB; run_ids scopes load to selected runs only."""
     started = time.perf_counter()
@@ -113,6 +159,24 @@ async def list_designs(
 
         rows, page_meta = paginate_designs(rows, page, page_size)
         rows = trim_designs_for_list(rows, include_heavy=include_heavy)
+
+        if response_format == "tsv":
+            body = designs_to_tsv(rows).encode("utf-8")
+            _log_list_designs_timing(
+                run_ids=parsed_run_ids,
+                row_count=len(rows),
+                started=started,
+                source=f"{source}_tsv",
+                response_bytes=len(body),
+            )
+            filename = "designs.tsv"
+            if parsed_run_ids is not None and len(parsed_run_ids) == 1:
+                filename = f"designs_{parsed_run_ids[0]}.tsv"
+            return Response(
+                content=body,
+                media_type="text/tab-separated-values; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
 
         payload: Dict[str, Any] = {"designs": rows}
         if page_meta is not None:

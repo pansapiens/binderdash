@@ -188,7 +188,7 @@ For BindCraft, ascending `Average_i_pTM` means lower values sort first in the AP
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| `GET` | `/api/designs` | All designs; optional `?run_ids=id1,id2` |
+| `GET` | `/api/designs` | All designs; optional `?run_ids=id1,id2`; optional `?format=tsv` (default `json`); optional `?download_token=` (short-lived JWT scoped to one run + format; substitutes for Bearer/session) |
 | `DELETE` | `/api/designs` | Clear designs cache only |
 | `PATCH` | `/api/designs/good` | Set or clear ★ flag |
 | `PATCH` | `/api/designs/tag` | Set `tag` to `N`, `C`, or clear |

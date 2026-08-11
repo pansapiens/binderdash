@@ -150,6 +150,8 @@ def hydrate_caches_from_repository() -> None:
         run_dict = json.loads(rj) if isinstance(rj, str) else rj
         rid = run_dict.get("run_id") or row["run_id"]
         run_dict["run_id"] = rid
+        if row.get("ingested_at"):
+            run_dict["ingested_at"] = row["ingested_at"]
         run_cache[rid] = run_dict
     # Designs are loaded on demand via get_designs_for_run_ids (not refresh_designs_cache here).
     logger.info(

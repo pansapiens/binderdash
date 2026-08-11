@@ -29,7 +29,7 @@ class DesignsRepository(Protocol):
         ...
 
     def list_run_records(self) -> List[Dict[str, Any]]:
-        """Rows with run_id, run_group_key, project_id, method, run_name, run_path, run_json (str)."""
+        """Rows with run_id, run_group_key, project_id, method, run_name, run_path, run_json, ingested_at."""
         ...
 
     def list_all_design_dicts(self) -> List[Dict[str, Any]]:
@@ -40,6 +40,15 @@ class DesignsRepository(Protocol):
         self, run_ids: List[str]
     ) -> List[Dict[str, Any]]:
         """Design rows for the given run_ids only (same shape as list_all_design_dicts)."""
+        ...
+
+    def count_designs_by_run_id(
+        self, run_ids: Optional[List[str]] = None
+    ) -> Dict[str, int]:
+        """Return ``{run_id: design_count}`` for all runs or the given subset.
+
+        Runs with zero designs are omitted (caller treats missing as 0).
+        """
         ...
 
     def update_design_tag(

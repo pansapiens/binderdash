@@ -100,7 +100,7 @@ before first use.
 
 | Tool | Purpose |
 |---|---|
-| `list_runs` | Projects, runs, methods, design counts, merge groups |
+| `list_runs` | Projects, runs, methods, **design counts**, filters, timestamps, signed download URLs, merge groups |
 | `describe_methods` | Canonical metrics, **sort directions**, ranking presets |
 | `describe_columns` | Columns for a selection, per-method coverage and ranges |
 | `query_designs` | Filter, sort, page and project the design table |
@@ -114,7 +114,12 @@ before first use.
 | `export_structures` | Manifest plus the tar endpoint to fetch many structures |
 
 There is deliberately **no plotting tool**: `query_designs` returns column-selected
-tabular data and an agent charts it itself.
+tabular data and an agent charts it itself. For bulk dumps, `list_runs` includes
+`designs_json_url` / `designs_tsv_url` per run with a short-lived `download_token`
+(JWT claims bound to that `run_id` + format, ~10 minutes) — curl those REST paths
+without the MCP API key rather than raising `query_designs` limits until the cell
+budget rejects you. Each run also reports `ingested_at` (first Binderdash ingest)
+and `folder_mtime` (run-directory mtime at ingest).
 
 **Write scope** is read + analysis + Saved Sets, plus the compute-and-cache writes
 (sequence extraction, structural metrics) that only populate derived caches. Scanning,

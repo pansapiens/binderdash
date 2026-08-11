@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Changed (MCP)**: `list_runs` always returns `design_count` (cache / DB `COUNT` / `structure_count` fallback), supports `methods` / `project_id` / `name_contains` / `target_contains` filters, and reports `ingested_at` (first DB ingest, preserved on re-ingest) plus `folder_mtime` (run-directory mtime at ingest).
+- **Changed (MCP)**: Per-run `designs_json_url` / `designs_tsv_url` embed a short-lived, object-scoped `download_token` JWT (~10 min, bound to that `run_id` + format) so agents can curl the full table without the MCP API key.
+- **Added (API)**: `GET /api/designs?format=tsv` returns a TSV attachment; optional `?download_token=` accepts that JWT in place of Bearer/session when claims match.
+- **Changed (MCP)**: `list_runs` / `query_designs` tool descriptions nudge agents to trust `method` + `run_id`, use `summarize_designs` / `design_count` to plan top-N limits, and prefer signed download URLs for bulk data.
 - **Added (Auth / API)**: Real user model — a **user** is a person, an **identity** is one login method `(provider, identifier)`; identities merge onto one user only when they share a verified email, and users are auto-created on first login. `/api/auth/me` and the login response now also return `user_id`, `is_admin`, `auth_method`, `display_name`, `picture_url`, `last_login_at`.
 - **Added (Auth / API)**: **Per-user API keys** — named, expiring, revocable, created from the account menu ("API keys") or `python -m backend.cli key create`; stored as SHA-256 hashes, plaintext shown once. New endpoints `GET/POST /api/api-keys`, `PATCH/DELETE /api/api-keys/{id}` (session-cookie-only — an API-key-authenticated request is rejected with `403`, so a leaked key cannot mint its own replacement), and admin-only `GET /api/users`. Keys require `DATABASE`; without persistence, key endpoints return `503`.
 - **Added (Auth / API)**: **`BINDERDASH_ADMIN_USERS`** — comma-separated admin allowlist (matches email, `provider:identifier`, or bare username; no `*` wildcard), re-applied at every startup and login.

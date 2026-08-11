@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 from typing import Any, Dict, FrozenSet, List, Optional
 
 # Omitted from default list payloads to reduce JSON size; use include_heavy=true to restore.
@@ -51,3 +54,31 @@ def paginate_designs(
         "page_size": size,
     }
     return designs[start:end], meta
+
+
+def _tsv_cell(value: Any) -> str:
+    """Flat string for one TSV cell; nested values are JSON-encoded."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float, str)):
+        return str(value)
+    return json.dumps(value, default=str, separators=(",", ":"))
+
+
+def designs_to_tsv(designs: List[Dict[str, Any]]) -> str:
+    """Serialise design dicts as TSV (union of keys, stable column order)."""
+    columns: List[str] = []
+    seen = set()
+    for design in designs:
+        for key in design.keys():
+            if key not in seen:
+                seen.add(key)
+                columns.append(key)
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter="\t", lineterminator="\n", quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(columns)
+    for design in designs:
+        writer.writerow([_tsv_cell(design.get(col)) for col in columns])
+    return buf.getvalue()

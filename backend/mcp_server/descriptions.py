@@ -10,12 +10,25 @@ LIST_RUNS = """List the binder design runs available in Binderdash.
 Start here. Every other tool takes `run_id` values from this one.
 
 Each run has a `method` (bindcraft, boltzgen, rfd, rfd3, ...), which determines what
-columns its designs carry — there is no fixed schema across methods. Runs sharing a
-`merge_group` are separate folders of the same logical campaign; designs from them can
-collide on `design_id`, which is why `source_path` exists.
+columns its designs carry — there is no fixed schema across methods. Identify runs by
+`run_id` and `method` (short, unambiguous); do not rely on a truncated `run_name` in a
+client table view. Runs sharing a `merge_group` are separate folders of the same logical
+campaign; designs from them can collide on `design_id`, which is why `source_path` exists.
 
-`design_count` is null for runs whose designs are not yet loaded into the server's
-cache; pass `run_ids` to load and count specific runs. Cheap; returns metadata only.
+`design_count` is always populated (from the in-memory cache, a cheap DB count, or
+`structure_count` as a no-DB fallback) — you do not need an exploratory `query_designs`
+just to learn sample sizes. `ingested_at` is when Binderdash first stored the run;
+`folder_mtime` is the run directory's filesystem mtime snapshotted at ingest. Filter with
+`methods`, `project_id`, `name_contains`, and `target_contains` rather than paging through
+every run.
+
+Each run includes `designs_json_url` and `designs_tsv_url` with a short-lived
+`download_token` in the query string (scoped to that run + format, ~10 minutes). Curl
+those REST paths directly — no MCP API key required — instead of pulling every design
+through MCP. Use `query_designs` / `summarize_designs` for filtered, sorted, or
+aggregated subsets.
+
+Cheap; returns metadata only.
 """
 
 DESCRIBE_METHODS = """Explain the metric vocabulary: canonical names, sort directions, ranking presets.
@@ -51,9 +64,14 @@ By default only canonical metrics and commonly useful columns are returned. Set
 
 QUERY_DESIGNS = """Query the design table: filter, sort, page, and choose columns.
 
-The workhorse. Use it to inspect designs, pull metrics for your own analysis, and
-gather data to plot yourself — there is no server-side plotting tool because you can
-chart these rows directly.
+The workhorse for *subsets* — inspect designs, pull metrics for your own analysis, and
+gather data to plot yourself. There is no server-side plotting tool because you can
+chart these rows directly. For the *full* table of a run, prefer the `designs_json_url`
+/ `designs_tsv_url` from `list_runs` (short-lived download_token; curl without the MCP
+API key) instead of raising `limit` until the cell budget rejects you. For distributions
+and thresholds without rows, call `summarize_designs` first — it returns count, quartiles,
+and optional histograms, so you can plan a top-N `limit` from `design_count` /
+`total_matching` without a round trip that only exists to learn `n`.
 
 Sorting defaults to `sort="default"`: best designs first, by `iptm` DESCENDING and
 then `pae_interaction` ASCENDING for designs that report no iptm. Both are canonical,

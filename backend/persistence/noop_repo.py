@@ -31,6 +31,11 @@ class NoopDesignsRepository:
     ) -> List[Dict[str, Any]]:
         return []
 
+    def count_designs_by_run_id(
+        self, run_ids: Optional[List[str]] = None
+    ) -> Dict[str, int]:
+        return {}
+
     def update_design_tag(
         self,
         run_id: str,

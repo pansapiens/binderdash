@@ -125,7 +125,8 @@ class SqliteDesignsRepository:
                     method TEXT NOT NULL,
                     run_name TEXT NOT NULL,
                     run_path TEXT NOT NULL DEFAULT '',
-                    run_json TEXT NOT NULL
+                    run_json TEXT NOT NULL,
+                    ingested_at TEXT
                 );
                 CREATE TABLE IF NOT EXISTS binderdash_designs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -280,6 +281,7 @@ class SqliteDesignsRepository:
             self._migrate_short_name_column(c)
             self._migrate_extra_data_column(c)
             self._migrate_run_path_column(c)
+            self._migrate_ingested_at_column(c)
             self._migrate_auth_users_to_user_model(c)
             c.commit()
 
@@ -327,6 +329,17 @@ class SqliteDesignsRepository:
             c.execute(
                 "ALTER TABLE binderdash_runs ADD COLUMN run_path TEXT NOT NULL DEFAULT ''"
             )
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+
+    def _migrate_ingested_at_column(self, c: sqlite3.Connection) -> None:
+        info = c.execute("PRAGMA table_info(binderdash_runs)").fetchall()
+        names = {row[1] for row in info}
+        if "ingested_at" in names:
+            return
+        try:
+            c.execute("ALTER TABLE binderdash_runs ADD COLUMN ingested_at TEXT")
         except sqlite3.OperationalError as e:
             if "duplicate column" not in str(e).lower():
                 raise
@@ -412,7 +425,8 @@ class SqliteDesignsRepository:
     def get_run_by_group_key(self, run_group_key: str) -> Optional[Dict[str, Any]]:
         with self._lock:
             cur = self._get_conn().execute(
-                "SELECT run_id, run_group_key, project_id, method, run_name, run_path, run_json "
+                "SELECT run_id, run_group_key, project_id, method, run_name, run_path, "
+                "run_json, ingested_at "
                 "FROM binderdash_runs WHERE run_group_key = ?",
                 (run_group_key,),
             )
@@ -427,6 +441,7 @@ class SqliteDesignsRepository:
                 "run_name": row["run_name"],
                 "run_path": row["run_path"],
                 "run_json": json.loads(row["run_json"]),
+                "ingested_at": row["ingested_at"],
             }
 
     def upsert_run_and_replace_designs(
@@ -447,6 +462,11 @@ class SqliteDesignsRepository:
                 run_path = str(path_raw)
         else:
             run_path = ""
+        if run_path:
+            try:
+                run_dict["folder_mtime"] = Path(run_path).stat().st_mtime
+            except OSError:
+                run_dict.pop("folder_mtime", None)
         run_json_str = json.dumps(run_dict, default=str)
 
         with self._lock:
@@ -476,16 +496,18 @@ class SqliteDesignsRepository:
             conn.execute(
                 """
                 INSERT INTO binderdash_runs (
-                    run_id, run_group_key, project_id, method, run_name, run_path, run_json
+                    run_id, run_group_key, project_id, method, run_name, run_path,
+                    run_json, ingested_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(run_id) DO UPDATE SET
                     run_group_key = excluded.run_group_key,
                     project_id = excluded.project_id,
                     method = excluded.method,
                     run_name = excluded.run_name,
                     run_path = excluded.run_path,
-                    run_json = excluded.run_json
+                    run_json = excluded.run_json,
+                    ingested_at = binderdash_runs.ingested_at
                 """,
                 (
                     run_id,
@@ -497,6 +519,12 @@ class SqliteDesignsRepository:
                     run_json_str,
                 ),
             )
+            ingested_row = conn.execute(
+                "SELECT ingested_at FROM binderdash_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if ingested_row and ingested_row["ingested_at"]:
+                run_dict["ingested_at"] = ingested_row["ingested_at"]
             for d in designs:
                 did, pid, meth, sp, tag, good, binder_chain, short_name, payload = (
                     split_design_for_storage(d)
@@ -549,7 +577,8 @@ class SqliteDesignsRepository:
     def list_run_records(self) -> List[Dict[str, Any]]:
         with self._lock:
             cur = self._get_conn().execute(
-                "SELECT run_id, run_group_key, project_id, method, run_name, run_path, run_json "
+                "SELECT run_id, run_group_key, project_id, method, run_name, run_path, "
+                "run_json, ingested_at "
                 "FROM binderdash_runs ORDER BY run_name"
             )
             return [dict(r) for r in cur.fetchall()]
@@ -578,6 +607,31 @@ class SqliteDesignsRepository:
                 ids,
             )
             return [_design_row_to_dict(row) for row in cur.fetchall()]
+
+    def count_designs_by_run_id(
+        self, run_ids: Optional[List[str]] = None
+    ) -> Dict[str, int]:
+        """Cheap ``GROUP BY`` counts so list_runs need not load design rows."""
+        ids = (
+            [str(r).strip() for r in run_ids if str(r).strip()]
+            if run_ids is not None
+            else None
+        )
+        with self._lock:
+            if ids is not None:
+                if not ids:
+                    return {}
+                placeholders = ",".join("?" * len(ids))
+                cur = self._get_conn().execute(
+                    "SELECT run_id, COUNT(*) AS n FROM binderdash_designs "
+                    f"WHERE run_id IN ({placeholders}) GROUP BY run_id",
+                    ids,
+                )
+            else:
+                cur = self._get_conn().execute(
+                    "SELECT run_id, COUNT(*) AS n FROM binderdash_designs GROUP BY run_id"
+                )
+            return {str(row["run_id"]): int(row["n"]) for row in cur.fetchall()}
 
     def update_design_tag(
         self,

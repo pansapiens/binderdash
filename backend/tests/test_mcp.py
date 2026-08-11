@@ -42,6 +42,11 @@ def seeded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     patched = settings_mod.settings.model_copy(update={"auth_disabled": False})
     for mod in (settings_mod, main_mod, auth_mod):
         monkeypatch.setattr(mod, "settings", patched)
+    # lifespan prefers raw_settings.database over default_sqlite_url; clear it so the
+    # test DB is used even when the developer's .env sets DATABASE.
+    patched_raw = settings_mod.raw_settings.model_copy(update={"database": ""})
+    monkeypatch.setattr(main_mod, "raw_settings", patched_raw)
+    monkeypatch.setattr(settings_mod, "raw_settings", patched_raw)
     # main.app is a module-level singleton; without this its lifespan would initialise
     # the real database (see test_api_key_auth.py, which does the same).
     monkeypatch.setattr(main_mod, "default_sqlite_url", lambda: url)
@@ -505,7 +510,7 @@ class TestDiscoveryTools:
             "run_id": "run-1",
             "project_id": "proj",
             "method": "bindcraft",
-            "metadata": {"name": "campaign-a"},
+            "metadata": {"name": "campaign-a", "target": "UL119"},
             "pdb_files": ["/data/runs/a/x.pdb"],
         }
         try:
@@ -519,3 +524,100 @@ class TestDiscoveryTools:
         assert run["run_id"] == "run-1"
         assert run["method"] == "bindcraft"
         assert run["structure_count"] == 1
+        assert run["design_count"] == 1  # no-DB/cache miss → structure_count fallback
+        assert "download_token=" in run["designs_json_url"]
+        assert run["designs_json_url"].startswith("/api/designs?run_ids=run-1")
+        assert "format=tsv" in run["designs_tsv_url"]
+        assert "download_token=" in run["designs_tsv_url"]
+
+    async def test_list_runs_design_count_from_db_without_loading_cache(
+        self, app, seeded
+    ):
+        """design_count must work from a cheap COUNT(*) without designs_by_run_id."""
+        import backend.cache as cache_mod
+
+        repo = seeded["repo"]
+        run_dict = {
+            "run_id": "bc-db",
+            "project_id": "UL119",
+            "method": "bindcraft",
+            "metadata": {"name": "bc-ul119-long-name", "target": "UL119"},
+            "pdb_files": [],
+        }
+        designs = [
+            {
+                "run_id": "bc-db",
+                "design_id": f"d{i}",
+                "project_id": "UL119",
+                "method": "bindcraft",
+                "Average_i_pTM": 0.8,
+            }
+            for i in range(3)
+        ]
+        repo.upsert_run_and_replace_designs("UL119/bc-ul119", "bc-db", run_dict, designs)
+
+        cache_mod.run_cache.clear()
+        cache_mod.designs_by_run_id.clear()
+        cache_mod.designs_cache.clear()
+        cache_mod.run_cache["bc-db"] = run_dict
+        try:
+            async with mcp_client(app, seeded["token"]) as client:
+                result = await client.call_tool("list_runs", {})
+        finally:
+            cache_mod.run_cache.clear()
+            cache_mod.designs_by_run_id.clear()
+            cache_mod.designs_cache.clear()
+
+        assert "bc-db" not in cache_mod.designs_by_run_id
+        run = result.data["runs"][0]
+        assert run["design_count"] == 3
+        assert run["structure_count"] == 0
+        assert run["ingested_at"] is not None
+        assert "download_token=" in run["designs_tsv_url"]
+
+    async def test_list_runs_filters(self, app, seeded):
+        import backend.cache as cache_mod
+
+        cache_mod.run_cache.clear()
+        cache_mod.run_cache["bc"] = {
+            "run_id": "bc",
+            "project_id": "UL119",
+            "method": "bindcraft",
+            "metadata": {"name": "bc-ul119-v1", "target": "UL119"},
+            "pdb_files": ["/a.pdb"],
+        }
+        cache_mod.run_cache["rf"] = {
+            "run_id": "rf",
+            "project_id": "UL119",
+            "method": "rfd3",
+            "metadata": {"name": "rf3-ul119-v1", "target": "UL119"},
+            "pdb_files": ["/b.pdb"],
+        }
+        cache_mod.run_cache["other"] = {
+            "run_id": "other",
+            "project_id": "SpeA",
+            "method": "bindcraft",
+            "metadata": {"name": "bc-spea", "target": "SpeA"},
+            "pdb_files": ["/c.pdb"],
+        }
+        try:
+            async with mcp_client(app, seeded["token"]) as client:
+                by_method = await client.call_tool(
+                    "list_runs", {"methods": ["rfd3"]}
+                )
+                by_name = await client.call_tool(
+                    "list_runs", {"name_contains": "ul119"}
+                )
+                by_project = await client.call_tool(
+                    "list_runs", {"project_id": "SpeA"}
+                )
+                by_ids = await client.call_tool(
+                    "list_runs", {"run_ids": ["bc", "rf"]}
+                )
+        finally:
+            cache_mod.run_cache.clear()
+
+        assert {r["run_id"] for r in by_method.data["runs"]} == {"rf"}
+        assert {r["run_id"] for r in by_name.data["runs"]} == {"bc", "rf"}
+        assert {r["run_id"] for r in by_project.data["runs"]} == {"other"}
+        assert {r["run_id"] for r in by_ids.data["runs"]} == {"bc", "rf"}

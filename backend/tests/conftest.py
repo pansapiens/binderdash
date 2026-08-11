@@ -33,12 +33,16 @@ def sqlite_designs_repo(tmp_path: Path):
 
 @pytest.fixture
 def api_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import backend.auth as auth_mod
     import backend.main as main_mod
+    import backend.settings as settings_mod
     from backend.auth import get_current_user_optional
+    from backend.routers.designs import _authorize_list_designs
     from fastapi.testclient import TestClient
 
     patched_settings = main_mod.settings.model_copy(update={"auth_disabled": True})
-    monkeypatch.setattr(main_mod, "settings", patched_settings)
+    for mod in (main_mod, settings_mod, auth_mod):
+        monkeypatch.setattr(mod, "settings", patched_settings)
     monkeypatch.setattr(
         main_mod,
         "default_sqlite_url",
@@ -50,6 +54,7 @@ def api_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     app = main_mod.app
     app.dependency_overrides[get_current_user_optional] = _auth_bypass
+    app.dependency_overrides[_authorize_list_designs] = _auth_bypass
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()

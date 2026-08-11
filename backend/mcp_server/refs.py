@@ -36,6 +36,27 @@ def structure_url(run_id: str, filename: Optional[str]) -> Optional[str]:
     return f"/api/runs/{run_id}/files/structure/{filename}"
 
 
+def designs_json_url(run_id: str) -> str:
+    """Relative URL for the JSON design table, with a short-lived download token."""
+    from ..download_tokens import mint_designs_download_token
+    from urllib.parse import quote
+
+    token = mint_designs_download_token(run_id, "json")
+    return f"/api/designs?run_ids={quote(run_id, safe='')}&download_token={quote(token, safe='')}"
+
+
+def designs_tsv_url(run_id: str) -> str:
+    """Relative URL for the TSV design table, with a short-lived download token."""
+    from ..download_tokens import mint_designs_download_token
+    from urllib.parse import quote
+
+    token = mint_designs_download_token(run_id, "tsv")
+    return (
+        f"/api/designs?run_ids={quote(run_id, safe='')}"
+        f"&format=tsv&download_token={quote(token, safe='')}"
+    )
+
+
 def decorate_structure_fields(design: Dict[str, Any]) -> Dict[str, Any]:
     """Replace the server-path ``pdb_file`` with agent-usable derived fields."""
     filename = structure_filename(design)
