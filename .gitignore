@@ -41,3 +41,5 @@ db.sqlite
 /TODO.md
 /prepare_sequences_spec.md
 /sync_to_rotibom.sh
+
+*.no-git.md
