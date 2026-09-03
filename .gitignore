@@ -36,3 +36,8 @@ db.sqlite
 .vscode/
 .idea/
 *.swp
+
+# Personal scratch files, not for the repo
+/TODO.md
+/prepare_sequences_spec.md
+/sync_to_rotibom.sh
