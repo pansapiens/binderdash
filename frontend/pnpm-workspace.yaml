@@ -2,9 +2,6 @@ packages:
   - '.'
 
 allowBuilds:
-  '@parcel/watcher': set this to true or false
-  '@scarf/scarf': set this to true or false
-  esbuild: set this to true or false
-
-onlyBuiltDependencies:
-  - esbuild
+  '@parcel/watcher': true
+  '@scarf/scarf': false
+  esbuild: true

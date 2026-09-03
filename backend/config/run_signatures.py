@@ -32,7 +32,9 @@ run_folder_signatures: List[Dict[str, Any]] = [
             "{design_id}_*.pdb",
             "{design_id}*.pdb",
         ],
+        # bindcraft_n_traj is per input PDB; total = n_traj × n_targets
         "trajectory_count_params_key": "bindcraft_n_traj",
+        "trajectory_count_per_target": True,
         "trajectory_count_file": "results/bindcraft/trajectory_stats.csv",
     },
     {

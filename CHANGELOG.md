@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Changed (UI)**: Select Runs **Accepted / Total** for multi-target BindCraft runs now appends the input target count from `trajectory_stats.csv` (e.g. `2 / 8 (2 targets)`).
+- **Fixed (Runs / ingest)**: BindCraft multi-target runs (nf-binder-design) no longer report `Accepted / Total` using per-target `bindcraft_n_traj` alone — total trajectories are `bindcraft_n_traj × n_targets`. CSV trajectory counts also handle CR-only BindCraft merges correctly.
 - **Changed (MCP)**: `list_runs` always returns `design_count` (cache / DB `COUNT` / `structure_count` fallback), supports `methods` / `project_id` / `name_contains` / `target_contains` filters, and reports `ingested_at` (first DB ingest, preserved on re-ingest) plus `folder_mtime` (run-directory mtime at ingest).
 - **Changed (MCP)**: Per-run `designs_json_url` / `designs_tsv_url` embed a short-lived, object-scoped `download_token` JWT (~10 min, bound to that `run_id` + format) so agents can curl the full table without the MCP API key.
 - **Added (API)**: `GET /api/designs?format=tsv` returns a TSV attachment; optional `?download_token=` accepts that JWT in place of Bearer/session when claims match.

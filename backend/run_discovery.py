@@ -1,13 +1,15 @@
+import csv
+import io
+import json
 import logging
 import os
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 import pandas as pd
-import json
 
 from .util.pdb_to_fasta import get_chain_sequences
 from .util.profiling import Timer
@@ -108,23 +110,134 @@ def extract_backbone_id(design_id: str, method: str) -> str:
     return backbone_id
 
 
+def _read_csv_text(file_path: Path) -> Optional[str]:
+    """Load CSV text, normalising rare CR-only BindCraft merges for ``csv.reader``."""
+    try:
+        data = file_path.read_bytes()
+    except OSError:
+        return None
+    if not data.strip():
+        return ""
+    # Some merged BindCraft CSVs use classic Mac ``\\r`` separators only.
+    if b"\n" not in data and b"\r" in data:
+        data = data.replace(b"\r", b"\n")
+    return data.decode("utf-8", errors="replace")
+
+
 def count_csv_data_rows(file_path: Path) -> Optional[int]:
-    """Count non-empty data rows in a CSV (one header line, then data)."""
+    """Count non-empty CSV data records (skips header). Handles CR/LF and quoted newlines."""
+    if not file_path.is_file():
+        return None
+    text = _read_csv_text(file_path)
+    if text is None:
+        return None
+    if not text.strip():
+        return 0
+    try:
+        reader = csv.reader(io.StringIO(text))
+        next(reader, None)  # header
+        return sum(1 for row in reader if any(cell.strip() for cell in row))
+    except csv.Error:
+        return None
+
+
+def _unique_csv_column_values(file_path: Path, column: str) -> Optional[Set[str]]:
+    """Return distinct non-empty values of ``column``, or None if unreadable / missing."""
     if not file_path.is_file():
         return None
     try:
-        with open(file_path, "rb") as f:
-            line_no = 0
-            data_rows = 0
-            for raw in f:
-                line_no += 1
-                if line_no == 1:
-                    continue
-                if raw.strip():
-                    data_rows += 1
-        return data_rows
-    except OSError:
+        df = pd.read_csv(file_path)
+    except Exception:
+        text = _read_csv_text(file_path)
+        if text is None or not text.strip():
+            return None
+        try:
+            reader = csv.DictReader(io.StringIO(text))
+            if reader.fieldnames is None or column not in reader.fieldnames:
+                return None
+            values = {
+                str(row[column]).strip()
+                for row in reader
+                if (row.get(column) or "").strip()
+            }
+            return values if values else None
+        except csv.Error:
+            return None
+    if column not in df.columns:
         return None
+    values = {str(v).strip() for v in df[column].dropna() if str(v).strip()}
+    return values if values else None
+
+
+def _count_input_pdb_paths(run_path: Path, input_pdb: str) -> Optional[int]:
+    """Count target PDBs from an nf-binder-design ``input_pdb`` (file, dir, or glob)."""
+    pattern = input_pdb.strip()
+    if not pattern:
+        return None
+    bases = (run_path, run_path.parent)
+    has_glob = any(ch in pattern for ch in "*?[")
+    for base in bases:
+        if has_glob:
+            matches = [
+                p
+                for p in base.glob(pattern)
+                if p.is_file() and p.suffix.lower() == ".pdb"
+            ]
+            if matches:
+                return len(matches)
+            continue
+        path = Path(pattern) if Path(pattern).is_absolute() else base / pattern
+        if path.is_file() and path.suffix.lower() == ".pdb":
+            return 1
+        if path.is_dir():
+            n = len([p for p in path.glob("*.pdb") if p.is_file()])
+            if n:
+                return n
+    return None
+
+
+_BINDCRAFT_TRAJECTORY_STATS = "results/bindcraft/trajectory_stats.csv"
+_BINDCRAFT_DESIGN_STATS = "results/bindcraft/final_design_stats.csv"
+
+
+def _bindcraft_target_count_from_trajectory_stats(run_path: Path) -> Optional[int]:
+    """Distinct ``Target`` values in ``trajectory_stats.csv``."""
+    values = _unique_csv_column_values(run_path / _BINDCRAFT_TRAJECTORY_STATS, "Target")
+    if values:
+        return len(values)
+    return None
+
+
+def _bindcraft_target_count_from_csv(run_path: Path) -> Optional[int]:
+    """Distinct ``Target`` values from BindCraft results tables (for trajectory totals)."""
+    n = _bindcraft_target_count_from_trajectory_stats(run_path)
+    if n is not None:
+        return n
+    values = _unique_csv_column_values(run_path / _BINDCRAFT_DESIGN_STATS, "Target")
+    if values:
+        return len(values)
+    return None
+
+
+def _bindcraft_target_count_from_input(run_path: Path, params_data: Any) -> Optional[int]:
+    """Count target PDBs from an nf-binder-design ``input_pdb`` param (file, dir, or glob)."""
+    input_pdb = _params_value_from_run_params_json(params_data, "input_pdb")
+    if isinstance(input_pdb, str):
+        n = _count_input_pdb_paths(run_path, input_pdb)
+        if n is not None and n >= 1:
+            return n
+    return None
+
+
+def _bindcraft_target_count(run_path: Path, params_data: Any) -> int:
+    """Number of input PDBs / targets for per-target trajectory totals (at least 1)."""
+    n = _bindcraft_target_count_from_input(run_path, params_data)
+    if n is not None:
+        return n
+    n = _bindcraft_target_count_from_csv(run_path)
+    if n is not None:
+        return n
+    return 1
 
 
 def _params_value_from_run_params_json(
@@ -144,8 +257,27 @@ def _params_value_from_run_params_json(
     return cur
 
 
+def resolve_target_count(run_path: Path, signature: Dict[str, Any]) -> Optional[int]:
+    """Number of targets from ``trajectory_stats.csv`` (else input folder before trajectories exist)."""
+    if not signature.get("trajectory_count_per_target"):
+        return None
+    n = _bindcraft_target_count_from_trajectory_stats(run_path)
+    if n is not None:
+        return n
+    stub: Dict[str, Any] = {"path": str(run_path), "signature": signature}
+    raw = parse_run_params(stub)
+    n = _bindcraft_target_count_from_input(run_path, raw)
+    if n is not None:
+        return n
+    return 1
+
+
 def resolve_trajectory_count(run_path: Path, signature: Dict[str, Any]) -> Optional[int]:
-    """Pre-filter trajectory/design count: params.json key first, else line count on trajectory_count_file."""
+    """Pre-filter trajectory/design count: params.json key first, else CSV record count.
+
+    For BindCraft (``trajectory_count_per_target``), ``bindcraft_n_traj`` is per input
+    PDB, so the params value is multiplied by the number of targets.
+    """
     key = signature.get("trajectory_count_params_key")
     if key:
         stub: Dict[str, Any] = {"path": str(run_path), "signature": signature}
@@ -154,9 +286,13 @@ def resolve_trajectory_count(run_path: Path, signature: Dict[str, Any]) -> Optio
             val = _params_value_from_run_params_json(raw, key)
             if val is not None:
                 try:
-                    return int(val)
+                    per = int(val)
                 except (TypeError, ValueError):
-                    pass
+                    per = None
+                if per is not None:
+                    if signature.get("trajectory_count_per_target"):
+                        return per * _bindcraft_target_count(run_path, raw)
+                    return per
     rel = signature.get("trajectory_count_file")
     if rel:
         n = count_csv_data_rows(run_path / rel)
@@ -421,6 +557,7 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
             is_nf_binder_design = detected_run["submethod"] == "nf-binder-design"
 
             trajectory_count = resolve_trajectory_count(current_dir, detected_run)
+            target_count = resolve_target_count(current_dir, detected_run)
             meta: Dict[str, Any] = {
                 "name": run_name,
                 "original_name": current_dir.name,
@@ -429,6 +566,8 @@ def find_runs_recursive(root_path: Path) -> List[Dict[str, Any]]:
             }
             if trajectory_count is not None:
                 meta["trajectory_count"] = trajectory_count
+            if target_count is not None and target_count > 1:
+                meta["target_count"] = target_count
 
             runs.append(
                 {

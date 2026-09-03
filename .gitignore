@@ -17,6 +17,7 @@ desktop-builds/
 prototypes/
 
 # Frontend
+.pnpm-store/
 /node_modules/
 /frontend/dist/
 /frontend/.pnp.*

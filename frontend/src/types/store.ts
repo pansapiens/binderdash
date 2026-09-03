@@ -22,6 +22,7 @@ export interface Run {
         name: string;
         pdb_count: number;
         trajectory_count?: number;
+        target_count?: number;
         primary_score_stats?: PrimaryScoreStats;
         results_file: string;
         merged_count?: number;

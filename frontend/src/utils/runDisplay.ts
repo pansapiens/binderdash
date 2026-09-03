@@ -15,7 +15,12 @@ export function formatAcceptedTotalText(data: Run): string {
     const t = trajectoryTotal(data)
     const left = typeof a === 'number' ? String(a) : '—'
     const right = typeof t === 'number' ? String(t) : '—'
-    return `${left} / ${right}`
+    const base = `${left} / ${right}`
+    const targets = data.metadata?.target_count
+    if (typeof targets === 'number' && targets > 1) {
+        return `${base} (${targets} targets)`
+    }
+    return base
 }
 
 function fmtNum(n: number): string {

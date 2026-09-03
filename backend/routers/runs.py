@@ -18,6 +18,7 @@ from ..run_discovery import (
     find_runs_recursive,
     load_run_table,
     parse_designs_from_run,
+    resolve_target_count,
     resolve_trajectory_count,
 )
 from ..schemas import (
@@ -149,6 +150,9 @@ def _ingest_runs_sync(body: IngestRequest) -> Dict[str, Any]:
                 tc = resolve_trajectory_count(rp, sig)
                 if tc is not None:
                     md["trajectory_count"] = tc
+                n_targets = resolve_target_count(rp, sig)
+                if n_targets is not None and n_targets > 1:
+                    md["target_count"] = n_targets
             repo.upsert_run_and_replace_designs(gk, run_id, run, designs)
             run_cache[run_id] = run
             out.append(run)
