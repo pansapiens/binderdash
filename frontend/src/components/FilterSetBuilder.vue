@@ -17,6 +17,7 @@ import { useDesignsStore, useFilteringStore } from '../stores'
 import { getMethodTagStyle } from '../config/pipelineDisplay'
 import { RANKING_PRESETS } from '../config/rankingPresets'
 import MetricColumnSelector from './MetricColumnSelector.vue'
+import TargetContactFilters from './TargetContactFilters.vue'
 import type { FilterSpecDto, RankingMetricDto } from '../webapi'
 import type { InputNumberInputEvent } from 'primevue/inputnumber'
 
@@ -65,7 +66,7 @@ function isEmptyOperator(operator: string): boolean {
 
 const savedSetName = ref('')
 
-// Presets dropdown for "2. Ranking Metrics" — a one-shot action (replaces the whole
+// Presets dropdown for "3. Ranking Metrics" — a one-shot action (replaces the whole
 // list), not stored as its own persisted state. Its displayed value is derived from
 // filteringStore.rankingMetrics itself (below), not tracked separately, so it stays
 // accurate no matter how those metrics got there: the fresh-session default (iptm@1.0
@@ -245,7 +246,7 @@ interface CascadeRow {
 // last enabled filter, else the unfiltered total when nothing is configured/enabled).
 const cascadeRows = computed<CascadeRow[]>(() => {
   const rows: CascadeRow[] = filteringStore.filterChain.map((item) => ({
-    column: item.column,
+    column: item.label ?? item.column,
     operator: item.operator,
     threshold: item.threshold,
     remaining: item.remaining,
@@ -444,7 +445,11 @@ const alphaLogSlider = computed<number>({
       </Message>
     </Panel>
 
-    <Panel v-if="filteringStore.hasSelectedRuns" header="2. Ranking Metrics" class="fsb-panel">
+    <Panel v-if="filteringStore.hasSelectedRuns" header="2. Target contacts" class="fsb-panel">
+      <TargetContactFilters />
+    </Panel>
+
+    <Panel v-if="filteringStore.hasSelectedRuns" header="3. Ranking Metrics" class="fsb-panel">
       <p class="fsb-hint">
         Designs are ranked by the <em>worst</em> of their scaled ranks across these
         metrics (boltzgen's "Algorithm 2" — see plan §2.2). Weight is inverse
@@ -552,7 +557,7 @@ const alphaLogSlider = computed<number>({
       </p>
     </Panel>
 
-    <Panel v-if="filteringStore.hasSelectedRuns" header="3. Diversity Selection" class="fsb-panel">
+    <Panel v-if="filteringStore.hasSelectedRuns" header="4. Diversity Selection" class="fsb-panel">
       <div class="fsb-diversity-row">
         <label class="fsb-diversity-field">
           Budget (designs in final set)
@@ -658,7 +663,7 @@ const alphaLogSlider = computed<number>({
       </p>
     </Panel>
 
-    <Panel v-if="filteringStore.hasSelectedRuns" header="4. Filter cascade" class="fsb-panel">
+    <Panel v-if="filteringStore.hasSelectedRuns" header="5. Filter cascade" class="fsb-panel">
       <p class="fsb-hint">
         Updates automatically as hard filters change (debounced) — no need to
         re-trigger manually.
@@ -698,7 +703,7 @@ const alphaLogSlider = computed<number>({
       </div>
     </Panel>
 
-    <Panel v-if="filteringStore.hasSelectedRuns" header="5. Create Saved Set" class="fsb-panel">
+    <Panel v-if="filteringStore.hasSelectedRuns" header="6. Create Saved Set" class="fsb-panel">
       <div class="fsb-create-row">
         <InputText
           v-model="savedSetName"

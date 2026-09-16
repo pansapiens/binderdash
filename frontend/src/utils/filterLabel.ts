@@ -21,9 +21,16 @@ export interface FilterLabelParts {
     operator: string
     threshold: number | null
     text_value: string | null
+    /**
+     * Target-contact stages arrive with a rendered description from the backend (their
+     * `column` is an internal `__tc_*` name that means nothing to a reader), so it wins
+     * over the operator/threshold formatting below.
+     */
+    label?: string
 }
 
 export function formatFilterLabel(item: FilterLabelParts): string {
+    if (item.label) return item.label
     const opLabel = OPERATOR_SYMBOLS[item.operator] ?? item.operator
     if (item.operator === 'is_empty' || item.operator === 'is_not_empty') {
         return `${item.column} ${opLabel}`

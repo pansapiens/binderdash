@@ -13,13 +13,20 @@ import { ref, computed, watch } from 'vue'
 import { filteringApi, savedSetsApi } from '../webapi'
 import type {
     ColumnInfoDto,
+    DesignKeyDto,
     FilterSpecDto,
     FilteringPreviewResponseDto,
     FilteringRunRequestDto,
     FilteringRunResponseDto,
     RankingMetricDto,
     SavedSetDto,
-    SizeBucketDto
+    SizeBucketDto,
+    TargetContactCoverageDto,
+    TargetContactFilterSpecDto,
+    TargetContactGroupDto,
+    TargetContactProfileRequestDto,
+    TargetContactProfileResponseDto,
+    TargetInfoDto
 } from '../webapi'
 import { buildDesignKey } from '../utils/designKey'
 import { useDesignsStore } from './designs'
@@ -33,6 +40,13 @@ const APPLY_DEBOUNCE_MS = 300
 /** Debounce window for persisting filter/ranking/diversity config to IndexedDB. */
 const PERSIST_DEBOUNCE_MS = 400
 
+/**
+ * Designs per target-contact compute request. Small enough that the progress bar moves
+ * and a failure costs little rework, large enough that per-request overhead stays
+ * negligible next to the SASA passes themselves.
+ */
+const CONTACTS_BATCH_SIZE = 200
+
 export interface RankedDesignInfo {
     final_rank: number | null
     quality_score: number | null
@@ -40,7 +54,11 @@ export interface RankedDesignInfo {
 
 export interface FilterChainItem {
     index: number
-    type: 'filter' | 'diversity'
+    type: 'filter' | 'diversity' | 'target_contact'
+    /** For target-contact rows: which group the row belongs to. */
+    groupIndex?: number
+    /** Pre-rendered stage description; target-contact rows have no meaningful column. */
+    label?: string
     column: string
     operator: string
     threshold: number | null
@@ -57,6 +75,21 @@ export const useFilteringStore = defineStore('filtering', () => {
 
     // Filter set configuration
     const filters = ref<FilterSpecDto[]>([])
+
+    // Target-contact conditions, one group per target (see backend TargetContactGroup):
+    // a design is only constrained by the group written against its own target, which is
+    // how equivalent residues under different numbering are expressed.
+    const targetContactGroups = ref<TargetContactGroupDto[]>([])
+    const targets = ref<TargetInfoDto[]>([])
+    const targetCoverage = ref<TargetContactCoverageDto[]>([])
+    const targetsLoading = ref(false)
+    const targetsError = ref<string | null>(null)
+    const contactsComputeProgress = ref<{ done: number; total: number; running: boolean }>({
+        done: 0,
+        total: 0,
+        running: false
+    })
+    const contactsComputeError = ref<string | null>(null)
     // Fresh sessions (no persisted/loaded state) start with a single iptm@1.0 metric
     // rather than an empty list — see setRankingMetrics/RANKING_PRESETS for the
     // "iptm"/"BoltzGen" preset dropdown that can replace this.
@@ -131,7 +164,41 @@ export const useFilteringStore = defineStore('filtering', () => {
             .map(({ column, weight, higher_is_better }) => ({ column, weight, higher_is_better }))
     )
 
-    const hasActiveFilters = computed(() => activeFilters.value.length > 0)
+    // Enabled-only view of the contact groups, with the UI-only `enabled` flag stripped
+    // and empty groups dropped — the shape the backend expects.
+    const activeTargetContactGroups = computed<TargetContactGroupDto[]>(() =>
+        targetContactGroups.value
+            .map((group) => ({
+                target_key: group.target_key,
+                run_ids: group.run_ids ?? [],
+                label: group.label ?? null,
+                filters: group.filters
+                    .filter((f) => f.enabled !== false && f.residues.length > 0)
+                    .map(({ enabled, ...spec }) => spec)
+            }))
+            .filter((group) => group.filters.length > 0)
+    )
+
+    const hasActiveFilters = computed(
+        () => activeFilters.value.length > 0 || activeTargetContactGroups.value.length > 0
+    )
+
+    const hasMultipleTargets = computed(() => targets.value.length > 1)
+
+    /** Runs in scope that still need target contacts computed, for the coverage banner. */
+    const runsMissingContacts = computed(() =>
+        targetCoverage.value.filter((c) => c.computed_designs < c.total_designs)
+    )
+    const hasUncomputedContacts = computed(() => runsMissingContacts.value.length > 0)
+    const contactCoverageTotals = computed(() =>
+        targetCoverage.value.reduce(
+            (acc, c) => ({
+                computed: acc.computed + c.computed_designs,
+                total: acc.total + c.total_designs
+            }),
+            { computed: 0, total: 0 }
+        )
+    )
 
     // Indices of enabled ranking-metric rows whose column isn't in availableColumns —
     // i.e. no currently-selected run's method has any non-null value for it (see
@@ -177,7 +244,14 @@ export const useFilteringStore = defineStore('filtering', () => {
     // separately-toggleable stage (see diversityEnabled).
     const filterChain = computed<FilterChainItem[]>(() => {
         const stages = previewResult.value?.per_filter_counts ?? []
-        const enabledCount = filters.value.filter((f) => f.enabled !== false).length
+        // The backend appends target-contact stages after the plain hard filters (see
+        // service.build_filter_inputs), so the positional zip below must expect both.
+        const enabledCount =
+            filters.value.filter((f) => f.enabled !== false).length +
+            targetContactGroups.value.reduce(
+                (n, g) => n + g.filters.filter((f) => f.enabled !== false && f.residues.length > 0).length,
+                0
+            )
         const stagesMatch = stages.length === enabledCount
         let stageIdx = 0
         const items: FilterChainItem[] = filters.value.map((filter, index) => {
@@ -198,6 +272,29 @@ export const useFilteringStore = defineStore('filtering', () => {
                 remaining
             }
         })
+        targetContactGroups.value.forEach((group, groupIndex) => {
+            group.filters.forEach((filter, filterIndex) => {
+                const enabled = filter.enabled !== false && filter.residues.length > 0
+                let remaining: number | null = null
+                if (enabled) {
+                    remaining = stagesMatch ? stages[stageIdx]?.remaining ?? null : null
+                    stageIdx += 1
+                }
+                items.push({
+                    index: filterIndex,
+                    groupIndex,
+                    type: 'target_contact',
+                    column: group.label ?? 'Target contacts',
+                    operator: '',
+                    threshold: null,
+                    text_value: null,
+                    label: stagesMatch ? stages[stageIdx - 1]?.label ?? undefined : undefined,
+                    enabled,
+                    remaining
+                })
+            })
+        })
+
         if (lastDiversityResult.value) {
             items.push({
                 index: -1,
@@ -251,7 +348,8 @@ export const useFilteringStore = defineStore('filtering', () => {
         try {
             const res = await filteringApi.apply({
                 run_ids: activeRunIds.value,
-                filters: activeFilters.value
+                filters: activeFilters.value,
+                target_contact_groups: activeTargetContactGroups.value
             })
             if (seq !== applySeq) return
             passingDesignKeys.value = new Set(
@@ -306,6 +404,7 @@ export const useFilteringStore = defineStore('filtering', () => {
             const res = await filteringApi.rank({
                 run_ids: activeRunIds.value,
                 filters: activeFilters.value,
+                target_contact_groups: activeTargetContactGroups.value,
                 metrics: activeRankingMetrics.value
             })
             const map = new Map<string, RankedDesignInfo>()
@@ -333,6 +432,7 @@ export const useFilteringStore = defineStore('filtering', () => {
             const res = await filteringApi.diversity({
                 run_ids: activeRunIds.value,
                 filters: activeFilters.value,
+                target_contact_groups: activeTargetContactGroups.value,
                 metrics: activeRankingMetrics.value,
                 budget: budget.value,
                 alpha: alpha.value,
@@ -369,6 +469,146 @@ export const useFilteringStore = defineStore('filtering', () => {
         }
     }
 
+    // --- Target contacts ---
+
+    const fetchTargets = async () => {
+        if (!hasSelectedRuns.value) {
+            targets.value = []
+            targetCoverage.value = []
+            return
+        }
+        targetsLoading.value = true
+        targetsError.value = null
+        try {
+            const res = await filteringApi.targetResidues(activeRunIds.value)
+            targets.value = res.targets
+            targetCoverage.value = res.coverage
+            // A scope with exactly one target needs no target picker, so seed the single
+            // group here rather than making the user choose from a list of one.
+            if (targetContactGroups.value.length === 0 && res.targets.length === 1) {
+                targetContactGroups.value = [
+                    { target_key: res.targets[0].target_key, run_ids: [], label: res.targets[0].label, filters: [] }
+                ]
+            }
+        } catch (err) {
+            targetsError.value = err instanceof Error ? err.message : 'Failed to load target residues'
+            console.error('Error fetching target residues:', err)
+        } finally {
+            targetsLoading.value = false
+        }
+    }
+
+    /**
+     * Compute contact records for the runs in scope, in batches so the progress bar
+     * advances and no single request runs long enough to time out. Sequential by
+     * design: the backend already parallelises across a process pool internally.
+     */
+    const computeTargetContacts = async (designKeys?: DesignKeyDto[]) => {
+        if (!hasSelectedRuns.value) return
+        contactsComputeError.value = null
+        const keys = designKeys ?? []
+        const batches: DesignKeyDto[][] = []
+        if (keys.length) {
+            for (let i = 0; i < keys.length; i += CONTACTS_BATCH_SIZE) {
+                batches.push(keys.slice(i, i + CONTACTS_BATCH_SIZE))
+            }
+        } else {
+            batches.push([])
+        }
+
+        contactsComputeProgress.value = { done: 0, total: batches.length, running: true }
+        try {
+            for (const batch of batches) {
+                const res = await filteringApi.computeTargetContacts({
+                    run_ids: activeRunIds.value,
+                    design_keys: batch
+                })
+                targetCoverage.value = res.coverage
+                contactsComputeProgress.value = {
+                    ...contactsComputeProgress.value,
+                    done: contactsComputeProgress.value.done + 1
+                }
+                if (res.errors.length && !contactsComputeError.value) {
+                    contactsComputeError.value = res.errors.slice(0, 3).join('; ')
+                }
+            }
+            await flushApply()
+        } catch (err) {
+            contactsComputeError.value =
+                err instanceof Error ? err.message : 'Failed to compute target contacts'
+            console.error('Error computing target contacts:', err)
+            throw err
+        } finally {
+            contactsComputeProgress.value = { ...contactsComputeProgress.value, running: false }
+        }
+    }
+
+    const fetchTargetContactProfile = async (
+        payload: Omit<TargetContactProfileRequestDto, 'run_ids'> & { run_ids?: string[] }
+    ): Promise<TargetContactProfileResponseDto> =>
+        await filteringApi.targetContactProfile({
+            ...payload,
+            run_ids: payload.run_ids ?? activeRunIds.value
+        })
+
+    const residuesForTarget = (targetKey: string) =>
+        targets.value.find((t) => t.target_key === targetKey)?.residues ?? []
+
+    const addTargetContactGroup = (targetKey?: string) => {
+        const target = targets.value.find((t) => t.target_key === targetKey) ?? targets.value[0]
+        targetContactGroups.value.push({
+            target_key: target?.target_key ?? '',
+            run_ids: [],
+            label: target?.label ?? null,
+            filters: []
+        })
+    }
+
+    const removeTargetContactGroup = (groupIndex: number) => {
+        targetContactGroups.value.splice(groupIndex, 1)
+        scheduleApply()
+    }
+
+    const setTargetContactGroupTarget = (groupIndex: number, targetKey: string) => {
+        const group = targetContactGroups.value[groupIndex]
+        if (!group) return
+        group.target_key = targetKey
+        group.label = targets.value.find((t) => t.target_key === targetKey)?.label ?? null
+        // Residue labels belong to the previous target's numbering, so they cannot carry
+        // over: keep the rows but clear their selections.
+        group.filters.forEach((filter) => {
+            filter.residues = []
+        })
+        scheduleApply()
+    }
+
+    const addTargetContactFilter = (groupIndex: number) => {
+        const group = targetContactGroups.value[groupIndex]
+        if (!group) return
+        group.filters.push({
+            residues: [],
+            scope: 'any',
+            metric: 'distance',
+            distance_type: 'heavy',
+            unit: 'angstrom',
+            operator: '<=',
+            value: 5,
+            enabled: true
+        })
+    }
+
+    const removeTargetContactFilter = (groupIndex: number, filterIndex: number) => {
+        targetContactGroups.value[groupIndex]?.filters.splice(filterIndex, 1)
+        scheduleApply()
+    }
+
+    const toggleTargetContactFilterEnabled = (groupIndex: number, filterIndex: number) => {
+        const filter = targetContactGroups.value[groupIndex]?.filters[filterIndex]
+        if (!filter) return
+        filter.enabled = filter.enabled === false ? true : false
+        scheduleApply()
+    }
+
     // --- Reset / clear ---
 
     const clearAppliedFilters = () => {
@@ -385,6 +625,11 @@ export const useFilteringStore = defineStore('filtering', () => {
     const disableAllFilters = () => {
         filters.value.forEach((filter) => {
             filter.enabled = false
+        })
+        targetContactGroups.value.forEach((group) => {
+            group.filters.forEach((filter) => {
+                filter.enabled = false
+            })
         })
         scheduleApply()
     }
@@ -414,6 +659,7 @@ export const useFilteringStore = defineStore('filtering', () => {
             previewResult.value = await filteringApi.preview({
                 run_ids: activeRunIds.value,
                 filters: activeFilters.value,
+                target_contact_groups: activeTargetContactGroups.value,
                 metrics: activeRankingMetrics.value
             })
         } catch (err) {
@@ -486,6 +732,7 @@ export const useFilteringStore = defineStore('filtering', () => {
                 name,
                 run_ids: activeRunIds.value,
                 filters: activeFilters.value,
+                target_contact_groups: activeTargetContactGroups.value,
                 metrics: activeRankingMetrics.value,
                 budget: budget.value,
                 alpha: alpha.value,
@@ -517,6 +764,7 @@ export const useFilteringStore = defineStore('filtering', () => {
 
     const resetFilterSet = () => {
         filters.value = []
+        targetContactGroups.value = []
         rankingMetrics.value = DEFAULT_RANKING_METRICS.map((m) => ({ ...m }))
         budget.value = 24
         alpha.value = 0.001
@@ -540,6 +788,12 @@ export const useFilteringStore = defineStore('filtering', () => {
         // sent to or stored by the backend — see activeFilters/activeRankingMetrics
         // above) — every loaded row starts enabled.
         filters.value = recipe.filters ? recipe.filters.map((f) => ({ ...f, enabled: true })) : []
+        targetContactGroups.value = recipe.target_contact_groups
+            ? recipe.target_contact_groups.map((g) => ({
+                  ...g,
+                  filters: g.filters.map((f) => ({ ...f, enabled: true }))
+              }))
+            : []
         rankingMetrics.value = recipe.metrics ? recipe.metrics.map((m) => ({ ...m, enabled: true })) : []
         budget.value = recipe.budget ?? 24
         alpha.value = recipe.alpha ?? 0.001
@@ -562,6 +816,7 @@ export const useFilteringStore = defineStore('filtering', () => {
             persistDebounceTimer = null
             void kvSet(PERSISTENCE_KEYS.filteringViewState, {
                 filters: filters.value,
+                targetContactGroups: targetContactGroups.value,
                 rankingMetrics: rankingMetrics.value,
                 budget: budget.value,
                 alpha: alpha.value,
@@ -570,12 +825,17 @@ export const useFilteringStore = defineStore('filtering', () => {
         }, PERSIST_DEBOUNCE_MS)
     }
 
-    watch([filters, rankingMetrics, budget, alpha, sizeBuckets], persistFilteringViewState, { deep: true })
+    watch(
+        [filters, targetContactGroups, rankingMetrics, budget, alpha, sizeBuckets],
+        persistFilteringViewState,
+        { deep: true }
+    )
 
     const hydrateFromPersistence = async () => {
         try {
             const payload = await kvGet<{
                 filters?: unknown
+                targetContactGroups?: unknown
                 rankingMetrics?: unknown
                 budget?: unknown
                 alpha?: unknown
@@ -584,6 +844,9 @@ export const useFilteringStore = defineStore('filtering', () => {
             if (payload) {
                 if (Array.isArray(payload.filters)) {
                     filters.value = payload.filters as FilterSpecDto[]
+                }
+                if (Array.isArray(payload.targetContactGroups)) {
+                    targetContactGroups.value = payload.targetContactGroups as TargetContactGroupDto[]
                 }
                 if (Array.isArray(payload.rankingMetrics)) {
                     rankingMetrics.value = payload.rankingMetrics as RankingMetricDto[]
@@ -611,6 +874,13 @@ export const useFilteringStore = defineStore('filtering', () => {
         columnsLoading,
         columnsError,
         filters,
+        targetContactGroups,
+        targets,
+        targetCoverage,
+        targetsLoading,
+        targetsError,
+        contactsComputeProgress,
+        contactsComputeError,
         rankingMetrics,
         budget,
         alpha,
@@ -640,6 +910,11 @@ export const useFilteringStore = defineStore('filtering', () => {
         activeRunIds,
         hasSelectedRuns,
         hasActiveFilters,
+        activeTargetContactGroups,
+        hasMultipleTargets,
+        runsMissingContacts,
+        hasUncomputedContacts,
+        contactCoverageTotals,
         rankingMetricWarnings,
         canCreateSavedSet,
         initialDesignCount,
@@ -659,6 +934,16 @@ export const useFilteringStore = defineStore('filtering', () => {
         runPreview,
         addFilter,
         removeFilter,
+        fetchTargets,
+        computeTargetContacts,
+        fetchTargetContactProfile,
+        residuesForTarget,
+        addTargetContactGroup,
+        removeTargetContactGroup,
+        setTargetContactGroupTarget,
+        addTargetContactFilter,
+        removeTargetContactFilter,
+        toggleTargetContactFilterEnabled,
         addRankingMetric,
         removeRankingMetric,
         setRankingMetrics,

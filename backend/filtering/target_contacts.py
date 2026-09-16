@@ -330,6 +330,12 @@ def target_sequence_key(structure_path: str, binder_chain_ids: Sequence[str]) ->
     Runs against the same target share a key (and so a residue catalogue) regardless of
     run name or method; two constructs differing by a tag or truncation do not, which is
     what we want, since their residue numbering differs too.
+
+    Chain IDs are deliberately excluded from the hash: the same target is routinely
+    chain A in one pipeline's output and chain B in another's (BindCraft vs RFdiffusion
+    in the bundled PD-L1 example), and treating those as different targets would force
+    the user to write the same conditions twice. Residue labels are reconciled across
+    the differing chain letters at filter time — see RunContext.resolve_label.
     """
     import hashlib
 
@@ -340,7 +346,7 @@ def target_sequence_key(structure_path: str, binder_chain_ids: Sequence[str]) ->
         by_chain.setdefault(key[0], []).append(one_letter(resname))
     if not by_chain:
         return ""
-    joined = "|".join(f"{c}:{''.join(by_chain[c])}" for c in sorted(by_chain))
+    joined = "|".join("".join(by_chain[c]) for c in sorted(by_chain))
     return hashlib.sha256(joined.encode()).hexdigest()[:16]
 
 

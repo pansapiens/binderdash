@@ -46,6 +46,7 @@ from .target_contacts import (
     compute_many,
     compute_reference_residues,
     deserialise_record,
+    parse_residue_label,
     target_backbone_signature,
     target_sequence_key,
 )
@@ -100,6 +101,28 @@ class RunContext:
     @property
     def resname_by_label(self) -> Dict[str, str]:
         return {r.label: r.resname for r in self.residues}
+
+    def resolve_label(self, label: str) -> Optional[str]:
+        """This run's label for a residue named under another run's chain lettering.
+
+        The same target is often chain A in one pipeline's output and chain B in
+        another's, so a condition written as "A104" must still find residue 104 in a run
+        where the target is chain B. Falls back to matching on residue number (plus
+        insertion code) when the exact label is absent and that number is unambiguous
+        across the run's target chains. Returns None when the residue genuinely is not
+        part of this run's target, which exempts the design from the condition.
+        """
+        by_label = {r.label: r for r in self.residues}
+        if label in by_label:
+            return label
+        parsed = parse_residue_label(label, {r.chain for r in self.residues} | {label[:1]})
+        if parsed is None:
+            return None
+        _chain, resseq, icode = parsed
+        matches = [r for r in self.residues if r.resseq == resseq and r.icode == icode]
+        if len(matches) != 1:
+            return None
+        return matches[0].label
 
 
 def _structure_paths_for_run(run: Dict[str, Any]) -> List[str]:
@@ -255,7 +278,10 @@ def get_targets(run_ids: List[str]) -> TargetResiduesResponse:
     for target_key, group in sorted(by_target.items()):
         first = group[0]
         chain_ids = first.target_chain_ids
-        label = f"{'/'.join(chain_ids)} · {len(first.residues)} aa"
+        # Runs in this group can carry the target on different chains (see
+        # target_sequence_key), so name the target by size and show the representative
+        # run's chains rather than implying one lettering.
+        label = f"{len(first.residues)} aa · chain {'/'.join(chain_ids)}"
         targets.append(
             TargetInfo(
                 target_key=target_key,
@@ -438,7 +464,7 @@ def evaluate_contact_filter(
     apo_by_label = context.apo_by_label
     resname_by_label = context.resname_by_label
 
-    known = [label for label in spec.residues if label in apo_by_label]
+    known = [resolved for resolved in map(context.resolve_label, spec.residues) if resolved]
     if not known:
         return True
     if contacts is None:

@@ -819,11 +819,14 @@ export interface FilterCascadeStageDto {
     text_value?: string | null
     /** Designs remaining after this stage (filters cascade sequentially). */
     remaining: number
+    /** Set for target-contact stages, whose `column` is an internal `__tc_*` name. */
+    label?: string | null
 }
 
 export interface FilteringPreviewRequestDto {
     run_ids: string[]
     filters?: FilterSpecDto[]
+    target_contact_groups?: TargetContactGroupDto[]
     metrics?: RankingMetricDto[]
 }
 
@@ -842,6 +845,7 @@ export interface FilteringRunRequestDto {
     name: string
     run_ids: string[]
     filters?: FilterSpecDto[]
+    target_contact_groups?: TargetContactGroupDto[]
     metrics?: RankingMetricDto[]
     budget: number
     alpha: number
@@ -896,6 +900,7 @@ export interface DesignKeyDto {
 export interface FilteringApplyRequestDto {
     run_ids: string[]
     filters?: FilterSpecDto[]
+    target_contact_groups?: TargetContactGroupDto[]
 }
 
 export interface FilteringApplyResponseDto {
@@ -907,6 +912,7 @@ export interface FilteringApplyResponseDto {
 export interface FilteringRankRequestDto {
     run_ids: string[]
     filters?: FilterSpecDto[]
+    target_contact_groups?: TargetContactGroupDto[]
     metrics?: RankingMetricDto[]
 }
 
@@ -926,6 +932,7 @@ export interface FilteringRankResponseDto {
 export interface FilteringDiversityRequestDto {
     run_ids: string[]
     filters?: FilterSpecDto[]
+    target_contact_groups?: TargetContactGroupDto[]
     metrics?: RankingMetricDto[]
     budget: number
     alpha: number
@@ -950,7 +957,152 @@ export interface FilteringDiversityResponseDto {
     warnings?: string[]
 }
 
+export type TargetContactMetric = 'distance' | 'sasa_bound' | 'delta_sasa'
+export type TargetContactScope = 'any' | 'all' | 'count' | 'site_percent'
+export type TargetDistanceType = 'ca' | 'cb' | 'heavy'
+
+export interface TargetContactFilterSpecDto {
+    /** Residue labels in `<chain><resseq>[<icode>]` form, e.g. "A166". */
+    residues: string[]
+    scope: TargetContactScope
+    /** Only for scope="count". */
+    min_count?: number | null
+    metric: TargetContactMetric
+    /** Only for metric="distance". */
+    distance_type: TargetDistanceType
+    /** Å² or % of the residue's theoretical maximum; SASA metrics only. */
+    unit: 'angstrom' | 'percent'
+    operator: '<' | '<=' | '>' | '>='
+    value: number
+    /** Local UI-only flag — see FilterSpecDto.enabled. */
+    enabled?: boolean
+}
+
+export interface TargetContactGroupDto {
+    /** Identifies which target the residue labels refer to (see TargetInfoDto). */
+    target_key: string
+    /** Empty means every run in scope whose target matches `target_key`. */
+    run_ids?: string[]
+    label?: string | null
+    filters: TargetContactFilterSpecDto[]
+}
+
+export interface TargetResidueDto {
+    label: string
+    chain: string
+    resseq: number
+    icode: string
+    resname: string
+    aa1: string
+    sasa_apo: number
+}
+
+export interface TargetInfoDto {
+    target_key: string
+    label: string
+    run_ids: string[]
+    chain_ids: string[]
+    length: number
+    residues: TargetResidueDto[]
+}
+
+export interface TargetContactCoverageDto {
+    run_id: string
+    run_name?: string | null
+    target_key: string
+    total_designs: number
+    computed_designs: number
+    /** The target's coordinates differ between designs, so apo SASA is per design. */
+    target_moves: boolean
+}
+
+export interface TargetResiduesResponseDto {
+    targets: TargetInfoDto[]
+    coverage: TargetContactCoverageDto[]
+    warnings: string[]
+}
+
+export interface TargetContactsComputeRequestDto {
+    run_ids: string[]
+    design_keys?: DesignKeyDto[]
+    ignore_cache?: boolean
+    max_workers?: number | null
+}
+
+export interface TargetContactsComputeResponseDto {
+    computed: number
+    cached: number
+    failed: number
+    errors: string[]
+    coverage: TargetContactCoverageDto[]
+}
+
+export interface TargetContactProfileRequestDto {
+    run_ids: string[]
+    design_keys?: DesignKeyDto[]
+    target_key?: string | null
+    metric: 'delta_sasa' | 'contact_frequency' | 'distance'
+    unit?: 'angstrom' | 'percent'
+    distance_type?: TargetDistanceType
+    contact_metric?: 'distance' | 'delta_sasa'
+    contact_threshold?: number
+}
+
+export interface TargetContactProfileRowDto {
+    label: string
+    chain: string
+    resseq: number
+    resname: string
+    aa1: string
+    mean?: number | null
+    median?: number | null
+    min?: number | null
+    max?: number | null
+    contact_fraction: number
+    n: number
+}
+
+export interface TargetContactProfileResponseDto {
+    target_key: string
+    residues: TargetContactProfileRowDto[]
+    n_designs: number
+    warnings: string[]
+}
+
+
 export const filteringApi = {
+    /** Targets in the run scope, their residue catalogues, and compute coverage. */
+    async targetResidues(runIds: string[]): Promise<TargetResiduesResponseDto> {
+        return await apiRequest<TargetResiduesResponseDto>(
+            `${API_BASE}/api/filtering/target-residues`,
+            { method: 'POST', body: JSON.stringify({ run_ids: runIds }), requireAuth: true }
+        )
+    },
+
+    /**
+     * Compute and cache per-residue contact/SASA records. Expensive (two SASA passes
+     * per design), so callers batch and show progress rather than requesting a whole
+     * run scope in one call.
+     */
+    async computeTargetContacts(
+        payload: TargetContactsComputeRequestDto
+    ): Promise<TargetContactsComputeResponseDto> {
+        return await apiRequest<TargetContactsComputeResponseDto>(
+            `${API_BASE}/api/filtering/target-contacts/compute`,
+            { method: 'POST', body: JSON.stringify(payload), requireAuth: true }
+        )
+    },
+
+    /** Per-residue aggregate over a design set, for the structure viewer's colour map. */
+    async targetContactProfile(
+        payload: TargetContactProfileRequestDto
+    ): Promise<TargetContactProfileResponseDto> {
+        return await apiRequest<TargetContactProfileResponseDto>(
+            `${API_BASE}/api/filtering/target-contacts/profile`,
+            { method: 'POST', body: JSON.stringify(payload), requireAuth: true }
+        )
+    },
+
     async preview(payload: FilteringPreviewRequestDto): Promise<FilteringPreviewResponseDto> {
         return await apiRequest<FilteringPreviewResponseDto>(`${API_BASE}/api/filtering/preview`, {
             method: 'POST',
