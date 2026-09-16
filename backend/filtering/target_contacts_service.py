@@ -574,6 +574,16 @@ def augment_with_target_contacts(
         for rid in missing:
             warnings.append(f"{data.contexts[rid].run_name}: {data.contexts[rid].error}")
 
+        # A design with no cached record fails every condition, which is indistinguishable
+        # from a threshold nobody meets unless we say so.
+        scoped = [i for i, rid in enumerate(run_id_col) if rid in scope_run_ids]
+        uncomputed = sum(1 for i in scoped if design_keys[i] not in data.records)
+        if uncomputed:
+            warnings.append(
+                f"{uncomputed} of {len(scoped)} designs in scope have no computed target "
+                "contacts, so they fail every condition here. Use Compute target contacts."
+            )
+
         for f_index, spec in enumerate(group.filters):
             column = f"__tc_{g_index}_{f_index}"
             values: List[bool] = []

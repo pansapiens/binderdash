@@ -621,3 +621,212 @@ class TestDiscoveryTools:
         assert {r["run_id"] for r in by_name.data["runs"]} == {"bc", "rf"}
         assert {r["run_id"] for r in by_project.data["runs"]} == {"other"}
         assert {r["run_id"] for r in by_ids.data["runs"]} == {"bc", "rf"}
+
+
+@pytest.fixture
+def target_contacts_loaded(monkeypatch, designs_loaded):
+    """A resolved target over both runs, with contacts for two of the three designs.
+
+    The seeded runs point at structure files that do not exist, so the real resolver
+    would report an error for every run. Substituting the resolved context and the
+    cached records exercises the tool surface -- residue catalogue, profile ordering,
+    contact conditions as hard filters -- without needing structures on disk.
+    """
+    import backend.filtering.target_contacts_service as tcs
+    from backend.filtering.schemas import TargetResidueDto
+    from backend.filtering.target_contacts import ResidueContact
+
+    residues = [
+        TargetResidueDto(
+            label=f"A{100 + i}", chain="A", resseq=100 + i, icode=" ",
+            resname=name, aa1=aa, sasa_apo=sasa,
+        )
+        for i, (name, aa, sasa) in enumerate(
+            [("GLU", "E", 150.0), ("TYR", "Y", 120.0), ("LEU", "L", 80.0)]
+        )
+    ]
+
+    def context(run_id: str, *, refresh: bool = False):
+        return tcs.RunContext(
+            run_id=run_id,
+            run_name=f"{run_id}-run",
+            method="bindcraft" if run_id == "bc" else "rfd",
+            binder_chain_ids=["B"],
+            target_chain_ids=["A"],
+            target_key="target-1",
+            residues=residues,
+        )
+
+    # d1 buries A100 and touches A101; r1 sits away from the whole epitope. d2 has no
+    # record at all, which is how an uncomputed design looks to a contact condition.
+    records = {
+        tcs._design_key("bc", "d1"): {
+            "A100": ResidueContact(d_ca=6.0, d_cb=5.0, d_heavy=2.5, sasa_bound=30.0),
+            "A101": ResidueContact(d_ca=9.0, d_cb=8.2, d_heavy=4.5, sasa_bound=110.0),
+        },
+        tcs._design_key("rf", "r1"): {
+            "A100": ResidueContact(d_ca=11.5, d_cb=11.0, d_heavy=10.5, sasa_bound=150.0),
+        },
+    }
+
+    monkeypatch.setattr(tcs, "get_run_context", context)
+    monkeypatch.setattr(
+        tcs,
+        "load_contact_data",
+        lambda run_ids: tcs.ContactData(
+            records=records, contexts={r: context(r) for r in run_ids}
+        ),
+    )
+    yield
+
+
+class TestTargetContacts:
+    async def test_the_contact_tools_are_registered(self, app, seeded):
+        async with mcp_client(app, seeded["token"]) as client:
+            names = {tool.name for tool in await client.list_tools()}
+        assert {"list_target_residues", "target_contact_profile"} <= names
+
+    async def test_list_target_residues_gives_labels_to_filter_on(
+        self, app, seeded, target_contacts_loaded
+    ):
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "list_target_residues", {"run_ids": ["bc", "rf"]}
+            )
+        targets = result.data["targets"]
+        assert len(targets) == 1, "runs sharing a target must group into one entry"
+        assert set(targets[0]["run_ids"]) == {"bc", "rf"}
+        assert targets[0]["sequence"] == "EYL"
+        assert [r[0] for r in targets[0]["residues"]] == ["A100", "A101", "A102"]
+
+    async def test_uncomputed_designs_are_a_warning_not_a_silent_gap(
+        self, app, seeded, target_contacts_loaded
+    ):
+        """A design with no record fails every contact condition, so silence here would
+        read as a harsh threshold rather than missing data."""
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "list_target_residues", {"run_ids": ["bc", "rf"], "include_residues": False}
+            )
+        codes = {w["code"] for w in result.data["warnings"]}
+        assert "TARGET_CONTACTS_UNAVAILABLE" in codes
+
+    async def test_unresolvable_target_is_an_error_naming_the_runs(
+        self, app, seeded, designs_loaded
+    ):
+        with pytest.raises(Exception, match="EMPTY_SELECTION"):
+            async with mcp_client(app, seeded["token"]) as client:
+                await client.call_tool("list_target_residues", {"run_ids": ["bc"]})
+
+    async def test_profile_ranks_the_epitope_first(
+        self, app, seeded, target_contacts_loaded
+    ):
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "target_contact_profile",
+                {"run_ids": ["bc", "rf"], "target_key": "target-1", "metric": "delta_sasa"},
+            )
+        labels = [row[0] for row in result.data["rows"]]
+        assert labels[0] == "A100", "the most-buried residue must come first"
+        assert "A102" not in labels, "residues no binder approaches are omitted"
+        assert result.data["n_designs"] == 2
+
+    async def test_contact_condition_filters_query_designs(
+        self, app, seeded, target_contacts_loaded
+    ):
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "query_designs",
+                {
+                    "run_ids": ["bc", "rf"],
+                    "target_contact_groups": [
+                        {
+                            "target_key": "target-1",
+                            "filters": [
+                                {
+                                    "residues": ["A100"],
+                                    "scope": "any",
+                                    "metric": "distance",
+                                    "distance_type": "heavy",
+                                    "operator": "<=",
+                                    "value": 5.0,
+                                }
+                            ],
+                        }
+                    ],
+                },
+            )
+        columns = result.data["columns"]
+        rows = result.data["rows"]
+        assert not any(c.startswith("__tc_") for c in columns), "virtual columns leaked"
+        design_ids = {row[columns.index("design_id")] for row in rows}
+        assert design_ids == {"d1"}, "only the design contacting A100 should survive"
+
+    async def test_rank_designs_labels_the_contact_stage_readably(
+        self, app, seeded, target_contacts_loaded
+    ):
+        async with mcp_client(app, seeded["token"]) as client:
+            result = await client.call_tool(
+                "rank_designs",
+                {
+                    "run_ids": ["bc", "rf"],
+                    "metrics": [{"column": "iptm"}],
+                    "target_contact_groups": [
+                        {
+                            "target_key": "target-1",
+                            "label": "PD-L1",
+                            "filters": [
+                                {
+                                    "residues": ["A100"],
+                                    "metric": "distance",
+                                    "operator": "<=",
+                                    "value": 5.0,
+                                }
+                            ],
+                        }
+                    ],
+                },
+            )
+        stage = result.data["filter_cascade"][0]["column"]
+        assert not stage.startswith("__tc_"), stage
+        assert "A100" in stage and "PD-L1" in stage
+
+    async def test_an_empty_contact_result_says_contacts_may_be_uncomputed(
+        self, app, seeded, target_contacts_loaded
+    ):
+        with pytest.raises(Exception, match="Compute target contacts"):
+            async with mcp_client(app, seeded["token"]) as client:
+                await client.call_tool(
+                    "query_designs",
+                    {
+                        "run_ids": ["bc", "rf"],
+                        "target_contact_groups": [
+                            {
+                                "target_key": "target-1",
+                                "filters": [
+                                    {
+                                        "residues": ["A100"],
+                                        "metric": "distance",
+                                        "operator": "<=",
+                                        "value": 0.1,
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                )
+
+    async def test_malformed_contact_group_is_rejected_with_a_next_call(
+        self, app, seeded, target_contacts_loaded
+    ):
+        with pytest.raises(Exception, match="INVALID_TARGET_CONTACT_FILTER"):
+            async with mcp_client(app, seeded["token"]) as client:
+                await client.call_tool(
+                    "query_designs",
+                    {
+                        "run_ids": ["bc"],
+                        "target_contact_groups": [
+                            {"target_key": "target-1", "filters": [{"metric": "nonsense"}]}
+                        ],
+                    },
+                )

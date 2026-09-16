@@ -6,9 +6,10 @@ from typing import Any
 
 
 def register_tools(mcp: Any) -> None:
-    from . import designs, discovery, selection, structures
+    from . import designs, discovery, selection, structures, target_contacts
 
     discovery.register(mcp)
     designs.register(mcp)
     selection.register(mcp)
     structures.register(mcp)
+    target_contacts.register(mcp)

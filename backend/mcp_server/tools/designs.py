@@ -7,9 +7,13 @@ from typing import Annotated, Any, Dict, List, Literal, Optional
 import polars as pl
 from pydantic import Field
 
-from .. import errors, refs, tables, vocab
+from .. import contacts, errors, refs, tables, vocab
 from ..columns import canonical_expr
-from ..descriptions import QUERY_DESIGNS, SUMMARIZE_DESIGNS
+from ..descriptions import (
+    QUERY_DESIGNS,
+    SUMMARIZE_DESIGNS,
+    TARGET_CONTACT_GROUPS_ARG,
+)
 from ..server import run_blocking
 
 # Identity columns worth having on every row; anything else must be asked for.
@@ -176,20 +180,19 @@ def _query(
     limit: int,
     offset: int,
     include_sequence: bool,
+    target_contact_groups: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     from ...filtering.engine import apply_hard_filters
-    from ...filtering.schemas import FilterSpec
-    from ...filtering.service import build_designs_dataframe
 
     refs.validate_run_ids(run_ids)
-    df = build_designs_dataframe(run_ids)
+    inputs, warnings = contacts.build_inputs(run_ids, filters, target_contact_groups)
+    df = inputs.df
     if df.is_empty():
         errors.fail(
             errors.EMPTY_SELECTION,
             f"No designs are loaded for {run_ids}. Check the run_ids with list_runs.",
         )
 
-    warnings: List[Dict[str, Any]] = []
     for run_id in run_ids:
         if refs.is_merged_run(run_id):
             warnings.append(
@@ -201,20 +204,25 @@ def _query(
             )
 
     total_before = df.height
-    if filters:
-        annotated = apply_hard_filters(df, [FilterSpec(**f) for f in filters])
+    if inputs.specs:
+        annotated = apply_hard_filters(df, inputs.specs)
         drop = [
             c
             for c in annotated.columns
             if c.startswith("pass_") or c == "num_filters_passed" or c == "pass_filters"
         ]
-        df = annotated.filter(pl.col("pass_filters")).drop(drop, strict=False)
+        df = contacts.strip_virtual(
+            annotated.filter(pl.col("pass_filters")).drop(drop, strict=False)
+        )
         if df.is_empty():
             errors.fail(
                 errors.EMPTY_SELECTION,
                 f"All {total_before} designs failed the filters. Call summarize_designs on "
-                "these columns to see the real value ranges, then relax the thresholds.",
+                "these columns to see the real value ranges, then relax the thresholds."
+                + contacts.empty_selection_hint(target_contact_groups, warnings),
             )
+    else:
+        df = contacts.strip_virtual(df)
 
     if sort in (DEFAULT_SORT, PRIMARY_SCORE):
         sorted_df = (
@@ -398,6 +406,10 @@ def register(mcp: Any) -> None:
         include_sequence: Annotated[
             bool, Field(description="Include the amino-acid sequence (large; caps limit at 100).")
         ] = False,
+        target_contact_groups: Annotated[
+            Optional[List[Dict[str, Any]]],
+            Field(description=TARGET_CONTACT_GROUPS_ARG),
+        ] = None,
     ) -> Dict[str, Any]:
         return await run_blocking(
             _query,
@@ -409,6 +421,7 @@ def register(mcp: Any) -> None:
             min(limit, 100) if include_sequence else limit,
             offset,
             include_sequence,
+            target_contact_groups,
             heavy=True,
         )
 
