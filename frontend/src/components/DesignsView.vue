@@ -473,6 +473,11 @@
           </div>
         </div>
 
+        <!-- The contact map's colour key and range slider render here (teleported from
+             the Target contact map panel below) so the gradient sits against the
+             structure it describes rather than several sections further down. -->
+        <div id="contact-map-legend-slot" class="contact-map-legend-slot"></div>
+
         <div v-if="designsStore.currentStructure" class="advanced-options-section">
           <button
             type="button"
@@ -2942,6 +2947,16 @@ defineExpose({
 
 .designs-download-upload-row > .p-splitbutton + .p-splitbutton {
   margin-left: 0.5rem;
+}
+
+/* Holds the contact map's colour key, teleported from the Target contact map panel.
+   Collapses to nothing when the map is off, so it costs no space in the usual case. */
+.contact-map-legend-slot {
+  padding: 0.5rem 0.75rem 0.25rem;
+}
+
+.contact-map-legend-slot:empty {
+  display: none;
 }
 
 .advanced-options-section {

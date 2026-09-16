@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import InputNumber from 'primevue/inputnumber'
@@ -67,6 +67,12 @@ const gradientMin = ref<number | null>(null)
 const gradientMax = ref<number | null>(null)
 const booleanMode = ref(false)
 const booleanThreshold = ref(10)
+
+/** Teleport only once the slot exists in the DOM, else Vue warns and drops the node. */
+const legendSlotReady = ref(false)
+onMounted(() => {
+  legendSlotReady.value = !!document.getElementById('contact-map-legend-slot')
+})
 
 const targets = ref<TargetInfoDto[]>([])
 const coverage = ref<TargetContactCoverageDto[]>([])
@@ -553,47 +559,51 @@ watch(
         />
       </div>
 
-      <div class="contact-map-legend">
-        <template v-if="booleanMode">
-          <span class="contact-map-swatch contact-map-swatch--contact" />
-          <span class="contact-map-legend-label">contact</span>
-          <span class="contact-map-swatch contact-map-swatch--none" />
-          <span class="contact-map-legend-label">no contact</span>
-        </template>
-        <template v-else>
-          <span class="contact-map-legend-label">{{ legendLow }}</span>
-          <span class="contact-map-legend-bar" :style="{ background: legendGradient }" />
-          <span class="contact-map-legend-label">{{ legendHigh }}</span>
-          <span class="contact-map-legend-unit">{{ valueUnitLabel }}</span>
-        </template>
-      </div>
+      <!-- The key and its range slider belong against the structure, not several
+           sections below it, so they are teleported to a slot under the viewer. The
+           fallback keeps them in place if that slot is ever absent. -->
+      <Teleport to="#contact-map-legend-slot" :disabled="!legendSlotReady">
+        <div class="contact-map-key">
+          <div class="contact-map-legend">
+            <template v-if="booleanMode">
+              <span class="contact-map-swatch contact-map-swatch--contact" />
+              <span class="contact-map-legend-label">contact</span>
+              <span class="contact-map-swatch contact-map-swatch--none" />
+              <span class="contact-map-legend-label">no contact</span>
+            </template>
+            <template v-else>
+              <span class="contact-map-legend-label">{{ legendLow }}</span>
+              <span class="contact-map-legend-bar" :style="{ background: legendGradient }" />
+              <span class="contact-map-legend-label">{{ legendHigh }}</span>
+              <span class="contact-map-legend-unit">{{ valueUnitLabel }}</span>
+            </template>
+          </div>
 
-      <!-- Directly under the key so the handles read against the colours they bound.
-           At the ends the gradient follows the data; pulled in, it stretches over the
-           narrower range and the key's labels become "≤"/"≥". -->
-      <div v-if="!booleanMode" class="contact-map-slider">
-        <Slider
-          v-model="sliderRange"
-          range
-          :min="observedRange[0]"
-          :max="observedRange[1]"
-          :step="sliderStep"
-          :disabled="!rows.length"
-          aria-label="Gradient range"
-        />
-        <div class="contact-map-slider-ends">
-          <span>{{ formatValue(observedRange[0]) }}</span>
-          <button
-            v-if="gradientMin !== null || gradientMax !== null"
-            type="button"
-            class="contact-map-slider-reset"
-            @click="resetGradientRange"
-          >
-            Reset range
-          </button>
-          <span>{{ formatValue(observedRange[1]) }}</span>
+          <div v-if="!booleanMode" class="contact-map-slider">
+            <Slider
+              v-model="sliderRange"
+              range
+              :min="observedRange[0]"
+              :max="observedRange[1]"
+              :step="sliderStep"
+              :disabled="!rows.length"
+              aria-label="Gradient range"
+            />
+            <div class="contact-map-slider-ends">
+              <span>{{ formatValue(observedRange[0]) }}</span>
+              <button
+                v-if="gradientMin !== null || gradientMax !== null"
+                type="button"
+                class="contact-map-slider-reset"
+                @click="resetGradientRange"
+              >
+                Reset range
+              </button>
+              <span>{{ formatValue(observedRange[1]) }}</span>
+            </div>
+          </div>
         </div>
-      </div>
+      </Teleport>
 
       <p class="advanced-hint">
         <span v-if="loading">Loading profile…</span>
@@ -636,6 +646,12 @@ watch(
 
 .contact-map-number {
   width: 100%;
+}
+
+.contact-map-key {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .contact-map-slider {

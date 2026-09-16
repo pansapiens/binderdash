@@ -131,6 +131,18 @@ test.describe('Target contacts', () => {
         await expect(page.locator('#contact-map-content')).toContainText(/strongest: [A-Z]\d+/, {
             timeout: 180000,
         });
+        // The key and its range slider live under the viewer, not in the panel, so they
+        // stay visible while the panel is collapsed - and vanish when the map is off.
+        const key = page.locator('#contact-map-legend-slot');
+        await expect(key.locator('.p-slider-handle')).toHaveCount(2);
+        await page.locator('#contact-map-disclosure').click();
+        await expect(key.locator('.contact-map-legend-bar')).toBeVisible();
+        await page.locator('#contact-map-disclosure').click();
+        await page.locator('#contact-map-enabled').click();
+        await expect(key.locator('.contact-map-legend-bar')).toBeHidden();
+        await page.locator('#contact-map-enabled').click();
+        await expect(key.locator('.contact-map-legend-bar')).toBeVisible();
+
         expect(viewerWarnings).toEqual([]);
         await page.screenshot({ path: 'test-results/target-contact-map.png', fullPage: true });
     });
