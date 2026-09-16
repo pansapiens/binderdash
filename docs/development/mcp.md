@@ -127,8 +127,8 @@ and `folder_mtime` (run-directory mtime at ingest).
 
 `query_designs`, `rank_designs` and `select_diverse_designs` take an optional
 `target_contact_groups` alongside `filters`. A contact condition is a threshold on a
-target residue rather than a design-table column — "A166 within 5 Å of the binder
-(heavy atoms)", "the epitope buries at least 30% of its surface on binding" — evaluated
+target residue rather than a design-table column - "A166 within 5 Å of the binder
+(heavy atoms)", "the epitope buries at least 30% of its surface on binding" - evaluated
 from the design's structure and applied as a hard filter.
 
 ```json

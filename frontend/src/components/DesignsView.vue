@@ -364,6 +364,7 @@
             :tag-overlay="tagOverlayMode"
             :tag-binder-chain="tagPlacementBinderChain"
             ref="molstarViewerRef"
+            @structure-loaded="onViewerStructureLoaded"
           />
           <div
             ref="viewerControlsRef"
@@ -834,6 +835,41 @@
               </div>
             </div>
           </div>
+
+        <div v-if="designsStore.currentStructure" class="advanced-options-section">
+          <button
+            type="button"
+            class="advanced-options-disclosure"
+            @click="toggleContactMapOptions"
+            :aria-expanded="showContactMapOptions"
+            aria-controls="contact-map-content"
+            id="contact-map-disclosure"
+          >
+            <i
+              class="pi advanced-options-chevron"
+              :class="showContactMapOptions ? 'pi-chevron-down' : 'pi-chevron-right'"
+              aria-hidden="true"
+            />
+            <span class="advanced-options-disclosure-label">Target contact map</span>
+          </button>
+          <div
+            v-show="showContactMapOptions"
+            id="contact-map-content"
+            role="region"
+            aria-labelledby="contact-map-disclosure"
+            class="advanced-options-expanded"
+          >
+            <div class="advanced-options-body">
+              <TargetContactMapPanel
+                ref="contactMapPanelRef"
+                :run-id="contactMapRunId"
+                :selected-design-keys="contactMapSelectedKeys"
+                @apply="applyContactMapColors"
+                @clear="clearContactMapColors"
+              />
+            </div>
+          </div>
+        </div>
         </div>
       </div>
 
@@ -959,6 +995,7 @@ import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
 import Dialog from 'primevue/dialog'
 import MolstarViewer from './MolstarViewer.vue'
+import TargetContactMapPanel from './TargetContactMapPanel.vue'
 import FilterChainSummary from './FilterChainSummary.vue'
 import type { MembraneData } from '../membraneOverlay'
 import { designsApi, runsApi } from '../webapi'
@@ -984,7 +1021,9 @@ const authStore = useAuthStore()
 const showColumnSelector = ref(false)
 const showAdvancedOptions = ref(false)
 const showTagPlacementOptions = ref(false)
+const showContactMapOptions = ref(false)
 const molstarViewerRef = ref<any>(null)
+const contactMapPanelRef = ref<any>(null)
 
 const tagOverlayMode = ref<'none' | 'N' | 'C'>('none')
 const tagToolbarPending = ref(false)
@@ -1362,6 +1401,40 @@ const cycleTagOverlay = () => {
 
 const toggleTagPlacementOptions = () => {
   showTagPlacementOptions.value = !showTagPlacementOptions.value
+}
+
+const toggleContactMapOptions = () => {
+  showContactMapOptions.value = !showContactMapOptions.value
+}
+
+const contactMapRunId = computed(
+  () => designsStore.currentStructure?.design.run_id ?? null
+)
+
+/** The table selection, narrowed to the run being viewed - the map colours one target. */
+const contactMapSelectedKeys = computed(() =>
+  designsStore.selectedDesigns
+    .filter((d) => String(d.run_id) === contactMapRunId.value)
+    .map((d) => ({
+      run_id: String(d.run_id),
+      design_id: String(d.design_id),
+      source_path: d.source_path != null ? String(d.source_path) : undefined,
+    }))
+)
+
+const applyContactMapColors = (
+  colors: { chain: string; resseq: number; r: number; g: number; b: number }[]
+) => {
+  void molstarViewerRef.value?.applyResidueColorMap?.(colors)
+}
+
+const clearContactMapColors = () => {
+  void molstarViewerRef.value?.clearResidueColorMap?.()
+}
+
+/** A remount discards the painted colours, so repaint once the new structure settles. */
+const onViewerStructureLoaded = () => {
+  contactMapPanelRef.value?.repaint?.()
 }
 
 const runTagPlacementAutoDetect = async () => {

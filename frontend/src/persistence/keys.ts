@@ -14,3 +14,7 @@ export function tagPlacementKey(runId: string): string {
 export function advRefKey(runId: string): string {
     return `binderdash-adv-ref:${runId}`
 }
+
+export function targetContactMapKey(runId: string): string {
+    return `binderdash-target-contact-map:${runId}`
+}
