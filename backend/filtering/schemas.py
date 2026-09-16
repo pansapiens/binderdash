@@ -91,11 +91,150 @@ class FilterCascadeStage(BaseModel):
     # input is the prior stage's output), so this is also "how many passed this
     # stage"; there's no separate independent count to report.
     remaining: int
+    # Human-readable stage name. Set for target-contact stages, whose column is an
+    # internal ``__tc_*`` virtual column that means nothing to a reader.
+    label: Optional[str] = None
+
+
+class DesignKey(BaseModel):
+    run_id: str
+    design_id: str
+    source_path: Optional[str] = None
+
+
+class TargetContactFilterSpec(BaseModel):
+    """One condition on a set of target residues, e.g. "any of A166,A167 within 8 A of
+    the binder (heavy atoms)" or "all of A166,A170 buried by at least 20% on binding".
+
+    ``residues`` are labels in ``<chain><resseq>[<icode>]`` form (``A166``), matching
+    nf-binder-design's complex_sasa.py convention.
+    """
+
+    residues: List[str] = Field(default_factory=list)
+    # "any"/"all": the condition must hold for at least one / every listed residue.
+    # "count": for at least ``min_count`` of them. "site_percent": sum the metric over
+    # the listed residues and compare that total (percent units only).
+    scope: Literal["any", "all", "count", "site_percent"] = "any"
+    min_count: Optional[int] = None
+    metric: Literal["distance", "sasa_bound", "delta_sasa"] = "distance"
+    distance_type: Literal["ca", "cb", "heavy"] = "heavy"
+    # Angstroms (A^2 for SASA metrics) or percent of the residue's theoretical maximum.
+    unit: Literal["angstrom", "percent"] = "angstrom"
+    operator: Literal["<", "<=", ">", ">="] = "<="
+    value: float = 0.0
+
+
+class TargetContactGroup(BaseModel):
+    """Contact filters written against one target.
+
+    Multiple groups let a single filter set say "residue A166 on target X, and the
+    equivalent residue B142 on target Y", where the two targets have different
+    numbering or constructs. A design whose run falls outside a group's scope is exempt
+    from that group's filters, so each design is only constrained by the conditions
+    written against its own target.
+    """
+
+    target_key: str = ""
+    # Empty means "every run in scope whose target is target_key".
+    run_ids: List[str] = Field(default_factory=list)
+    label: Optional[str] = None
+    filters: List[TargetContactFilterSpec] = Field(default_factory=list)
+
+
+class TargetResidueDto(BaseModel):
+    label: str
+    chain: str
+    resseq: int
+    icode: str = " "
+    resname: str
+    aa1: str
+    sasa_apo: float
+
+
+class TargetInfo(BaseModel):
+    target_key: str
+    label: str
+    run_ids: List[str] = Field(default_factory=list)
+    chain_ids: List[str] = Field(default_factory=list)
+    length: int = 0
+    residues: List[TargetResidueDto] = Field(default_factory=list)
+
+
+class TargetContactCoverage(BaseModel):
+    run_id: str
+    run_name: Optional[str] = None
+    target_key: str = ""
+    total_designs: int = 0
+    computed_designs: int = 0
+    target_moves: bool = False
+
+
+class TargetResiduesRequest(BaseModel):
+    run_ids: List[str]
+
+
+class TargetResiduesResponse(BaseModel):
+    targets: List[TargetInfo] = Field(default_factory=list)
+    coverage: List[TargetContactCoverage] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class TargetContactsComputeRequest(BaseModel):
+    run_ids: List[str]
+    # Restrict to specific designs; empty means every design in the given runs that has
+    # no cached record yet.
+    design_keys: List[DesignKey] = Field(default_factory=list)
+    ignore_cache: bool = False
+    max_workers: Optional[int] = None
+
+
+class TargetContactsComputeResponse(BaseModel):
+    computed: int = 0
+    cached: int = 0
+    failed: int = 0
+    errors: List[str] = Field(default_factory=list)
+    coverage: List[TargetContactCoverage] = Field(default_factory=list)
+
+
+class TargetContactProfileRequest(BaseModel):
+    """Per-residue aggregate across a design set, for the structure viewer's colour map."""
+
+    run_ids: List[str]
+    design_keys: List[DesignKey] = Field(default_factory=list)
+    target_key: Optional[str] = None
+    metric: Literal["delta_sasa", "contact_frequency", "distance"] = "delta_sasa"
+    unit: Literal["angstrom", "percent"] = "angstrom"
+    distance_type: Literal["ca", "cb", "heavy"] = "heavy"
+    # Contact definition for metric="contact_frequency".
+    contact_metric: Literal["distance", "delta_sasa"] = "distance"
+    contact_threshold: float = 5.0
+
+
+class TargetContactProfileRow(BaseModel):
+    label: str
+    chain: str
+    resseq: int
+    resname: str
+    aa1: str
+    mean: Optional[float] = None
+    median: Optional[float] = None
+    min: Optional[float] = None
+    max: Optional[float] = None
+    contact_fraction: float = 0.0
+    n: int = 0
+
+
+class TargetContactProfileResponse(BaseModel):
+    target_key: str = ""
+    residues: List[TargetContactProfileRow] = Field(default_factory=list)
+    n_designs: int = 0
+    warnings: List[str] = Field(default_factory=list)
 
 
 class FilteringPreviewRequest(BaseModel):
     run_ids: List[str]
     filters: List[FilterSpec] = Field(default_factory=list)
+    target_contact_groups: List[TargetContactGroup] = Field(default_factory=list)
     metrics: List[RankingMetric] = Field(default_factory=list)
 
 
@@ -110,6 +249,7 @@ class FilteringRunRequest(BaseModel):
     name: str
     run_ids: List[str]
     filters: List[FilterSpec] = Field(default_factory=list)
+    target_contact_groups: List[TargetContactGroup] = Field(default_factory=list)
     metrics: List[RankingMetric] = Field(default_factory=list)
     budget: int = 24
     # BoltzGen's own default is 0.01 for its "peptide-anything" protocol but 0.001 for
@@ -141,12 +281,6 @@ class FilteringColumnsResponse(BaseModel):
     columns: List[ColumnInfo]
 
 
-class DesignKey(BaseModel):
-    run_id: str
-    design_id: str
-    source_path: Optional[str] = None
-
-
 class FilteringApplyRequest(BaseModel):
     """Hard filters only (no ranking/diversity) — for live-narrowing the Designs table.
     Cheap: a single polars filter pass, no ranking computation. See plan §7A.2.
@@ -154,12 +288,14 @@ class FilteringApplyRequest(BaseModel):
 
     run_ids: List[str]
     filters: List[FilterSpec] = Field(default_factory=list)
+    target_contact_groups: List[TargetContactGroup] = Field(default_factory=list)
 
 
 class FilteringApplyResponse(BaseModel):
     total_designs: int
     passing_keys: List[DesignKey]
     final_passing: int
+
 
 
 class SavedSet(BaseModel):
@@ -201,6 +337,7 @@ class FilteringRankRequest(BaseModel):
 
     run_ids: List[str]
     filters: List[FilterSpec] = Field(default_factory=list)
+    target_contact_groups: List[TargetContactGroup] = Field(default_factory=list)
     metrics: List[RankingMetric] = Field(default_factory=list)
 
 
@@ -225,6 +362,7 @@ class FilteringDiversityRequest(BaseModel):
 
     run_ids: List[str]
     filters: List[FilterSpec] = Field(default_factory=list)
+    target_contact_groups: List[TargetContactGroup] = Field(default_factory=list)
     metrics: List[RankingMetric] = Field(default_factory=list)
     budget: int = 24
     alpha: float = 0.001

@@ -166,6 +166,62 @@ class DesignsRepository(Protocol):
     ) -> None:
         ...
 
+    # --- Target contacts (see filtering.target_contacts) ------------------
+
+    def get_target_contacts_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chains: str,
+        target_chains: str,
+        params_key: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Return a cached per-residue contact record, or None."""
+        ...
+
+    def upsert_target_contacts_cache_bulk(self, items: List[Dict[str, Any]]) -> int:
+        """Upsert a batch of contact records; returns the number written."""
+        ...
+
+    def list_target_contacts_for_runs(
+        self, run_ids: List[str], params_key: str
+    ) -> List[Dict[str, Any]]:
+        """Every cached contact record for these runs, for filtering and profiling."""
+        ...
+
+    def count_target_contacts_by_run(
+        self, run_ids: List[str], params_key: str
+    ) -> Dict[str, int]:
+        """How many designs per run have a cached record, for the coverage banner."""
+        ...
+
+    def get_target_residues(
+        self,
+        *,
+        run_id: str,
+        params_key: str,
+        binder_chains: str,
+        target_chains: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Return the run's target residue catalogue plus target_key/target_moves."""
+        ...
+
+    def upsert_target_residues(
+        self,
+        *,
+        run_id: str,
+        params_key: str,
+        binder_chains: str,
+        target_chains: str,
+        target_key: str,
+        residues: List[Dict[str, Any]],
+        target_moves: bool = False,
+    ) -> None:
+        ...
+
     # --- Users, identities, API keys -------------------------------------
     #
     # A user is a person; an identity is one way that person signs in

@@ -19,6 +19,12 @@ from ..filtering.schemas import (
     FilteringRankResponse,
     FilteringRunRequest,
     FilteringRunResponse,
+    TargetContactProfileRequest,
+    TargetContactProfileResponse,
+    TargetContactsComputeRequest,
+    TargetContactsComputeResponse,
+    TargetResiduesRequest,
+    TargetResiduesResponse,
 )
 from ..filtering.service import (
     compute_apply,
@@ -27,6 +33,11 @@ from ..filtering.service import (
     compute_preview,
     compute_rank,
     run_filtering_and_save,
+)
+from ..filtering.target_contacts_service import (
+    compute_contacts,
+    compute_profile,
+    get_targets,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,4 +127,50 @@ async def post_filtering_run(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error("filtering run failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/target-residues", response_model=TargetResiduesResponse)
+async def post_target_residues(
+    body: TargetResiduesRequest,
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
+    """Targets in the run scope, their residue catalogues, and per-run compute coverage —
+    backs the Target Contacts section's residue picker.
+    """
+    try:
+        return await asyncio.to_thread(get_targets, body.run_ids)
+    except Exception as e:
+        logger.error("target residues failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/target-contacts/compute", response_model=TargetContactsComputeResponse)
+async def post_target_contacts_compute(
+    body: TargetContactsComputeRequest,
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
+    """Compute and cache per-residue contact/SASA records. Expensive (two SASA passes per
+    design), so the frontend calls this in batches with a progress bar rather than for a
+    whole run scope at once.
+    """
+    try:
+        return await asyncio.to_thread(compute_contacts, body)
+    except Exception as e:
+        logger.error("target contacts compute failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/target-contacts/profile", response_model=TargetContactProfileResponse)
+async def post_target_contacts_profile(
+    body: TargetContactProfileRequest,
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
+    """Per-residue aggregate over a design set, for the structure viewer's colour map.
+    Read-only: aggregates cached records, never computes.
+    """
+    try:
+        return await asyncio.to_thread(compute_profile, body)
+    except Exception as e:
+        logger.error("target contacts profile failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e

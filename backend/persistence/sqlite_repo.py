@@ -254,6 +254,45 @@ class SqliteDesignsRepository:
                         target_chains
                     )
                 );
+                CREATE TABLE IF NOT EXISTS binderdash_target_contacts_cache (
+                    run_id TEXT NOT NULL,
+                    design_id TEXT NOT NULL,
+                    source_path TEXT NOT NULL DEFAULT '',
+                    structure_filename TEXT NOT NULL,
+                    binder_chains TEXT NOT NULL DEFAULT '',
+                    target_chains TEXT NOT NULL DEFAULT '',
+                    -- Hash of record cutoff / probe radius / sphere points: changing any
+                    -- of them yields incomparable numbers, so they key the row rather
+                    -- than silently mixing with previously cached values.
+                    params_key TEXT NOT NULL,
+                    contacts_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (
+                        run_id,
+                        design_id,
+                        source_path,
+                        structure_filename,
+                        binder_chains,
+                        target_chains,
+                        params_key
+                    )
+                );
+                CREATE INDEX IF NOT EXISTS idx_target_contacts_run
+                    ON binderdash_target_contacts_cache(run_id, params_key);
+                CREATE TABLE IF NOT EXISTS binderdash_target_residues (
+                    run_id TEXT NOT NULL,
+                    params_key TEXT NOT NULL,
+                    binder_chains TEXT NOT NULL DEFAULT '',
+                    target_chains TEXT NOT NULL DEFAULT '',
+                    target_key TEXT NOT NULL DEFAULT '',
+                    residues_json TEXT NOT NULL,
+                    -- 1 when the target's coordinates differ between sampled designs, so
+                    -- the shared apo-SASA reference does not apply and apo values are
+                    -- stored per design instead.
+                    target_moves INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (run_id, params_key, binder_chains, target_chains)
+                );
                 CREATE TABLE IF NOT EXISTS binderdash_saved_sets (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
@@ -856,6 +895,13 @@ class SqliteDesignsRepository:
                 "DELETE FROM binderdash_structural_metrics_cache WHERE run_id = ?",
                 (run_id,),
             )
+            conn.execute(
+                "DELETE FROM binderdash_target_contacts_cache WHERE run_id = ?",
+                (run_id,),
+            )
+            conn.execute(
+                "DELETE FROM binderdash_target_residues WHERE run_id = ?", (run_id,)
+            )
             cur = conn.execute("DELETE FROM binderdash_runs WHERE run_id = ?", (run_id,))
             conn.commit()
             return cur.rowcount > 0
@@ -1441,6 +1487,195 @@ class SqliteDesignsRepository:
                 ),
             )
             self._get_conn().commit()
+
+    # --- Target contacts (see filtering.target_contacts) ------------------
+
+    def get_target_contacts_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chains: str,
+        target_chains: str,
+        params_key: str,
+    ) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            cur = self._get_conn().execute(
+                """
+                SELECT contacts_json FROM binderdash_target_contacts_cache
+                WHERE run_id = ? AND design_id = ? AND source_path = ?
+                  AND structure_filename = ? AND binder_chains = ?
+                  AND target_chains = ? AND params_key = ?
+                """,
+                (
+                    run_id,
+                    design_id,
+                    source_path,
+                    structure_filename,
+                    binder_chains,
+                    target_chains,
+                    params_key,
+                ),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return json.loads(row["contacts_json"])
+
+    def upsert_target_contacts_cache_bulk(self, items: List[Dict[str, Any]]) -> int:
+        """Bulk upsert: the compute endpoint writes a whole batch at once, and a
+        per-row commit dominates the runtime for anything larger than a few designs.
+        """
+        if not items:
+            return 0
+        rows = [
+            (
+                item["run_id"],
+                item["design_id"],
+                item.get("source_path") or "",
+                item["structure_filename"],
+                item.get("binder_chains") or "",
+                item.get("target_chains") or "",
+                item["params_key"],
+                json.dumps(item["contacts"], default=str),
+            )
+            for item in items
+        ]
+        with self._lock:
+            conn = self._get_conn()
+            conn.executemany(
+                """
+                INSERT INTO binderdash_target_contacts_cache (
+                    run_id, design_id, source_path, structure_filename,
+                    binder_chains, target_chains, params_key, contacts_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(
+                    run_id, design_id, source_path, structure_filename,
+                    binder_chains, target_chains, params_key
+                ) DO UPDATE SET
+                    contacts_json = excluded.contacts_json,
+                    updated_at = datetime('now')
+                """,
+                rows,
+            )
+            conn.commit()
+        return len(rows)
+
+    def list_target_contacts_for_runs(
+        self, run_ids: List[str], params_key: str
+    ) -> List[Dict[str, Any]]:
+        """Every cached record for the given runs, for the filter/profile read path."""
+        if not run_ids:
+            return []
+        placeholders = ",".join("?" for _ in run_ids)
+        with self._lock:
+            cur = self._get_conn().execute(
+                f"""
+                SELECT run_id, design_id, source_path, structure_filename,
+                       binder_chains, target_chains, contacts_json
+                FROM binderdash_target_contacts_cache
+                WHERE params_key = ? AND run_id IN ({placeholders})
+                """,
+                (params_key, *run_ids),
+            )
+            return [
+                {
+                    "run_id": row["run_id"],
+                    "design_id": row["design_id"],
+                    "source_path": row["source_path"] or None,
+                    "structure_filename": row["structure_filename"],
+                    "binder_chains": row["binder_chains"],
+                    "target_chains": row["target_chains"],
+                    "contacts": json.loads(row["contacts_json"]),
+                }
+                for row in cur.fetchall()
+            ]
+
+    def count_target_contacts_by_run(
+        self, run_ids: List[str], params_key: str
+    ) -> Dict[str, int]:
+        if not run_ids:
+            return {}
+        placeholders = ",".join("?" for _ in run_ids)
+        with self._lock:
+            cur = self._get_conn().execute(
+                f"""
+                SELECT run_id, COUNT(*) AS n
+                FROM binderdash_target_contacts_cache
+                WHERE params_key = ? AND run_id IN ({placeholders})
+                GROUP BY run_id
+                """,
+                (params_key, *run_ids),
+            )
+            return {row["run_id"]: int(row["n"]) for row in cur.fetchall()}
+
+    def get_target_residues(
+        self,
+        *,
+        run_id: str,
+        params_key: str,
+        binder_chains: str,
+        target_chains: str,
+    ) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            cur = self._get_conn().execute(
+                """
+                SELECT residues_json, target_key, target_moves
+                FROM binderdash_target_residues
+                WHERE run_id = ? AND params_key = ? AND binder_chains = ?
+                  AND target_chains = ?
+                """,
+                (run_id, params_key, binder_chains, target_chains),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return {
+                "residues": json.loads(row["residues_json"]),
+                "target_key": row["target_key"],
+                "target_moves": bool(row["target_moves"]),
+            }
+
+    def upsert_target_residues(
+        self,
+        *,
+        run_id: str,
+        params_key: str,
+        binder_chains: str,
+        target_chains: str,
+        target_key: str,
+        residues: List[Dict[str, Any]],
+        target_moves: bool = False,
+    ) -> None:
+        payload = json.dumps(residues, default=str)
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute(
+                """
+                INSERT INTO binderdash_target_residues (
+                    run_id, params_key, binder_chains, target_chains, target_key,
+                    residues_json, target_moves, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(run_id, params_key, binder_chains, target_chains)
+                DO UPDATE SET
+                    target_key = excluded.target_key,
+                    residues_json = excluded.residues_json,
+                    target_moves = excluded.target_moves,
+                    updated_at = datetime('now')
+                """,
+                (
+                    run_id,
+                    params_key,
+                    binder_chains,
+                    target_chains,
+                    target_key,
+                    payload,
+                    1 if target_moves else 0,
+                ),
+            )
+            conn.commit()
 
     def create_saved_set(
         self,
