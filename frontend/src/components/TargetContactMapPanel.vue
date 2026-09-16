@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import InputNumber from 'primevue/inputnumber'
@@ -57,14 +57,22 @@ const SCOPES = [
 const enabled = ref(false)
 const scope = ref<'run' | 'selected'>('run')
 const metric = ref<TargetContactProfileRequestDto['metric']>('delta_sasa')
-const unit = ref<'angstrom' | 'percent'>('angstrom')
+const unit = ref<'angstrom' | 'percent'>('percent')
 const distanceType = ref<'ca' | 'cb' | 'heavy'>('heavy')
 const contactThreshold = ref(5)
 const targetKey = ref<string>('')
 
+/**
+ * Most of a target's surface barely moves on binding, and a handful of core epitope
+ * residues bury most of their area, so an unclamped percentage gradient spends its whole
+ * range on those few. Topping out at 30% of a residue's maximum puts the useful contrast
+ * where the epitope boundary actually is; drag the handle to the end to see the full range.
+ */
+const DEFAULT_MAX_PERCENT_DELTA_SASA = 30
+
 const palette = ref<PaletteName>('heat')
 const gradientMin = ref<number | null>(null)
-const gradientMax = ref<number | null>(null)
+const gradientMax = ref<number | null>(DEFAULT_MAX_PERCENT_DELTA_SASA)
 const booleanMode = ref(false)
 const booleanThreshold = ref(10)
 
@@ -135,10 +143,17 @@ const observedRange = computed<[number, number]>(() => {
   return high > low ? [low, high] : [low, low + 1]
 })
 
-/** ~100 steps across the observed range, snapped to a 1/2/5 ladder so the handles
- * land on round numbers whatever the metric's scale. */
-const sliderStep = computed(() => {
+/** What the slider spans: the data, widened if a bound sits outside it (the default
+ * ΔSASA ceiling can exceed the observed range on a run with only glancing contacts). */
+const sliderBounds = computed<[number, number]>(() => {
   const [low, high] = observedRange.value
+  return [Math.min(low, gradientMin.value ?? low), Math.max(high, gradientMax.value ?? high)]
+})
+
+/** ~100 steps across the range, snapped to a 1/2/5 ladder so the handles land on
+ * round numbers whatever the metric's scale. */
+const sliderStep = computed(() => {
+  const [low, high] = sliderBounds.value
   const raw = (high - low) / 100
   if (!(raw > 0)) return 0.01
   const magnitude = Math.pow(10, Math.floor(Math.log10(raw)))
@@ -154,15 +169,19 @@ const sliderStep = computed(() => {
  */
 const sliderRange = computed<number[]>({
   get() {
-    const [low, high] = observedRange.value
+    const [low, high] = sliderBounds.value
     return [gradientMin.value ?? low, gradientMax.value ?? high]
   },
   set([low, high]) {
-    const [observedLow, observedHigh] = observedRange.value
-    gradientMin.value = low <= observedLow ? null : low
-    gradientMax.value = high >= observedHigh ? null : high
+    const [boundLow, boundHigh] = sliderBounds.value
+    gradientMin.value = low <= boundLow ? null : low
+    gradientMax.value = high >= boundHigh ? null : high
   }
 })
+
+const gradientRangeChanged = computed(
+  () => gradientMin.value !== null || gradientMax.value !== defaultGradientMax()
+)
 
 const clampedBelow = computed(() => gradientMin.value != null)
 const clampedAbove = computed(() => gradientMax.value != null)
@@ -257,17 +276,20 @@ async function restoreSettings(runId: string) {
     enabled.value = !!saved.enabled
     scope.value = saved.scope ?? 'run'
     metric.value = saved.metric ?? 'delta_sasa'
-    unit.value = saved.unit ?? 'angstrom'
+    unit.value = saved.unit ?? 'percent'
     distanceType.value = saved.distanceType ?? 'heavy'
     contactThreshold.value = saved.contactThreshold ?? 5
     palette.value = saved.palette ?? 'heat'
     gradientMin.value = saved.gradientMin ?? null
-    gradientMax.value = saved.gradientMax ?? null
+    gradientMax.value = saved.gradientMax ?? defaultGradientMax()
     booleanMode.value = !!saved.booleanMode
     booleanThreshold.value = saved.booleanThreshold ?? 10
   } catch (err) {
     console.warn('Contact map settings restore failed', err)
   } finally {
+    // Watchers on these refs flush after this function returns, so hold the flag one
+    // tick longer - otherwise the metric/unit watcher resets the range we just restored.
+    await nextTick()
     restoring = false
   }
 }
@@ -352,9 +374,17 @@ async function computeContacts() {
   }
 }
 
+/** The gradient ceiling a metric starts at: ΔSASA in percent is the only one with a
+ * meaningful absolute scale, so the rest simply follow the data. */
+function defaultGradientMax(): number | null {
+  return metric.value === 'delta_sasa' && unit.value === 'percent'
+    ? DEFAULT_MAX_PERCENT_DELTA_SASA
+    : null
+}
+
 function resetGradientRange() {
   gradientMin.value = null
-  gradientMax.value = null
+  gradientMax.value = defaultGradientMax()
 }
 
 function paint() {
@@ -402,8 +432,9 @@ watch(enabled, async (on) => {
 
 // Refetch when the question changes; repaint when only the presentation changes.
 watch([metric, unit], () => {
-  // A range in A^2 means nothing for a 0-1 contact frequency, so start from the data.
-  resetGradientRange()
+  // A range in A^2 means nothing for a 0-1 contact frequency, so start from that
+  // metric's own default. Skipped mid-restore, which sets its own range.
+  if (!restoring) resetGradientRange()
 })
 
 watch([metric, unit, distanceType, contactThreshold, scope, targetKey], async () => {
@@ -583,23 +614,23 @@ watch(
             <Slider
               v-model="sliderRange"
               range
-              :min="observedRange[0]"
-              :max="observedRange[1]"
+              :min="sliderBounds[0]"
+              :max="sliderBounds[1]"
               :step="sliderStep"
               :disabled="!rows.length"
               aria-label="Gradient range"
             />
             <div class="contact-map-slider-ends">
-              <span>{{ formatValue(observedRange[0]) }}</span>
+              <span>{{ formatValue(sliderBounds[0]) }}</span>
               <button
-                v-if="gradientMin !== null || gradientMax !== null"
+                v-if="gradientRangeChanged"
                 type="button"
                 class="contact-map-slider-reset"
                 @click="resetGradientRange"
               >
                 Reset range
               </button>
-              <span>{{ formatValue(observedRange[1]) }}</span>
+              <span>{{ formatValue(sliderBounds[1]) }}</span>
             </div>
           </div>
         </div>

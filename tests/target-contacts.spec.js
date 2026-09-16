@@ -131,9 +131,16 @@ test.describe('Target contacts', () => {
         await expect(page.locator('#contact-map-content')).toContainText(/strongest: [A-Z]\d+/, {
             timeout: 180000,
         });
+        const key = page.locator('#contact-map-legend-slot');
+
+        // ΔSASA is shown as a percentage of each residue's maximum, capped at 30% so the
+        // gradient's contrast lands at the epitope boundary rather than on the few
+        // residues that bury most of their area.
+        await expect(key).toContainText('% of max');
+        await expect(key).toContainText('≥ 30');
+
         // The key and its range slider live under the viewer, not in the panel, so they
         // stay visible while the panel is collapsed - and vanish when the map is off.
-        const key = page.locator('#contact-map-legend-slot');
         await expect(key.locator('.p-slider-handle')).toHaveCount(2);
         await page.locator('#contact-map-disclosure').click();
         await expect(key.locator('.contact-map-legend-bar')).toBeVisible();
