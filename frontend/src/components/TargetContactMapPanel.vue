@@ -6,6 +6,7 @@ import InputNumber from 'primevue/inputnumber'
 import Message from 'primevue/message'
 import ProgressBar from 'primevue/progressbar'
 import Select from 'primevue/select'
+import Slider from 'primevue/slider'
 import { filteringApi } from '../webapi'
 import type {
   DesignKeyDto,
@@ -64,7 +65,6 @@ const targetKey = ref<string>('')
 const palette = ref<PaletteName>('heat')
 const gradientMin = ref<number | null>(null)
 const gradientMax = ref<number | null>(null)
-const normalize = ref(true)
 const booleanMode = ref(false)
 const booleanThreshold = ref(10)
 
@@ -108,7 +108,6 @@ const colorMap = computed(() =>
     palette: palette.value,
     min: gradientMin.value,
     max: gradientMax.value,
-    normalize: normalize.value,
     invert: invert.value,
     boolean: booleanMode.value,
     threshold: booleanThreshold.value
@@ -119,21 +118,112 @@ const legendGradient = computed(() =>
   booleanMode.value ? '' : gradientCss(palette.value)
 )
 
-const legendLow = computed(() => formatValue(colorMap.value.domain[invert.value ? 1 : 0]))
-const legendHigh = computed(() => formatValue(colorMap.value.domain[invert.value ? 0 : 1]))
+/** What the data actually spans, which is what the slider runs between. */
+const observedRange = computed<[number, number]>(() => {
+  const present = residueValues.value
+    .map((r) => r.value)
+    .filter((v): v is number => v != null && Number.isFinite(v))
+  if (!present.length) return [0, 1]
+  const low = Math.min(...present)
+  const high = Math.max(...present)
+  return high > low ? [low, high] : [low, low + 1]
+})
+
+/** ~100 steps across the observed range, snapped to a 1/2/5 ladder so the handles
+ * land on round numbers whatever the metric's scale. */
+const sliderStep = computed(() => {
+  const [low, high] = observedRange.value
+  const raw = (high - low) / 100
+  if (!(raw > 0)) return 0.01
+  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)))
+  const normalised = raw / magnitude
+  const rounded = normalised <= 1 ? 1 : normalised <= 2 ? 2 : normalised <= 5 ? 5 : 10
+  return Math.max(rounded * magnitude, 0.01)
+})
+
+/**
+ * Handles at the ends mean "follow the data": the bound is stored as null so the
+ * gradient keeps rescaling as the design set or metric changes, rather than freezing
+ * at whatever the range happened to be when the slider was last touched.
+ */
+const sliderRange = computed<number[]>({
+  get() {
+    const [low, high] = observedRange.value
+    return [gradientMin.value ?? low, gradientMax.value ?? high]
+  },
+  set([low, high]) {
+    const [observedLow, observedHigh] = observedRange.value
+    gradientMin.value = low <= observedLow ? null : low
+    gradientMax.value = high >= observedHigh ? null : high
+  }
+})
+
+const clampedBelow = computed(() => gradientMin.value != null)
+const clampedAbove = computed(() => gradientMax.value != null)
+
+// The legend's ends are the domain's ends; which one is drawn on the left depends on
+// whether the ramp is inverted. Values outside the domain are painted the end colour,
+// so a pulled-in bound reads as "≤ x" / "≥ x" rather than an exact value.
+const domainLowLabel = computed(() =>
+  `${clampedBelow.value ? '≤ ' : ''}${formatValue(colorMap.value.domain[0])}`
+)
+const domainHighLabel = computed(() =>
+  `${clampedAbove.value ? '≥ ' : ''}${formatValue(colorMap.value.domain[1])}`
+)
+const legendLow = computed(() =>
+  invert.value ? domainHighLabel.value : domainLowLabel.value
+)
+const legendHigh = computed(() =>
+  invert.value ? domainLowLabel.value : domainHighLabel.value
+)
 
 function formatValue(value: number): string {
   if (!Number.isFinite(value)) return '—'
   return Math.abs(value) >= 100 ? value.toFixed(0) : value.toFixed(2)
 }
 
-/** Residues worth naming in the summary line: the strongest few. */
+const TOP_RESIDUE_COUNT = 6
+
+/**
+ * The residues worth naming in the summary: the strongest few by the metric on show,
+ * out of those the binders actually reach. Contacts are only recorded within 12 A of
+ * the binder, so a residue with contact_fraction 0 was never near one; for ΔSASA and
+ * contact frequency a mean of 0 means it was near but never buried, which is not worth
+ * naming either.
+ */
 const topResidues = computed(() => {
-  const withValues = rows.value.filter((r) => r.n && r.mean != null)
-  const sorted = [...withValues].sort((a, b) =>
-    invert.value ? (a.mean ?? 0) - (b.mean ?? 0) : (b.mean ?? 0) - (a.mean ?? 0)
+  const candidates = rows.value.filter(
+    (r) =>
+      r.n &&
+      r.mean != null &&
+      r.contact_fraction > 0 &&
+      (invert.value || r.mean > 0)
   )
-  return sorted.slice(0, 6)
+  return [...candidates]
+    .sort((a, b) => (invert.value ? (a.mean ?? 0) - (b.mean ?? 0) : (b.mean ?? 0) - (a.mean ?? 0)))
+    .slice(0, TOP_RESIDUE_COUNT)
+})
+
+/**
+ * "R12, E15, Y20 (chain A); I200 (chain B)" - residue type and number, grouped by
+ * chain. Chains are ordered by their strongest residue and read in sequence order
+ * within a chain, which is how an epitope is usually described.
+ */
+const topResiduesSummary = computed(() => {
+  const byChain = new Map<string, typeof topResidues.value>()
+  for (const residue of topResidues.value) {
+    const group = byChain.get(residue.chain)
+    if (group) group.push(residue)
+    else byChain.set(residue.chain, [residue])
+  }
+  const parts = [...byChain.entries()].map(([chain, residues]) => {
+    const names = [...residues]
+      .sort((a, b) => a.resseq - b.resseq)
+      .map((r) => `${r.aa1 || r.resname}${r.resseq}`)
+      .join(', ')
+    return `${names} (chain ${chain})`
+  })
+  return parts.join('; ')
 })
 
 interface PersistedSettings {
@@ -146,7 +236,6 @@ interface PersistedSettings {
   palette: PaletteName
   gradientMin: number | null
   gradientMax: number | null
-  normalize: boolean
   booleanMode: boolean
   booleanThreshold: number
 }
@@ -168,7 +257,6 @@ async function restoreSettings(runId: string) {
     palette.value = saved.palette ?? 'heat'
     gradientMin.value = saved.gradientMin ?? null
     gradientMax.value = saved.gradientMax ?? null
-    normalize.value = saved.normalize ?? true
     booleanMode.value = !!saved.booleanMode
     booleanThreshold.value = saved.booleanThreshold ?? 10
   } catch (err) {
@@ -191,7 +279,6 @@ async function persistSettings() {
       palette: palette.value,
       gradientMin: gradientMin.value,
       gradientMax: gradientMax.value,
-      normalize: normalize.value,
       booleanMode: booleanMode.value,
       booleanThreshold: booleanThreshold.value
     })
@@ -259,6 +346,11 @@ async function computeContacts() {
   }
 }
 
+function resetGradientRange() {
+  gradientMin.value = null
+  gradientMax.value = null
+}
+
 function paint() {
   if (!enabled.value) return
   if (!colorMap.value.colors.length) {
@@ -303,6 +395,11 @@ watch(enabled, async (on) => {
 })
 
 // Refetch when the question changes; repaint when only the presentation changes.
+watch([metric, unit], () => {
+  // A range in A^2 means nothing for a 0-1 contact frequency, so start from the data.
+  resetGradientRange()
+})
+
 watch([metric, unit, distanceType, contactThreshold, scope, targetKey], async () => {
   void persistSettings()
   if (!enabled.value) return
@@ -310,7 +407,7 @@ watch([metric, unit, distanceType, contactThreshold, scope, targetKey], async ()
   paint()
 })
 watch(
-  [palette, gradientMin, gradientMax, normalize, booleanMode, booleanThreshold],
+  [palette, gradientMin, gradientMax, booleanMode, booleanThreshold],
   () => {
     void persistSettings()
     paint()
@@ -445,42 +542,16 @@ watch(
         />
       </div>
 
-      <template v-else>
-        <div class="advanced-row">
-          <Checkbox v-model="normalize" :binary="true" input-id="contact-map-normalize" />
-          <label for="contact-map-normalize" class="advanced-checkbox-label">
-            Normalise to the observed range
-          </label>
-        </div>
-        <div v-if="!normalize" class="contact-map-range">
-          <div class="contact-map-range-field">
-            <label class="advanced-label">Min</label>
-            <InputNumber
-              v-model="gradientMin"
-              :max-fraction-digits="2"
-              class="contact-map-number"
-            />
-          </div>
-          <div class="contact-map-range-field">
-            <label class="advanced-label">Max</label>
-            <InputNumber
-              v-model="gradientMax"
-              :max-fraction-digits="2"
-              class="contact-map-number"
-            />
-          </div>
-        </div>
-        <div class="advanced-row advanced-row--full">
-          <label class="advanced-label">Palette</label>
-          <Select
-            v-model="palette"
-            :options="PALETTE_OPTIONS"
-            option-label="label"
-            option-value="value"
-            class="advanced-dropdown"
-          />
-        </div>
-      </template>
+      <div v-else class="advanced-row advanced-row--full">
+        <label class="advanced-label">Palette</label>
+        <Select
+          v-model="palette"
+          :options="PALETTE_OPTIONS"
+          option-label="label"
+          option-value="value"
+          class="advanced-dropdown"
+        />
+      </div>
 
       <div class="contact-map-legend">
         <template v-if="booleanMode">
@@ -497,12 +568,39 @@ watch(
         </template>
       </div>
 
+      <!-- Directly under the key so the handles read against the colours they bound.
+           At the ends the gradient follows the data; pulled in, it stretches over the
+           narrower range and the key's labels become "≤"/"≥". -->
+      <div v-if="!booleanMode" class="contact-map-slider">
+        <Slider
+          v-model="sliderRange"
+          range
+          :min="observedRange[0]"
+          :max="observedRange[1]"
+          :step="sliderStep"
+          :disabled="!rows.length"
+          aria-label="Gradient range"
+        />
+        <div class="contact-map-slider-ends">
+          <span>{{ formatValue(observedRange[0]) }}</span>
+          <button
+            v-if="gradientMin !== null || gradientMax !== null"
+            type="button"
+            class="contact-map-slider-reset"
+            @click="resetGradientRange"
+          >
+            Reset range
+          </button>
+          <span>{{ formatValue(observedRange[1]) }}</span>
+        </div>
+      </div>
+
       <p class="advanced-hint">
         <span v-if="loading">Loading profile…</span>
         <span v-else-if="!nDesigns">No design in scope has computed contacts yet.</span>
         <span v-else>
           {{ nDesigns }} design{{ nDesigns === 1 ? '' : 's' }};
-          strongest: {{ topResidues.map(r => r.label).join(', ') || '—' }}
+          strongest: {{ topResiduesSummary || '—' }}
         </span>
       </p>
     </template>
@@ -540,16 +638,30 @@ watch(
   width: 100%;
 }
 
-.contact-map-range {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.contact-map-range-field {
-  flex: 1;
+.contact-map-slider {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.35rem;
+  padding: 0 0.15rem;
+}
+
+.contact-map-slider-ends {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  color: #6c757d;
+}
+
+.contact-map-slider-reset {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #4361aa;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .contact-map-legend {
