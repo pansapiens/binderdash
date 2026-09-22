@@ -108,13 +108,49 @@ const valueUnitLabel = computed(() => {
   return unit.value === 'percent' ? '% of max' : 'Å²'
 })
 
+/** Short enough to sit in a caption: "heavy atoms", "CA", "CB". */
+const distanceTypeLabel = computed(() =>
+  distanceType.value === 'heavy' ? 'heavy atoms' : distanceType.value.toUpperCase()
+)
+
+/**
+ * Caption over the colour bar. The numbers either side of a gradient are meaningless
+ * without it - 0 to 30 of what? - and it carries the unit, the contact definition and
+ * the threshold, all of which change what the same colours mean.
+ */
+const legendTitle = computed(() => {
+  const scale =
+    metric.value === 'delta_sasa'
+      ? unit.value === 'percent'
+        ? '% ΔSASA on binding'
+        : 'ΔSASA on binding (Å²)'
+      : metric.value === 'contact_frequency'
+        ? `Designs within ${contactThreshold.value} Å (${distanceTypeLabel.value})`
+        : `Closest approach (Å, ${distanceTypeLabel.value})`
+  if (!booleanMode.value) return scale
+  return `${scale} ${invert.value ? '≤' : '≥'} ${booleanThreshold.value}`
+})
+
+/**
+ * Contacts are only recorded within this distance of the binder (the backend's
+ * DEFAULT_RECORD_CUTOFF). A residue outside it reports a far-away sentinel rather than
+ * a measured distance, which would stretch the gradient from ~4 Å to 999 and flatten
+ * every real contact into one colour, so distances are clamped to the edge of what was
+ * actually measured.
+ */
+const RECORD_CUTOFF = 12
+
 const residueValues = computed<ResidueValue[]>(() =>
-  rows.value.map((row) => ({
-    chain: row.chain,
-    resseq: row.resseq,
+  rows.value.map((row) => {
     // Contact frequency is a mean over 1/0 per design, so `mean` is the fraction.
-    value: row.n ? row.mean ?? null : null
-  }))
+    const mean = row.n ? row.mean ?? null : null
+    return {
+      chain: row.chain,
+      resseq: row.resseq,
+      value:
+        mean != null && metric.value === 'distance' ? Math.min(mean, RECORD_CUTOFF) : mean
+    }
+  })
 )
 
 const colorMap = computed(() =>
@@ -595,6 +631,7 @@ watch(
            fallback keeps them in place if that slot is ever absent. -->
       <Teleport to="#contact-map-legend-slot" :disabled="!legendSlotReady">
         <div class="contact-map-key">
+          <div class="contact-map-legend-title">{{ legendTitle }}</div>
           <div class="contact-map-legend">
             <template v-if="booleanMode">
               <span class="contact-map-swatch contact-map-swatch--contact" />
@@ -606,7 +643,6 @@ watch(
               <span class="contact-map-legend-label">{{ legendLow }}</span>
               <span class="contact-map-legend-bar" :style="{ background: legendGradient }" />
               <span class="contact-map-legend-label">{{ legendHigh }}</span>
-              <span class="contact-map-legend-unit">{{ valueUnitLabel }}</span>
             </template>
           </div>
 
@@ -711,6 +747,12 @@ watch(
   text-decoration: underline;
 }
 
+.contact-map-legend-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #495057;
+}
+
 .contact-map-legend {
   display: flex;
   align-items: center;
@@ -724,10 +766,6 @@ watch(
   height: 10px;
   border-radius: 2px;
   border: 1px solid #dee2e6;
-}
-
-.contact-map-legend-unit {
-  color: #6c757d;
 }
 
 .contact-map-swatch {

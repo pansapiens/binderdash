@@ -136,7 +136,8 @@ test.describe('Target contacts', () => {
         // ΔSASA is shown as a percentage of each residue's maximum, capped at 30% so the
         // gradient's contrast lands at the epitope boundary rather than on the few
         // residues that bury most of their area.
-        await expect(key).toContainText('% of max');
+        // The caption says what scale the colours are on; the numbers alone do not.
+        await expect(key).toContainText('% ΔSASA on binding');
         await expect(key).toContainText('≥ 30');
 
         // The key and its range slider live under the viewer, not in the panel, so they
