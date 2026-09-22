@@ -489,6 +489,8 @@ export const useFilteringStore = defineStore('filtering', () => {
                 targetContactGroups.value = [
                     { target_key: res.targets[0].target_key, run_ids: [], label: res.targets[0].label, filters: [] }
                 ]
+            } else {
+                reconcileTargetContactGroups(res.targets)
             }
         } catch (err) {
             targetsError.value = err instanceof Error ? err.message : 'Failed to load target residues'
@@ -550,6 +552,35 @@ export const useFilteringStore = defineStore('filtering', () => {
             ...payload,
             run_ids: payload.run_ids ?? activeRunIds.value
         })
+
+    const isTargetInScope = (targetKey: string) =>
+        targets.value.some((t) => t.target_key === targetKey)
+
+    // Groups are restored from IndexedDB and outlive the run selection, so a group can
+    // name a target that the current scope does not contain. Such a group matches no
+    // runs: it silently filters nothing and its residue dropdown is empty. Re-point the
+    // ones that have nothing to lose, and leave the rest for the user to resolve
+    // (`staleTargetContactGroups` makes the target picker and a warning appear).
+    const reconcileTargetContactGroups = (resolved: TargetInfoDto[]) => {
+        if (resolved.length !== 1) return
+        const only = resolved[0]
+        targetContactGroups.value.forEach((group) => {
+            if (group.target_key === only.target_key) return
+            const hasSelections = group.filters.some((f) => f.residues.length > 0)
+            if (hasSelections) return
+            group.target_key = only.target_key
+            group.label = only.label
+        })
+    }
+
+    const staleTargetContactGroups = computed(() => {
+        if (!targets.value.length) return new Set<number>()
+        const stale = new Set<number>()
+        targetContactGroups.value.forEach((group, index) => {
+            if (!isTargetInScope(group.target_key)) stale.add(index)
+        })
+        return stale
+    })
 
     const residuesForTarget = (targetKey: string) =>
         targets.value.find((t) => t.target_key === targetKey)?.residues ?? []
@@ -912,6 +943,8 @@ export const useFilteringStore = defineStore('filtering', () => {
         hasActiveFilters,
         activeTargetContactGroups,
         hasMultipleTargets,
+        staleTargetContactGroups,
+        isTargetInScope,
         runsMissingContacts,
         hasUncomputedContacts,
         contactCoverageTotals,

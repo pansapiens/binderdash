@@ -178,8 +178,25 @@ watch(
       :key="`group-${groupIndex}`"
       class="tcf-group"
     >
+      <Message
+        v-if="filteringStore.staleTargetContactGroups.has(groupIndex)"
+        severity="warn"
+        :closable="false"
+        class="tcf-message"
+      >
+        These conditions were written against
+        {{ group.label ? `target "${group.label}"` : 'a target' }}, which is not in the
+        current run selection, so they match nothing. Pick a target in scope (this clears
+        the residue selections) or remove the section.
+      </Message>
+
       <div class="tcf-group__header">
-        <template v-if="filteringStore.hasMultipleTargets">
+        <template
+          v-if="
+            filteringStore.hasMultipleTargets ||
+            filteringStore.staleTargetContactGroups.has(groupIndex)
+          "
+        >
           <label class="tcf-group__label">Target</label>
           <Select
             :model-value="group.target_key"
