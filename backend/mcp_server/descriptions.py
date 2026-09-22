@@ -205,3 +205,52 @@ This is the one genuinely slow read-side operation: it parses every structure in
 selection. Prefer `select_diverse_designs(auto_extract_sequences=true)`, which does it
 only for the designs that actually need it.
 """
+
+
+TARGET_CONTACT_GROUPS_ARG = (
+    "Optional structure-derived conditions on target residues, applied as hard filters "
+    "alongside `filters`. Each group is {target_key, run_ids?, label?, filters:[...]}, "
+    "and each condition is {residues:['A166','A167'], scope, metric, distance_type, "
+    "unit, operator, value}. metric is 'distance' (to the binder, using distance_type "
+    "'ca'|'cb'|'heavy'), 'sasa_bound' (solvent accessible surface in the complex) or "
+    "'delta_sasa' (surface buried on binding); unit is 'angstrom' or 'percent' of the "
+    "residue's theoretical maximum. scope is 'any'|'all' of the listed residues, "
+    "'count' (with min_count) or 'site_percent' (the metric summed over them). Call "
+    "list_target_residues first for target_key and the residue labels. Requires "
+    "precomputed contacts - see list_target_residues for coverage."
+)
+
+LIST_TARGET_RESIDUES = """List the target residues you can write contact conditions against.
+
+Call this before using `target_contact_groups` on query_designs, rank_designs or
+select_diverse_designs: it gives the `target_key` to write conditions against and the
+residue labels (`<chain><resseq>`, e.g. "A166") they accept, plus each residue's
+solvent accessible surface in the free target.
+
+Runs sharing a target are grouped by sequence, not chain ID, so one target spans runs
+that letter its chain differently; a condition written in one run's numbering therefore
+constrains designs in all of them. When runs really do use different targets or
+different numbering, you get one entry per target and write one group per target.
+
+`coverage` reports how many designs per run have their per-residue contacts computed.
+Conditions treat a design with no record as failing, so a run at 0 coverage silently
+drops out of the result. Computing is deliberately not a tool - it parses every
+structure and takes minutes - so press 'Compute target contacts' in the web UI's
+Filtering tab when coverage is short.
+"""
+
+TARGET_CONTACT_PROFILE = """Per-residue summary of what a set of binders actually touches on the target.
+
+Call this to find the epitope before filtering on it: which residues the designs bury,
+how often, and how hard - then write a `target_contact_groups` condition on the
+residues that matter. Also the cheapest way to compare epitopes between runs.
+
+`metric="delta_sasa"` gives surface buried on binding (mean/median/min/max per
+residue), `"distance"` the closest approach of the binder, and `"contact_frequency"`
+the fraction of designs contacting the residue under `contact_metric` /
+`contact_threshold`. Restrict to specific designs with `design_keys`, which is how you
+profile a shortlist rather than the whole run.
+
+Residues with no signal are omitted from the returned rows by default; set
+`include_all=true` for every residue, including those no binder ever approaches.
+"""

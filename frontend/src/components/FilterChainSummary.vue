@@ -23,13 +23,20 @@ function itemLabel(item: FilterChainItem): string {
 }
 
 function itemTooltip(item: FilterChainItem): string {
-  const noun = item.type === 'diversity' ? 'diversity selection' : 'this filter'
+  const noun =
+    item.type === 'diversity'
+      ? 'diversity selection'
+      : item.type === 'target_contact'
+        ? 'this target-contact condition'
+        : 'this filter'
   return item.enabled ? `Click to disable ${noun}` : `Click to enable ${noun}`
 }
 
 function toggleItem(item: FilterChainItem) {
   if (item.type === 'diversity') {
     filteringStore.toggleDiversityEnabled()
+  } else if (item.type === 'target_contact') {
+    filteringStore.toggleTargetContactFilterEnabled(item.groupIndex ?? 0, item.index)
   } else {
     filteringStore.toggleFilterEnabled(item.index)
   }

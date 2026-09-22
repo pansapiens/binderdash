@@ -149,6 +149,57 @@ class NoopDesignsRepository:
     ) -> None:
         pass
 
+    # --- Target contacts (see filtering.target_contacts) ------------------
+
+    def get_target_contacts_cache(
+        self,
+        *,
+        run_id: str,
+        design_id: str,
+        source_path: str,
+        structure_filename: str,
+        binder_chains: str,
+        target_chains: str,
+        params_key: str,
+    ) -> Optional[Dict[str, Any]]:
+        return None
+
+    def upsert_target_contacts_cache_bulk(self, items: List[Dict[str, Any]]) -> int:
+        return 0
+
+    def list_target_contacts_for_runs(
+        self, run_ids: List[str], params_key: str
+    ) -> List[Dict[str, Any]]:
+        return []
+
+    def count_target_contacts_by_run(
+        self, run_ids: List[str], params_key: str
+    ) -> Dict[str, int]:
+        return {}
+
+    def get_target_residues(
+        self,
+        *,
+        run_id: str,
+        params_key: str,
+        binder_chains: str,
+        target_chains: str,
+    ) -> Optional[Dict[str, Any]]:
+        return None
+
+    def upsert_target_residues(
+        self,
+        *,
+        run_id: str,
+        params_key: str,
+        binder_chains: str,
+        target_chains: str,
+        target_key: str,
+        residues: List[Dict[str, Any]],
+        target_moves: bool = False,
+    ) -> None:
+        pass
+
     # --- Users, identities, API keys -------------------------------------
     #
     # With no persistence there is no user table, so there are no API keys

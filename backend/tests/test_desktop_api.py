@@ -18,12 +18,18 @@ def desktop_client(tmp_path: Path, monkeypatch):
     cfg_file = tmp_path / "desktop.json"
     monkeypatch.setenv("BINDERDASH_DESKTOP_CONFIG", str(cfg_file))
     monkeypatch.setattr(settings, "binderdash_desktop", True, raising=False)
+    # update_run_base_dirs mutates the shared settings object, so it has to be undone:
+    # leaving it set makes every later test's folder look outside the allowed bases.
+    original_base_dirs = list(settings.run_base_dirs)
     update_run_base_dirs([str(runs_dir)])
 
     app = FastAPI()
     app.include_router(desktop_routes.router)
-    with TestClient(app) as client:
-        yield client, runs_dir, other_dir
+    try:
+        with TestClient(app) as client:
+            yield client, runs_dir, other_dir
+    finally:
+        update_run_base_dirs(original_base_dirs)
 
 
 def test_desktop_info(desktop_client):

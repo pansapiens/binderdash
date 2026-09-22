@@ -88,6 +88,9 @@ const props = withDefaults(
 const molstarContainer = ref<HTMLElement | null>(null)
 const membraneCanvasEl = ref<HTMLCanvasElement | null>(null)
 const tagMarkerCanvasEl = ref<HTMLCanvasElement | null>(null)
+/** Fired once a load settles, so overlays painted by the parent can be reapplied. */
+const emit = defineEmits<{ (e: 'structure-loaded'): void }>()
+
 const viewerInstance = ref<any>(null)
 let overlayDidDrawSub: { unsubscribe: () => void } | null = null
 let overlayResizeObserver: ResizeObserver | null = null
@@ -96,6 +99,9 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const isSpinning = ref(false)
 const alphafoldViewEnabled = ref(true)
+/** Set while a residue colour map is painted, so clearing is a no-op when there is none. */
+const residueColorMapApplied = ref(false)
+
 /** Structure 2 = appended reference; toggled via PDBe `visual.structureVisibility`. */
 const referenceStructureVisible = ref(true)
 /** False after unmount; avoids parsing against a torn-down plugin state tree. */
@@ -497,6 +503,8 @@ const runLoadStructure = async (): Promise<void> => {
   try {
     loading.value = true
     error.value = null
+    // A remount discards any painted colour map, so the caller must reapply it.
+    residueColorMapApplied.value = false
 
     await loadMolstarResources()
     if (!viewerAlive.value) return
@@ -516,6 +524,7 @@ const runLoadStructure = async (): Promise<void> => {
       if (!viewerAlive.value) return
       await applyBinderTagOverlay({ awaitLoad: false })
       lastCompletedStructureLoadKey = requestedLoadKey
+      emit('structure-loaded')
       return
     }
 
@@ -536,6 +545,7 @@ const runLoadStructure = async (): Promise<void> => {
     }
     await applyBinderTagOverlay({ awaitLoad: false })
     lastCompletedStructureLoadKey = requestedLoadKey
+    emit('structure-loaded')
   } catch (err) {
     if (!viewerAlive.value) return
     console.error('Error loading Molstar viewer:', err)
@@ -771,6 +781,45 @@ const clearHighlight = async () => {
   }
 }
 
+/**
+ * Colour individual residues of the loaded structure, for the target contact map.
+ *
+ * PDBe `visual.select` colours by author chain + author residue number, which is what
+ * the backend's residue labels already carry, and `nonSelectedColor` greys out
+ * everything else so the target's own colouring does not compete with the map. The
+ * primary structure only (number 1) — an appended reference structure keeps its colours.
+ */
+const applyResidueColorMap = async (
+  residues: { chain: string, resseq: number, r: number, g: number, b: number }[],
+  nonSelectedColor?: { r: number, g: number, b: number }
+) => {
+  if (!viewerInstance.value || !residues.length) return
+  try {
+    await viewerInstance.value.visual.select({
+      data: residues.map(res => ({
+        auth_asym_id: res.chain,
+        auth_residue_number: res.resseq,
+        color: { r: res.r, g: res.g, b: res.b }
+      })),
+      ...(nonSelectedColor ? { nonSelectedColor } : {}),
+      structureNumber: 1
+    })
+    residueColorMapApplied.value = true
+  } catch (e) {
+    console.warn('PDBe Molstar: residue colour map failed', e)
+  }
+}
+
+const clearResidueColorMap = async () => {
+  if (!viewerInstance.value || !residueColorMapApplied.value) return
+  residueColorMapApplied.value = false
+  try {
+    await viewerInstance.value.visual.clearSelection(1)
+  } catch (e) {
+    console.warn('PDBe Molstar: clearing residue colour map failed', e)
+  }
+}
+
 const toggleReferenceStructureVisibility = async (forceState?: boolean) => {
   if (!viewerInstance.value || !hasReferenceUrl()) return
   const next =
@@ -840,6 +889,9 @@ defineExpose({
   toggleControls,
   highlightResidues,
   clearHighlight,
+  applyResidueColorMap,
+  clearResidueColorMap,
+  residueColorMapApplied: readonly(residueColorMapApplied),
   toggleAlphaFoldView,
   toggleReferenceStructureVisibility,
   resetReferenceVisibilityPreference,

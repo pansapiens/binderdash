@@ -13,34 +13,13 @@ from Bio.PDB.PDBExceptions import PDBConstructionWarning
 from Bio.PDB.Polypeptide import PPBuilder, is_aa
 from Bio.PDB.SASA import ShrakeRupley
 
+from .util.sasa_constants import TIEN_2023_THEORETICAL
+
 logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore", category=PDBConstructionWarning)
 warnings.filterwarnings("ignore", message="WARNING: Unrecognized atom type")
 warnings.filterwarnings("ignore", message="WARNING: Negative sasa result!")
-
-TIEN_2023_THEORETICAL: Dict[str, float] = {
-    "ALA": 129.0,
-    "ARG": 274.0,
-    "ASN": 195.0,
-    "ASP": 193.0,
-    "CYS": 167.0,
-    "GLU": 223.0,
-    "GLN": 225.0,
-    "GLY": 104.0,
-    "HIS": 224.0,
-    "ILE": 197.0,
-    "LEU": 201.0,
-    "LYS": 236.0,
-    "MET": 224.0,
-    "PHE": 240.0,
-    "PRO": 159.0,
-    "SER": 155.0,
-    "THR": 172.0,
-    "TRP": 285.0,
-    "TYR": 263.0,
-    "VAL": 174.0,
-}
 
 
 def parse_distant_from_string(

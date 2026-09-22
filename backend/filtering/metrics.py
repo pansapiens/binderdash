@@ -22,6 +22,11 @@ _PER_REPLICATE_COLUMN_RE = re.compile(r"^\d+_")
 
 
 def is_excluded_metric_column(name: str) -> bool:
+    # ``__tc_*`` are virtual columns materialised per request for target-contact
+    # conditions (see filtering.target_contacts_service); they are not data a user
+    # could pick from the column list.
+    if name.startswith("__tc_"):
+        return True
     return bool(_PER_REPLICATE_COLUMN_RE.match(name))
 
 

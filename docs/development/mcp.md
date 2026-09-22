@@ -112,6 +112,8 @@ before first use.
 | `inspect_structures` | Chains, roles, sequences, `binderdash_*` interface metrics |
 | `read_structure_file` | Raw structure text, size-capped |
 | `export_structures` | Manifest plus the tar endpoint to fetch many structures |
+| `list_target_residues` | Targets in a run scope, residue labels to filter on, contact coverage |
+| `target_contact_profile` | Per-residue mean ΔSASA / closest approach / contact frequency |
 
 There is deliberately **no plotting tool**: `query_designs` returns column-selected
 tabular data and an agent charts it itself. For bulk dumps, `list_runs` includes
@@ -120,6 +122,39 @@ tabular data and an agent charts it itself. For bulk dumps, `list_runs` includes
 without the MCP API key rather than raising `query_designs` limits until the cell
 budget rejects you. Each run also reports `ingested_at` (first Binderdash ingest)
 and `folder_mtime` (run-directory mtime at ingest).
+
+### Target contacts
+
+`query_designs`, `rank_designs` and `select_diverse_designs` take an optional
+`target_contact_groups` alongside `filters`. A contact condition is a threshold on a
+target residue rather than a design-table column - "A166 within 5 Å of the binder
+(heavy atoms)", "the epitope buries at least 30% of its surface on binding" - evaluated
+from the design's structure and applied as a hard filter.
+
+```json
+{"target_key": "…", "label": "PD-L1", "filters": [
+  {"residues": ["A54", "A56"], "scope": "any", "metric": "distance",
+   "distance_type": "heavy", "operator": "<=", "value": 5.0}
+]}
+```
+
+`metric` is `distance` (with `distance_type` `ca`/`cb`/`heavy`), `sasa_bound` or
+`delta_sasa`; `unit` is `angstrom` or `percent` of the residue's theoretical maximum
+(Tien et al. 2013); `scope` is `any`/`all` of the listed residues, `count` (with
+`min_count`) or `site_percent` (the metric summed over them). One group per target lets
+a single call name equivalent residues under two different constructs' numbering; a
+design whose run is outside a group's scope is exempt from that group.
+
+Call `list_target_residues` first for the `target_key` and the residue labels, and
+`target_contact_profile` to see what the binders actually touch before choosing
+residues to filter on. Runs are grouped into targets by **sequence**, not chain ID, so
+one target spans runs that letter its chain differently.
+
+Computing the per-residue records is deliberately **not** a tool: it parses every
+structure in the selection and takes minutes, so it stays behind the web UI's Compute
+button in the Filtering tab. A design with no record fails every contact condition, so
+tools emit a `TARGET_CONTACTS_UNAVAILABLE` warning and an empty result explains that
+contacts may be uncomputed rather than reporting it as a real answer.
 
 **Write scope** is read + analysis + Saved Sets, plus the compute-and-cache writes
 (sequence extraction, structural metrics) that only populate derived caches. Scanning,
@@ -165,7 +200,8 @@ fewer tokens on a wide table) and floats are rounded to four significant figures
 
 Errors are raised as `[CODE] message`, always ending in a concrete next call —
 `UNKNOWN_COLUMN` (with the nearest names), `AMBIGUOUS_DESIGN_REF`,
-`NO_RANKABLE_METRICS`, `RESPONSE_TOO_LARGE`, `EMPTY_SELECTION`, `SEQUENCES_REQUIRED`.
+`NO_RANKABLE_METRICS`, `RESPONSE_TOO_LARGE`, `EMPTY_SELECTION`, `SEQUENCES_REQUIRED`,
+`INVALID_TARGET_CONTACT_FILTER`.
 
 ## Implementation notes
 
@@ -179,7 +215,13 @@ Errors are raised as `[CODE] message`, always ending in a concrete next call —
 - `vocab.py` — canonical metrics, directions, ranking presets (moved server-side from
   `frontend/src/config/rankingPresets.ts`).
 - `columns.py`, `refs.py`, `tables.py`, `errors.py`, `descriptions.py` — the shared spine.
-- `tools/` — `discovery.py`, `designs.py`, `selection.py`, `structures.py`.
+- `contacts.py` — the shared target-contact path: conditions are evaluated into boolean
+  `__tc_*` columns by `filtering.service.build_filter_inputs` (the same entry point the
+  REST filtering endpoints use) and appended to the hard filters, so every tool treats
+  them as ordinary filters and only has to strip the virtual columns before returning
+  rows.
+- `tools/` — `discovery.py`, `designs.py`, `selection.py`, `structures.py`,
+  `target_contacts.py`.
 
 Two integration points in `backend/main.py` are load-bearing:
 

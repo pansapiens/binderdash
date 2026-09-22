@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from dataclasses import dataclass, field as dc_field
 from typing import Any, Dict, List, Optional
 
 import polars as pl
@@ -22,6 +23,7 @@ from .engine import (
     run_filtering_pipeline,
 )
 from .metrics import METRIC_ALIASES, available_columns_for_methods, is_excluded_metric_column
+from .target_contacts_service import augment_with_target_contacts
 from .schemas import (
     ColumnInfo,
     DesignKey,
@@ -36,11 +38,13 @@ from .schemas import (
     FilteringRankResponse,
     FilteringRunRequest,
     FilteringRunResponse,
+    FilterSpec,
     RankedDesignRow,
     SavedSet,
     SavedSetDesignRow,
     SavedSetDesignsResponse,
     SavedSetListResponse,
+    TargetContactGroup,
 )
 
 # raw column name -> canonical name, built from METRIC_ALIASES for the reverse lookup
@@ -73,6 +77,39 @@ def build_designs_dataframe(run_ids: List[str]) -> pl.DataFrame:
     if not rows:
         return pl.DataFrame()
     return pl.DataFrame(rows, infer_schema_length=None)
+
+
+
+@dataclass
+class FilterInputs:
+    """The designs DataFrame plus the full filter list for a request.
+
+    Target-contact conditions are evaluated into boolean ``__tc_*`` columns here (see
+    target_contacts_service.augment_with_target_contacts) and appended to the ordinary
+    hard filters, so everything downstream — cascade counts, ranking, diversity
+    selection, Saved Sets, and the MCP tools — treats them as plain filters.
+    """
+
+    df: pl.DataFrame
+    specs: List[FilterSpec]
+    labels: Dict[str, str] = dc_field(default_factory=dict)
+    warnings: List[str] = dc_field(default_factory=list)
+
+
+def build_filter_inputs(
+    run_ids: List[str],
+    filters: List[FilterSpec],
+    target_contact_groups: Optional[List[TargetContactGroup]] = None,
+) -> FilterInputs:
+    df = build_designs_dataframe(run_ids)
+    if df.is_empty() or not target_contact_groups:
+        return FilterInputs(df=df, specs=list(filters))
+    df, contact_specs, labels, warnings = augment_with_target_contacts(
+        df, target_contact_groups, run_ids
+    )
+    return FilterInputs(
+        df=df, specs=[*filters, *contact_specs], labels=labels, warnings=warnings
+    )
 
 
 def _sample_values(series: pl.Series) -> Optional[Dict[str, float]]:
@@ -172,14 +209,21 @@ def compute_available_columns(run_ids: List[str]) -> List[ColumnInfo]:
 
 
 def compute_preview(request: FilteringPreviewRequest) -> FilteringPreviewResponse:
-    df = build_designs_dataframe(request.run_ids)
+    inputs = build_filter_inputs(
+        request.run_ids, request.filters, request.target_contact_groups
+    )
+    df = inputs.df
     total = df.height
     if df.is_empty():
         return FilteringPreviewResponse(
             total_designs=0, per_filter_counts=[], final_passing=0, available_columns=[]
         )
 
-    stages = filter_cascade_counts(df, request.filters)
+    stages = filter_cascade_counts(df, inputs.specs)
+    for stage in stages:
+        label = inputs.labels.get(stage.column)
+        if label:
+            stage.label = label
     final_passing = stages[-1].remaining if stages else total
     return FilteringPreviewResponse(
         total_designs=total,
@@ -195,11 +239,14 @@ def compute_apply(request: FilteringApplyRequest) -> FilteringApplyResponse:
     counts (used for the filter-cascade summary UI) or ``run_filtering_and_save``'s full
     filter+rank+diversity pipeline (used for Saved Set creation).
     """
-    df = build_designs_dataframe(request.run_ids)
+    inputs = build_filter_inputs(
+        request.run_ids, request.filters, request.target_contact_groups
+    )
+    df = inputs.df
     if df.is_empty():
         return FilteringApplyResponse(total_designs=0, passing_keys=[], final_passing=0)
 
-    filtered = apply_hard_filters(df, request.filters)
+    filtered = apply_hard_filters(df, inputs.specs)
     passing = filtered.filter(pl.col("pass_filters"))
     keys = [
         DesignKey(
@@ -228,11 +275,14 @@ def compute_rank(request: FilteringRankRequest) -> FilteringRankResponse:
     no BioPython alignment), but still not debounced/live like ``compute_apply`` since
     it's a deliberate user action.
     """
-    df = build_designs_dataframe(request.run_ids)
+    inputs = build_filter_inputs(
+        request.run_ids, request.filters, request.target_contact_groups
+    )
+    df = inputs.df
     if df.is_empty():
         return FilteringRankResponse(designs=[], total_designs=0)
 
-    filtered = apply_hard_filters(df, request.filters)
+    filtered = apply_hard_filters(df, inputs.specs)
     ranked = rank_designs(filtered, request.metrics, tiebreak_column=_pick_tiebreak_column(df))
 
     rows = [
@@ -285,7 +335,10 @@ def compute_diversity_preview(request: FilteringDiversityRequest) -> FilteringDi
     ``run_filtering_pipeline`` with ``run_filtering_and_save``, just skips the
     ``create_saved_set``/``add_saved_set_designs`` repo calls.
     """
-    df = build_designs_dataframe(request.run_ids)
+    inputs = build_filter_inputs(
+        request.run_ids, request.filters, request.target_contact_groups
+    )
+    df = inputs.df
     if df.is_empty():
         return FilteringDiversityResponse(
             designs=[], total_designs=0, passing_filters=0, diverse_set_count=0
@@ -294,7 +347,7 @@ def compute_diversity_preview(request: FilteringDiversityRequest) -> FilteringDi
     sequence_col = "Sequence" if "Sequence" in df.columns else None
     ranked, diverse = run_filtering_pipeline(
         df,
-        request.filters,
+        inputs.specs,
         request.metrics,
         budget=request.budget,
         alpha=request.alpha,
@@ -339,7 +392,10 @@ def compute_diversity_preview(request: FilteringDiversityRequest) -> FilteringDi
 
 
 def run_filtering_and_save(request: FilteringRunRequest) -> FilteringRunResponse:
-    df = build_designs_dataframe(request.run_ids)
+    inputs = build_filter_inputs(
+        request.run_ids, request.filters, request.target_contact_groups
+    )
+    df = inputs.df
     if df.is_empty():
         raise ValueError("No designs found for the given run_ids")
     if "design_id" not in df.columns or "run_id" not in df.columns:
@@ -348,7 +404,7 @@ def run_filtering_and_save(request: FilteringRunRequest) -> FilteringRunResponse
     sequence_col = "Sequence" if "Sequence" in df.columns else None
     ranked, diverse = run_filtering_pipeline(
         df,
-        request.filters,
+        inputs.specs,
         request.metrics,
         budget=request.budget,
         alpha=request.alpha,
@@ -406,7 +462,9 @@ def run_filtering_and_save(request: FilteringRunRequest) -> FilteringRunResponse
                 "metrics": {
                     k: v
                     for k, v in row.items()
-                    if k not in reserved_cols and _is_json_scalar(v)
+                    if k not in reserved_cols
+                    and not k.startswith("__tc_")
+                    and _is_json_scalar(v)
                 },
             }
         )

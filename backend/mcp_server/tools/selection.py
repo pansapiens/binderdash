@@ -7,13 +7,14 @@ from typing import Annotated, Any, Dict, List, Literal, Optional
 import polars as pl
 from pydantic import Field
 
-from .. import errors, refs, tables, vocab
+from .. import contacts, errors, refs, tables, vocab
 from ..columns import canonical_expr, coverage
 from ..descriptions import (
     EXTRACT_SEQUENCES,
     RANK_DESIGNS,
     SAVED_SETS,
     SELECT_DIVERSE_DESIGNS,
+    TARGET_CONTACT_GROUPS_ARG,
 )
 from ..server import run_blocking
 
@@ -88,22 +89,27 @@ def _rank(
     metrics: List[Dict[str, Any]],
     limit: int,
     columns: Optional[List[str]],
+    target_contact_groups: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     from ...filtering.engine import apply_hard_filters, filter_cascade_counts, rank_designs
-    from ...filtering.schemas import FilterSpec
-    from ...filtering.service import _pick_tiebreak_column, build_designs_dataframe
+    from ...filtering.service import _pick_tiebreak_column
 
     refs.validate_run_ids(run_ids)
-    df = build_designs_dataframe(run_ids)
+    inputs, warnings = contacts.build_inputs(run_ids, filters, target_contact_groups)
+    df = inputs.df
     if df.is_empty():
         errors.fail(errors.EMPTY_SELECTION, f"No designs are loaded for {run_ids}.")
 
-    specs = [FilterSpec(**f) for f in filters]
-    resolved, report, warnings = _prepare_metrics(df, metrics)
+    specs = inputs.specs
+    resolved, report, metric_warnings = _prepare_metrics(df, metrics)
+    warnings.extend(metric_warnings)
 
-    cascade = [
-        stage.model_dump() for stage in filter_cascade_counts(df, specs)
-    ] if specs else []
+    cascade = []
+    for stage in filter_cascade_counts(df, specs) if specs else []:
+        entry = stage.model_dump()
+        # A __tc_* stage name means nothing to a reader; show the condition instead.
+        entry["column"] = inputs.labels.get(entry["column"], entry["column"])
+        cascade.append(entry)
 
     filtered = apply_hard_filters(df, specs)
     ranked = rank_designs(filtered, resolved, tiebreak_column=_pick_tiebreak_column(df))
@@ -114,10 +120,11 @@ def _rank(
         errors.fail(
             errors.EMPTY_SELECTION,
             f"No design passes every filter (of {df.height}). The cascade was {cascade}; "
-            "relax the threshold on whichever stage dropped the most.",
+            "relax the threshold on whichever stage dropped the most."
+            + contacts.empty_selection_hint(target_contact_groups, warnings),
         )
 
-    ranked = ranked.sort("final_rank", nulls_last=True)
+    ranked = contacts.strip_virtual(ranked.sort("final_rank", nulls_last=True))
     selected = ["run_id", "design_id", "method", "final_rank", "quality_score", "pass_filters"]
     for name in columns or []:
         if canonical_expr(ranked, name) is None:
@@ -188,21 +195,18 @@ def _diverse(
     auto_extract_sequences: bool,
     save_as: Optional[str],
     columns: Optional[List[str]],
+    target_contact_groups: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     from ...filtering.engine import count_missing_sequences, run_filtering_pipeline
-    from ...filtering.schemas import FilterSpec, FilteringRunRequest
-    from ...filtering.service import (
-        _pick_tiebreak_column,
-        build_designs_dataframe,
-        run_filtering_and_save,
-    )
+    from ...filtering.schemas import FilterSpec, FilteringRunRequest, TargetContactGroup
+    from ...filtering.service import _pick_tiebreak_column, run_filtering_and_save
 
     refs.validate_run_ids(run_ids)
-    df = build_designs_dataframe(run_ids)
+    inputs, warnings = contacts.build_inputs(run_ids, filters, target_contact_groups)
+    df = inputs.df
     if df.is_empty():
         errors.fail(errors.EMPTY_SELECTION, f"No designs are loaded for {run_ids}.")
 
-    warnings: List[Dict[str, Any]] = []
     resolved, report, metric_warnings = _prepare_metrics(df, metrics)
     warnings.extend(metric_warnings)
 
@@ -217,7 +221,11 @@ def _diverse(
                         f"Extracted sequences from structures for {extracted} designs.",
                     )
                 )
-                df = build_designs_dataframe(run_ids)
+                inputs, extra_warnings = contacts.build_inputs(
+                    run_ids, filters, target_contact_groups
+                )
+                df = inputs.df
+                warnings.extend(extra_warnings)
                 sequence_col = _sequence_column(df)
         if sequence_col is None:
             errors.fail(
@@ -231,6 +239,9 @@ def _diverse(
             name=save_as,
             run_ids=run_ids,
             filters=[FilterSpec(**f) for f in filters],
+            target_contact_groups=[
+                TargetContactGroup(**g) for g in (target_contact_groups or [])
+            ],
             metrics=resolved,
             budget=budget,
             alpha=alpha,
@@ -248,7 +259,7 @@ def _diverse(
 
     ranked, diverse = run_filtering_pipeline(
         df,
-        [FilterSpec(**f) for f in filters],
+        inputs.specs,
         resolved,
         budget=budget,
         alpha=alpha,
@@ -257,11 +268,18 @@ def _diverse(
     )
     if diverse is None or diverse.is_empty():
         missing = count_missing_sequences(ranked, sequence_col)
+        if missing == 0 and target_contact_groups:
+            errors.fail(
+                errors.EMPTY_SELECTION,
+                "No design passes the filters, so there is nothing to select from."
+                + contacts.empty_selection_hint(target_contact_groups, warnings),
+            )
         errors.fail(
             errors.SEQUENCES_REQUIRED,
             f"Diversity selection produced no designs: {missing} of {ranked.height} have "
             "no usable sequence. Re-call with auto_extract_sequences=true.",
         )
+    diverse = contacts.strip_virtual(diverse)
     if diverse.height < budget:
         warnings.append(
             errors.warning(
@@ -451,9 +469,20 @@ def register(mcp: Any) -> None:
             Optional[List[str]], Field(description="Extra metric columns to return.")
         ] = None,
         limit: Annotated[int, Field(ge=1, le=200, description="Top N to return.")] = 25,
+        target_contact_groups: Annotated[
+            Optional[List[Dict[str, Any]]],
+            Field(description=TARGET_CONTACT_GROUPS_ARG),
+        ] = None,
     ) -> Dict[str, Any]:
         return await run_blocking(
-            _rank, run_ids, filters or [], metrics, limit, columns, heavy=True
+            _rank,
+            run_ids,
+            filters or [],
+            metrics,
+            limit,
+            columns,
+            target_contact_groups,
+            heavy=True,
         )
 
     @mcp.tool(description=SELECT_DIVERSE_DESIGNS)
@@ -481,6 +510,10 @@ def register(mcp: Any) -> None:
         columns: Annotated[
             Optional[List[str]], Field(description="Extra metric columns to return.")
         ] = None,
+        target_contact_groups: Annotated[
+            Optional[List[Dict[str, Any]]],
+            Field(description=TARGET_CONTACT_GROUPS_ARG),
+        ] = None,
     ) -> Dict[str, Any]:
         return await run_blocking(
             _diverse,
@@ -492,6 +525,7 @@ def register(mcp: Any) -> None:
             auto_extract_sequences,
             save_as,
             columns,
+            target_contact_groups,
             heavy=True,
         )
 
