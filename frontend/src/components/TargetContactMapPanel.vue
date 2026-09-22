@@ -751,6 +751,7 @@ watch(
   font-size: 0.72rem;
   font-weight: 600;
   color: #495057;
+  text-align: center;
 }
 
 .contact-map-legend {
