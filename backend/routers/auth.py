@@ -1,3 +1,5 @@
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
 import httpx
 from authlib.integrations.base_client import OAuthError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -20,12 +22,46 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 def safe_next_url(next_q: str | None) -> str:
+    """Same-origin return path, including its query string and fragment.
+
+    Browsers never send a URL fragment to the server, so the login page has to
+    encode it into this value (``/#filtering`` arrives as ``next=%2F%23filtering``).
+    """
     if not next_q:
         return "/"
     n = next_q.strip()
-    if not n.startswith("/") or n.startswith("//"):
+    if not n.startswith("/") or n.startswith("//") or n.startswith("/\\"):
+        return "/"
+    if any(ord(c) < 32 or c == "\\" for c in n):
+        return "/"
+    parts = urlsplit(n)
+    if parts.scheme or parts.netloc:
         return "/"
     return n
+
+
+def _without_auth_error(next_url: str) -> str:
+    parts = urlsplit(next_url)
+    if "auth_error=" not in parts.query:
+        return next_url
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key != "auth_error"
+    ]
+    return urlunsplit(("", "", parts.path or "/", urlencode(query), parts.fragment))
+
+
+def _auth_error_redirect(next_url: str, error: str) -> RedirectResponse:
+    parts = urlsplit(safe_next_url(next_url))
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key != "auth_error"
+    ]
+    query.append(("auth_error", error))
+    target = urlunsplit(("", "", parts.path or "/", urlencode(query), parts.fragment))
+    return RedirectResponse(url=target, status_code=302)
 
 
 @router.post("/login")
@@ -149,10 +185,11 @@ async def google_callback(request: Request):
             detail="Google OAuth is not configured",
         )
     oauth = get_oauth()
+    next_url = safe_next_url(request.session.pop("post_oauth_next", None))
     try:
         token = await oauth.google.authorize_access_token(request)
     except OAuthError:
-        return RedirectResponse(url="/?auth_error=oauth_failed", status_code=302)
+        return _auth_error_redirect(next_url, "oauth_failed")
 
     userinfo = token.get("userinfo") or {}
     if not (isinstance(userinfo, dict) and userinfo.get("email")):
@@ -172,9 +209,9 @@ async def google_callback(request: Request):
         userinfo = {}
     email = (userinfo.get("email") or "").strip()
     if not email or not settings.is_google_user_allowed(email):
-        return RedirectResponse(url="/?auth_error=not_allowed", status_code=302)
+        return _auth_error_redirect(next_url, "not_allowed")
 
-    next_url = safe_next_url(request.session.pop("post_oauth_next", None))
+    next_url = _without_auth_error(next_url)
     # The identity stays keyed on the email (not the opaque `sub`) so existing
     # sessions and the allowlist check in _claims_to_user keep working; `name`
     # and `picture` were previously fetched and thrown away.

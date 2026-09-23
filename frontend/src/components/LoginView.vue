@@ -143,8 +143,23 @@ const handleLogin = async () => {
   }
 }
 
+function pathToRestoreAfterLogin(): string {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('auth_error')
+  const next = `${url.pathname}${url.search}${url.hash}`
+  if (!next.startsWith('/') || next.startsWith('//')) return '/'
+  return next
+}
+
 const goGoogle = () => {
-  window.location.href = googleLoginHref.value
+  // Fragments (#filtering, #designs, …) are not included on the request to
+  // /api/auth/google/login, so encode the current URL into `next`.
+  const dest = new URL(googleLoginHref.value, window.location.origin)
+  const next = pathToRestoreAfterLogin()
+  if (next !== '/') {
+    dest.searchParams.set('next', next)
+  }
+  window.location.assign(dest.href)
 }
 </script>
 
