@@ -618,12 +618,12 @@ export const useFilteringStore = defineStore('filtering', () => {
         if (!group) return
         group.filters.push({
             residues: [],
-            scope: 'any',
-            metric: 'distance',
+            scope: 'site_percent',
+            metric: 'delta_sasa',
             distance_type: 'heavy',
-            unit: 'angstrom',
-            operator: '<=',
-            value: 5,
+            unit: 'percent',
+            operator: '>=',
+            value: 30,
             enabled: true
         })
     }
