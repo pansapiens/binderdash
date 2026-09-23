@@ -82,6 +82,9 @@ function residueOptions(targetKey: string) {
 }
 
 const coverage = computed(() => filteringStore.contactCoverageTotals)
+const movingTargetRunNames = computed(() =>
+  filteringStore.targetCoverage.filter((c) => c.target_moves).map((c) => c.run_name)
+)
 const computeRunning = computed(() => filteringStore.contactsComputeProgress.running)
 const computeProgress = computed(() => {
   const { done, total } = filteringStore.contactsComputeProgress
@@ -146,6 +149,10 @@ watch(
         @click="handleCompute"
       />
       <ProgressBar v-if="computeRunning" :value="computeProgress" class="tcf-progress" />
+      <span v-if="movingTargetRunNames.length" class="tcf-coverage__moving">
+        Target moves between designs in {{ movingTargetRunNames.join(', ') }}, so unbound
+        SASA is computed per design rather than once per run.
+      </span>
     </div>
 
     <Message
@@ -160,17 +167,6 @@ watch(
 
     <Message v-if="filteringStore.targetsError" severity="error" :closable="false" class="tcf-message">
       {{ filteringStore.targetsError }}
-    </Message>
-
-    <Message
-      v-for="run in filteringStore.targetCoverage.filter((c) => c.target_moves)"
-      :key="`moves-${run.run_id}`"
-      severity="info"
-      :closable="false"
-      class="tcf-message"
-    >
-      {{ run.run_name }}: the target moves between designs, so unbound SASA is computed
-      per design rather than once per run.
     </Message>
 
     <div
@@ -381,6 +377,12 @@ watch(
 .tcf-progress {
   flex: 1 1 200px;
   height: 0.5rem;
+}
+
+.tcf-coverage__moving {
+  flex-basis: 100%;
+  text-align: left;
+  color: #6c757d;
 }
 
 .tcf-message {
