@@ -86,13 +86,18 @@ neither computes per-target-residue apo-vs-complex SASA:
 | `backend/filtering/structural_metrics.py::delta_sasa` | biotite `struc.sasa`, target-alone minus target-in-complex | Concept matches exactly, but it is a single whole-interface total, not per residue, and it is biotite rather than BioPython. |
 
 So the genuinely new work is the per-residue apo/complex pair plus the distance vector.
-The plan reuses the Tien table and the BioPython conventions already in
-`tag_placement.py`, and ports from `complex_sasa.py` only the parts with no in-repo
-equivalent: `make_apo_structure`, `compute_residue_sasa_map`, `iter_target_residues`,
-`parse_residue_token`/`default_residue_label`, and the `site_percent` aggregation.
-Sticking with BioPython (rather than the biotite path in `structural_metrics.py`) keeps
-the numbers directly comparable to the Nextflow pipeline's TSV, which is the point of
-following that script.
+The plan reuses the Tien table, and ports from `complex_sasa.py` only the parts with no
+in-repo equivalent: `make_apo_structure`, `compute_residue_sasa_map`,
+`iter_target_residues`, `parse_residue_token`/`default_residue_label`, and the
+`site_percent` aggregation.
+
+**Superseded:** this section originally kept BioPython's SASA conventions so the numbers
+would match the Nextflow pipeline's TSV exactly. They now come from
+`backend/util/sasa.py` - biotite's kernel, ProtOr radii, heavy atoms only - which
+`tag_placement.py` shares. The deciding argument was that BioPython's flat per-element
+radii and its inclusion of modelled hydrogens are the weaker convention, and that having
+the two in-repo `%SASA` figures agree with each other matters more than matching an
+upstream TSV nobody was cross-referencing. See §7.
 
 `structural_metrics.delta_sasa` stays as it is; it answers a different question (total
 interface burial as a single design-level metric) and is already wired into
@@ -107,12 +112,13 @@ its structure and naming where they carry over:
 - `ResidueKey = Tuple[str, int, str]` (chain, resseq, icode), `residue_key_sort_key`,
   `default_residue_label`, `parse_residue_token`, `iter_target_residues`,
   `compute_residue_sasa_map`, `make_apo_structure` all port essentially unchanged.
-  BioPython `PDBParser` for parsing and BioPython's SASA conventions (its `ATOMIC_RADII`
-  and golden-spiral point mesh), matching the source script and `tag_placement.py`.
-  Those conventions are now applied by biotite's kernel rather than
-  `Bio.PDB.SASA`, which is ~20x faster on identical inputs - see §7 and the
-  `target_contacts` module docstring. `make_apo_structure` is gone with it: dropping the
-  binder from the occluder set replaces deep-copying the structure.
+  BioPython `PDBParser` for parsing, but SASA comes from `backend/util/sasa.py`:
+  biotite's kernel over ProtOr radii and heavy atoms only, shared with
+  `tag_placement.py` so the two cannot disagree about what `%SASA` means. That differs
+  from the source script, which used BioPython's per-element radii with explicit
+  hydrogens - see §7 and the `util.sasa` module docstring for the trade-off.
+  `make_apo_structure` is gone: dropping the binder from the occluder set replaces
+  deep-copying the structure.
 - New: `residue_min_distances(structure, binder_chains) -> Dict[ResidueKey, Tuple[float, float, float]]`,
   a single scipy `cKDTree` query over binder heavy atoms giving `d_ca`, `d_cb`,
   `d_heavy` per target residue.
@@ -522,10 +528,11 @@ write the residue conditions that select for it.
 Per design: two Shrake-Rupley passes plus a KD-tree query. As first written, against
 BioPython's `ShrakeRupley`, that measured ~0.65 s for a 174-residue complex at
 `n_points=100` - `Bio.PDB.SASA` builds a fresh KDTree of the point mesh for every atom.
-Moving the kernel to biotite, keeping BioPython's radii and point mesh so the numbers
-are unchanged, and asking only for the residues inside the record cutoff brought that to
-~0.034 s (measured on the bundled ccl7 run, whose target moves, so both passes run).
-With the per-run apo reference reused - the normal case - only one pass runs.
+Three changes brought it to ~0.027 s (bundled ccl7 run, whose target moves, so both
+passes run): biotite's kernel instead; only the residues inside the record cutoff get an
+area, via `atom_filter`; and heavy-atom ProtOr radii, which drop roughly half the atoms
+in a hydrogenated model. With the per-run apo reference reused - the normal case - only
+one pass runs.
 
 Filter evaluation itself is a dictionary lookup per design per filter, negligible next
 to the existing polars pass.

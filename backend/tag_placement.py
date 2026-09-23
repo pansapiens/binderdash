@@ -11,15 +11,14 @@ from Bio.PDB.PDBParser import PDBParser
 from Bio.PDB import Residue, Structure
 from Bio.PDB.PDBExceptions import PDBConstructionWarning
 from Bio.PDB.Polypeptide import PPBuilder, is_aa
-from Bio.PDB.SASA import ShrakeRupley
 
+from .util.sasa import annotate_residue_sasa
 from .util.sasa_constants import TIEN_2023_THEORETICAL
 
 logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore", category=PDBConstructionWarning)
 warnings.filterwarnings("ignore", message="WARNING: Unrecognized atom type")
-warnings.filterwarnings("ignore", message="WARNING: Negative sasa result!")
 
 
 def parse_distant_from_string(
@@ -594,10 +593,11 @@ def compute_tag_metrics_for_structure_file(
         )
 
     try:
-        sasa_calculator = ShrakeRupley(
-            probe_radius=sasa_probe_radius, n_points=sasa_n_points
+        # Sets `.sasa` per residue, as Bio.PDB.SASA used to; see util.sasa for why the
+        # kernel and the radii convention changed.
+        annotate_residue_sasa(
+            structure, probe_radius=sasa_probe_radius, n_points=sasa_n_points
         )
-        sasa_calculator.compute(structure, level="R")
     except Exception as e:
         logger.warning("SASA computation failed for %s: %s", path, e)
         return None, f"SASA computation failed: {e}"

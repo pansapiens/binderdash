@@ -21,6 +21,7 @@ import polars as pl
 from ..cache import get_designs_for_run_ids, get_run_metadata
 from ..persistence.factory import get_designs_repository
 from ..routers.files import _resolve_structure_path
+from ..util.sasa import RADII_SET
 from ..util.sasa_constants import TIEN_2023_THEORETICAL
 from .chain_roles import resolve_chain_roles_cached
 from .schemas import (
@@ -61,8 +62,15 @@ def params_key(
     record_cutoff: float = DEFAULT_RECORD_CUTOFF,
     probe_radius: float = DEFAULT_PROBE_RADIUS,
     n_points: int = DEFAULT_N_POINTS,
+    radii_set: str = RADII_SET,
 ) -> str:
-    return f"cut{record_cutoff}_p{probe_radius}_n{n_points}"
+    """Identifies the computation a cached record came from.
+
+    The radii set belongs in here as much as the probe size does: change it and every
+    stored area changes, with nothing else in the key to tell the two apart. Records
+    written under an older key are simply never read again.
+    """
+    return f"cut{record_cutoff}_p{probe_radius}_n{n_points}_{radii_set}"
 
 
 PARAMS_KEY = params_key()

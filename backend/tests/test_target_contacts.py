@@ -169,83 +169,135 @@ class TestDeltaSasaPercent:
         assert delta_sasa_percent("XYZ", 10.0) is None
 
 
-class TestSasaKernelParity:
-    """The kernel is biotite's, but the conventions are BioPython's.
+class TestSasaConventions:
+    """Pin what the areas mean, since the filter thresholds are calibrated against them.
 
-    These pin that equivalence rather than snapshotting areas, so the numbers stay
-    comparable with nf-binder-design's ``complex_sasa.py`` if biotite is ever swapped
-    or re-tuned. See the module docstring of ``filtering.target_contacts``.
+    See ``backend/util/sasa.py``: biotite's ProtOr radii over heavy atoms only. These
+    assert the convention rather than snapshotting areas, so a future change of kernel
+    or radii set has to be a deliberate one.
     """
 
-    def test_sphere_matches_biopython(self):
-        from Bio.PDB.SASA import ShrakeRupley
+    def test_matches_biotite_native_protor(self, contact_complex_pdb):
+        """Our own radii lookup must equal ``vdw_radii="ProtOr"`` on ordinary residues.
 
-        from backend.filtering.target_contacts import _sasa_sphere
-
-        for n_points in (50, 100, 960):
-            expected = ShrakeRupley(n_points=n_points)._sphere
-            np.testing.assert_array_equal(_sasa_sphere(n_points), expected)
-
-    def test_residue_areas_match_biopython(self, contact_complex_pdb):
+        We look the radii up ourselves only so an unrecognised ligand falls back instead
+        of failing the whole structure; it must not otherwise change the answer.
+        """
         from pathlib import Path
 
-        from Bio.PDB.Polypeptide import is_aa
-        from Bio.PDB.SASA import ShrakeRupley
+        import biotite.structure as struc
+        import biotite.structure.io.pdb as pdb_io
 
-        from backend.filtering.target_contacts import build_atom_table
         from backend.tag_placement import load_structure
+        from backend.util.sasa import flatten_structure, residue_sasa
 
-        structure = load_structure(Path(contact_complex_pdb))
-        ShrakeRupley(probe_radius=1.4, n_points=100).compute(structure, level="R")
-        expected = {
-            (chain.get_id(), int(residue.get_id()[1]), residue.get_id()[2]): residue.sasa
-            for chain in structure[0]
-            for residue in chain.get_residues()
-            if is_aa(residue, standard=True) and residue.get_id()[0] == " "
+        array = pdb_io.PDBFile.read(contact_complex_pdb).get_structure(model=1)
+        native = struc.sasa(array, probe_radius=1.4, point_number=100, vdw_radii="ProtOr")
+        heavy = struc.filter_heavy(array)
+        expected: dict = {}
+        for chain_id, res_id, area in zip(
+            array.chain_id[heavy], array.res_id[heavy], np.asarray(native)[heavy]
+        ):
+            if np.isfinite(area):
+                key = (str(chain_id), int(res_id))
+                expected[key] = expected.get(key, 0.0) + float(area)
+
+        atoms = flatten_structure(load_structure(Path(contact_complex_pdb)))
+        areas = residue_sasa(atoms)
+        got = {
+            (residue.get_parent().get_id(), int(residue.get_id()[1])): float(area)
+            for residue, area in zip(atoms.residues, areas)
+            if np.isfinite(area)
         }
 
-        table = build_atom_table(load_structure(Path(contact_complex_pdb)), {"B"})
-        got = table.residue_sasa(
-            table.atoms_in(expected), occluders=None, probe_radius=1.4, n_points=100
-        )
-
-        assert set(got) == set(expected)
+        assert got.keys() == expected.keys()
         for key, area in expected.items():
-            # Records round to 0.01 A^2; agreement is several orders tighter than that.
-            assert got[key] == pytest.approx(area, abs=1e-4)
+            assert got[key] == pytest.approx(area, abs=1e-6)
 
-    def test_apo_pass_matches_removing_the_binder_chain(self, contact_complex_pdb):
-        """Dropping binder atoms from the occluder set must equal deleting the chain."""
+    def test_hydrogens_do_not_change_the_areas(self, tmp_path):
+        """Heavy-atom convention: modelled hydrogens must not move the numbers.
+
+        Predicted structures differ in whether and where they place hydrogens, so if
+        those counted, the same design would score differently per folding method.
+        """
+        from pathlib import Path
+
+        import biotite.structure.info as info
+
+        from backend.tag_placement import load_structure
+        from backend.util.sasa import flatten_structure, residue_sasa
+
+        with_h = info.residue("TYR")
+        with_h.chain_id = np.full(len(with_h), "A")
+        with_h.res_id = np.full(len(with_h), 1)
+        without_h = with_h[with_h.element != "H"]
+        assert len(with_h) > len(without_h), "fixture needs hydrogens to be meaningful"
+
+        areas = []
+        for name, residues in (("with_h", with_h), ("without_h", without_h)):
+            path = _write_pdb([residues], tmp_path / f"{name}.pdb")
+            atoms = flatten_structure(load_structure(Path(path)))
+            areas.append(residue_sasa(atoms))
+
+        np.testing.assert_allclose(areas[0], areas[1], atol=1e-6)
+
+    def test_unknown_residue_falls_back_instead_of_raising(self):
+        """A ligand biotite has no ProtOr entry for must not fail the whole structure."""
+        import biotite.structure as struc
+        import biotite.structure.info as info
+
+        from backend.util.sasa import _FALLBACK_RADIUS, _protor_radii
+
+        with pytest.raises((KeyError, ValueError)):
+            info.vdw_radius_protor("ZZZ", "X1")
+
+        array = struc.AtomArray(2)
+        array.coord = np.zeros((2, 3), dtype=np.float32)
+        array.element = np.array(["C", "C"])
+        array.atom_name = np.array(["CA", "X1"])
+        array.res_name = np.array(["GLY", "ZZZ"])
+
+        radii = _protor_radii(array)
+        assert radii[0] == pytest.approx(info.vdw_radius_protor("GLY", "CA"))
+        assert radii[1] == pytest.approx(_FALLBACK_RADIUS)
+
+    def test_apo_pass_matches_deleting_the_binder_chain(self, contact_complex_pdb):
+        """Dropping binder atoms from the occluder set must equal removing the chain."""
         import copy
         from pathlib import Path
 
-        from Bio.PDB.Polypeptide import is_aa
-        from Bio.PDB.SASA import ShrakeRupley
-
-        from backend.filtering.target_contacts import build_atom_table
+        from backend.filtering.target_contacts import (
+            binder_atom_mask,
+            target_residue_indices,
+        )
         from backend.tag_placement import load_structure
+        from backend.util.sasa import flatten_structure, residue_sasa
 
         apo_structure = copy.deepcopy(load_structure(Path(contact_complex_pdb)))
         apo_structure[0].detach_child("B")
-        ShrakeRupley(probe_radius=1.4, n_points=100).compute(apo_structure, level="R")
+        apo_atoms = flatten_structure(apo_structure)
         expected = {
-            (chain.get_id(), int(residue.get_id()[1]), residue.get_id()[2]): residue.sasa
-            for chain in apo_structure[0]
-            for residue in chain.get_residues()
-            if is_aa(residue, standard=True) and residue.get_id()[0] == " "
+            (r.get_parent().get_id(), int(r.get_id()[1])): float(a)
+            for r, a in zip(apo_atoms.residues, residue_sasa(apo_atoms))
+            if np.isfinite(a)
         }
 
-        table = build_atom_table(load_structure(Path(contact_complex_pdb)), {"B"})
-        got = table.residue_sasa(
-            table.atoms_in(expected),
-            occluders=~table.is_binder_atom,
-            probe_radius=1.4,
-            n_points=100,
+        atoms = flatten_structure(load_structure(Path(contact_complex_pdb)))
+        indices = target_residue_indices(atoms, {"B"})
+        areas = residue_sasa(
+            atoms,
+            residue_indices=list(indices.values()),
+            occluders=~binder_atom_mask(atoms, {"B"}),
         )
+        got = {
+            (key[0], key[1]): float(areas[index])
+            for key, index in indices.items()
+            if np.isfinite(areas[index])
+        }
 
-        assert set(got) == set(expected)
+        assert got.keys() == expected.keys()
         for key, area in expected.items():
-            assert got[key] == pytest.approx(area, abs=1e-4)
+            assert got[key] == pytest.approx(area, abs=1e-6)
 
     def test_contacted_residue_buries_area_but_the_distant_one_does_not(
         self, contact_complex_pdb
