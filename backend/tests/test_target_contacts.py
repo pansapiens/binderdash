@@ -167,3 +167,93 @@ class TestDeltaSasaPercent:
 
     def test_unknown_residue_returns_none(self):
         assert delta_sasa_percent("XYZ", 10.0) is None
+
+
+class TestSasaKernelParity:
+    """The kernel is biotite's, but the conventions are BioPython's.
+
+    These pin that equivalence rather than snapshotting areas, so the numbers stay
+    comparable with nf-binder-design's ``complex_sasa.py`` if biotite is ever swapped
+    or re-tuned. See the module docstring of ``filtering.target_contacts``.
+    """
+
+    def test_sphere_matches_biopython(self):
+        from Bio.PDB.SASA import ShrakeRupley
+
+        from backend.filtering.target_contacts import _sasa_sphere
+
+        for n_points in (50, 100, 960):
+            expected = ShrakeRupley(n_points=n_points)._sphere
+            np.testing.assert_array_equal(_sasa_sphere(n_points), expected)
+
+    def test_residue_areas_match_biopython(self, contact_complex_pdb):
+        from pathlib import Path
+
+        from Bio.PDB.Polypeptide import is_aa
+        from Bio.PDB.SASA import ShrakeRupley
+
+        from backend.filtering.target_contacts import build_atom_table
+        from backend.tag_placement import load_structure
+
+        structure = load_structure(Path(contact_complex_pdb))
+        ShrakeRupley(probe_radius=1.4, n_points=100).compute(structure, level="R")
+        expected = {
+            (chain.get_id(), int(residue.get_id()[1]), residue.get_id()[2]): residue.sasa
+            for chain in structure[0]
+            for residue in chain.get_residues()
+            if is_aa(residue, standard=True) and residue.get_id()[0] == " "
+        }
+
+        table = build_atom_table(load_structure(Path(contact_complex_pdb)), {"B"})
+        got = table.residue_sasa(
+            table.atoms_in(expected), occluders=None, probe_radius=1.4, n_points=100
+        )
+
+        assert set(got) == set(expected)
+        for key, area in expected.items():
+            # Records round to 0.01 A^2; agreement is several orders tighter than that.
+            assert got[key] == pytest.approx(area, abs=1e-4)
+
+    def test_apo_pass_matches_removing_the_binder_chain(self, contact_complex_pdb):
+        """Dropping binder atoms from the occluder set must equal deleting the chain."""
+        import copy
+        from pathlib import Path
+
+        from Bio.PDB.Polypeptide import is_aa
+        from Bio.PDB.SASA import ShrakeRupley
+
+        from backend.filtering.target_contacts import build_atom_table
+        from backend.tag_placement import load_structure
+
+        apo_structure = copy.deepcopy(load_structure(Path(contact_complex_pdb)))
+        apo_structure[0].detach_child("B")
+        ShrakeRupley(probe_radius=1.4, n_points=100).compute(apo_structure, level="R")
+        expected = {
+            (chain.get_id(), int(residue.get_id()[1]), residue.get_id()[2]): residue.sasa
+            for chain in apo_structure[0]
+            for residue in chain.get_residues()
+            if is_aa(residue, standard=True) and residue.get_id()[0] == " "
+        }
+
+        table = build_atom_table(load_structure(Path(contact_complex_pdb)), {"B"})
+        got = table.residue_sasa(
+            table.atoms_in(expected),
+            occluders=~table.is_binder_atom,
+            probe_radius=1.4,
+            n_points=100,
+        )
+
+        assert set(got) == set(expected)
+        for key, area in expected.items():
+            assert got[key] == pytest.approx(area, abs=1e-4)
+
+    def test_contacted_residue_buries_area_but_the_distant_one_does_not(
+        self, contact_complex_pdb
+    ):
+        """The filter's whole premise: ΔSASA separates contacted from distant residues."""
+        record = compute_target_contacts(contact_complex_pdb, ["B"])
+        contacted = record.contacts["A1"]
+        assert contacted.sasa_apo is not None
+        assert contacted.sasa_apo - contacted.sasa_bound > 1.0
+        # TRP 2 sits 40 A away, so it never earns a record at all.
+        assert "A2" not in record.contacts

@@ -7,9 +7,19 @@ the target by their aggregate across a design set.
 
 Follows nf-binder-design's ``bin/complex_sasa.py`` (holo SASA minus apo SASA per target
 residue, percentages against the Tien 2013 maxima) so the numbers are directly
-comparable with that pipeline's TSV output. BioPython's ``ShrakeRupley`` rather than
-biotite for the same reason, and because ``tag_placement`` already establishes those
-conventions here.
+comparable with that pipeline's TSV output. That means BioPython's Shrake-Rupley
+conventions: its ``ATOMIC_RADII`` and its golden-spiral point mesh, which
+``tag_placement`` also establishes here.
+
+Those conventions are kept, but the kernel that applies them is biotite's rather than
+BioPython's, which is ~25x faster on the same inputs. ``Bio.PDB.SASA`` builds a fresh
+KDTree of the point mesh for *every atom* and does Python set arithmetic over point
+indices; biotite takes the radii and the mesh as parameters, so feeding it
+``ATOMIC_RADII`` and ``_sasa_sphere`` reproduces the previous numbers (agreement is to
+1e-5 A^2, far inside the 0.01 A^2 the records are rounded to) while also accepting an
+``atom_filter``. That filter is most of the win: only residues inside ``record_cutoff``
+are ever stored, so only their atoms need an ASA, though every atom still has to be
+present to occlude them.
 
 Distinct from ``structural_metrics.delta_sasa``, which answers a different question: a
 single whole-interface burial total per design, via biotite. Neither supersedes the
@@ -30,10 +40,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+import biotite.structure as struc
 import numpy as np
 from Bio.PDB import Structure
 from Bio.PDB.Polypeptide import is_aa
-from Bio.PDB.SASA import ShrakeRupley
+from Bio.PDB.SASA import ATOMIC_RADII
 
 from ..tag_placement import load_structure
 from ..util.sasa_constants import TIEN_2023_THEORETICAL
@@ -160,40 +171,123 @@ def target_chain_ids_in_structure(
     return sorted(chain_ids)
 
 
-def compute_residue_sasa_map(
-    structure: Structure.Structure, sasa_calculator: ShrakeRupley
-) -> Dict[ResidueKey, float]:
-    sasa_calculator.compute(structure, level="R")
-    sasa_by_key: Dict[ResidueKey, float] = {}
+def _sasa_sphere(n_points: int) -> np.ndarray:
+    """The unit-sphere point mesh ``Bio.PDB.SASA.ShrakeRupley`` uses (golden spiral).
+
+    Handed to biotite so its kernel samples exactly the points BioPython's did; with
+    ``ATOMIC_RADII`` for the radii, the resulting areas match the previous
+    implementation.
+    """
+    dl = np.pi * (3 - 5 ** 0.5)
+    dz = 2.0 / n_points
+    k = np.arange(n_points)
+    z = (1 - dz / 2) - k * dz
+    radius = np.sqrt(np.maximum(0.0, 1 - z * z))
+    return np.stack(
+        [np.cos(k * dl) * radius, np.sin(k * dl) * radius, z], axis=1
+    ).astype(np.float32)
+
+
+@dataclass
+class _AtomTable:
+    """A parsed structure flattened into the arrays biotite's SASA kernel wants.
+
+    ``residue_of_atom`` indexes into ``residue_keys``, whose entries are ``None`` for
+    anything that is not a standard amino acid residue: those atoms still occlude, but
+    never get an ASA of their own.
+    """
+
+    array: "struc.AtomArray"
+    radii: np.ndarray
+    residue_of_atom: np.ndarray
+    residue_keys: List[Optional[ResidueKey]]
+    is_binder_atom: np.ndarray
+
+    def atoms_in(self, residues: Iterable[ResidueKey]) -> np.ndarray:
+        """Boolean mask over atoms belonging to any of ``residues``."""
+        wanted = set(residues)
+        indices = [
+            i for i, key in enumerate(self.residue_keys) if key is not None and key in wanted
+        ]
+        if not indices:
+            return np.zeros(len(self.residue_of_atom), dtype=bool)
+        return np.isin(self.residue_of_atom, np.asarray(indices, dtype=np.int64))
+
+    def residue_sasa(
+        self,
+        wanted: np.ndarray,
+        *,
+        occluders: Optional[np.ndarray],
+        probe_radius: float,
+        n_points: int,
+    ) -> Dict[ResidueKey, float]:
+        """Per-residue ASA for the residues covered by ``wanted``.
+
+        ``occluders`` restricts which atoms are present to block the probe (the apo
+        pass drops the binder); ``None`` keeps every atom, which is the holo pass.
+        """
+        if not wanted.any():
+            return {}
+        keep = np.ones(len(self.radii), dtype=bool) if occluders is None else occluders
+        # `wanted` is expressed over every atom, so narrow it to the retained ones.
+        sub_wanted = wanted[keep]
+        if not sub_wanted.any():
+            return {}
+        per_atom = struc.sasa(
+            self.array[keep],
+            probe_radius=probe_radius,
+            atom_filter=sub_wanted,
+            ignore_ions=False,
+            point_number=n_points,
+            point_distr=_sasa_sphere,
+            vdw_radii=self.radii[keep],
+        )
+        totals: Dict[ResidueKey, float] = {}
+        for residue_index, area in zip(self.residue_of_atom[keep][sub_wanted], per_atom[sub_wanted]):
+            key = self.residue_keys[residue_index]
+            if key is not None:
+                totals[key] = totals.get(key, 0.0) + float(area)
+        return totals
+
+
+def build_atom_table(
+    structure: Structure.Structure, binder_chains: Set[str]
+) -> _AtomTable:
+    """Flatten ``structure`` once, reusing the atoms BioPython already parsed."""
+    coords: List[np.ndarray] = []
+    elements: List[str] = []
+    radii: List[float] = []
+    residue_of_atom: List[int] = []
+    is_binder_atom: List[bool] = []
+    residue_keys: List[Optional[ResidueKey]] = []
+
     for chain in structure[0]:
         chain_id = chain.get_id()
+        binder = chain_id in binder_chains
         for residue in chain.get_residues():
-            if not is_aa(residue, standard=True):
-                continue
             hetflag, resseq, icode = residue.get_id()
-            if hetflag != " ":
-                continue
-            key = (chain_id, int(resseq), icode)
-            sasa_by_key[key] = float(getattr(residue, "sasa", 0.0))
-    return sasa_by_key
+            standard = is_aa(residue, standard=True) and hetflag == " "
+            index = len(residue_keys)
+            residue_keys.append((chain_id, int(resseq), icode) if standard else None)
+            for atom in residue:
+                coords.append(atom.coord)
+                elements.append(atom.element)
+                # Indexed rather than defaulted: an element BioPython has no radius for
+                # used to raise here, and silently guessing one would change results.
+                radii.append(ATOMIC_RADII[atom.element])
+                residue_of_atom.append(index)
+                is_binder_atom.append(binder)
 
-
-def strip_binder_chains(
-    structure: Structure.Structure, binder_chains: Set[str]
-) -> Structure.Structure:
-    """The apo target: a deep copy of ``structure`` with the binder chains detached.
-
-    A copy is needed rather than detaching in place because the caller still needs the
-    holo form, and because ``ShrakeRupley.compute`` annotates the residues it is given.
-    """
-    import copy
-
-    apo = copy.deepcopy(structure)
-    model = apo[0]
-    for chain_id in list(binder_chains):
-        if chain_id in model:
-            model.detach_child(chain_id)
-    return apo
+    array = struc.AtomArray(len(coords))
+    array.coord = np.asarray(coords, dtype=np.float32).reshape(len(coords), 3)
+    array.element = np.asarray(elements)
+    return _AtomTable(
+        array=array,
+        radii=np.asarray(radii, dtype=float),
+        residue_of_atom=np.asarray(residue_of_atom, dtype=np.int64),
+        residue_keys=residue_keys,
+        is_binder_atom=np.asarray(is_binder_atom, dtype=bool),
+    )
 
 
 def residue_min_distances(
@@ -262,10 +356,6 @@ def residue_min_distances(
     return out
 
 
-def _sasa_calculator(probe_radius: float, n_points: int) -> ShrakeRupley:
-    return ShrakeRupley(probe_radius=probe_radius, n_points=n_points)
-
-
 def compute_reference_residues(
     structure_path: str,
     binder_chain_ids: Sequence[str],
@@ -280,8 +370,15 @@ def compute_reference_residues(
     binder_chains = set(binder_chain_ids)
     structure = load_structure(Path(structure_path))
     resnames = dict(iter_target_residues(structure, binder_chains))
-    apo = strip_binder_chains(structure, binder_chains)
-    apo_sasa = compute_residue_sasa_map(apo, _sasa_calculator(probe_radius, n_points))
+    # Every target residue is catalogued here, not just the ones near the binder, since
+    # this map is what fills in residues outside a design's record cutoff.
+    table = build_atom_table(structure, binder_chains)
+    apo_sasa = table.residue_sasa(
+        table.atoms_in(resnames),
+        occluders=~table.is_binder_atom,
+        probe_radius=probe_radius,
+        n_points=n_points,
+    )
 
     out: List[TargetResidueInfo] = []
     for key in sorted(resnames, key=residue_key_sort_key):
@@ -377,19 +474,34 @@ def compute_target_contacts(
 
     resnames = dict(iter_target_residues(structure, binder_chains))
     distances = residue_min_distances(structure, binder_chains)
-    calculator = _sasa_calculator(probe_radius, n_points)
-    holo_sasa = compute_residue_sasa_map(structure, calculator)
 
+    # Only these residues are stored, so only these need an ASA. Everything else in the
+    # structure still occludes them, it just never gets an area of its own.
+    recorded = [
+        key
+        for key in sorted(resnames, key=residue_key_sort_key)
+        if distances.get(key, (FAR, FAR, FAR))[2] <= record_cutoff
+    ]
+
+    holo_sasa: Dict[ResidueKey, float] = {}
     apo_sasa: Optional[Dict[ResidueKey, float]] = None
-    if apo_sasa_by_label is None:
-        apo = strip_binder_chains(structure, binder_chains)
-        apo_sasa = compute_residue_sasa_map(apo, calculator)
+    if recorded:
+        table = build_atom_table(structure, binder_chains)
+        wanted = table.atoms_in(recorded)
+        holo_sasa = table.residue_sasa(
+            wanted, occluders=None, probe_radius=probe_radius, n_points=n_points
+        )
+        if apo_sasa_by_label is None:
+            apo_sasa = table.residue_sasa(
+                wanted,
+                occluders=~table.is_binder_atom,
+                probe_radius=probe_radius,
+                n_points=n_points,
+            )
 
     contacts: Dict[str, ResidueContact] = {}
-    for key in sorted(resnames, key=residue_key_sort_key):
+    for key in recorded:
         d_ca, d_cb, d_heavy = distances.get(key, (FAR, FAR, FAR))
-        if d_heavy > record_cutoff:
-            continue
         label = residue_label(*key)
         contacts[label] = ResidueContact(
             d_ca=round(d_ca, 2),

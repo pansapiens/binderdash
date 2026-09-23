@@ -107,8 +107,12 @@ its structure and naming where they carry over:
 - `ResidueKey = Tuple[str, int, str]` (chain, resseq, icode), `residue_key_sort_key`,
   `default_residue_label`, `parse_residue_token`, `iter_target_residues`,
   `compute_residue_sasa_map`, `make_apo_structure` all port essentially unchanged.
-  BioPython `PDBParser`/`ShrakeRupley` rather than biotite, matching the source script
-  and `tag_placement.py`.
+  BioPython `PDBParser` for parsing and BioPython's SASA conventions (its `ATOMIC_RADII`
+  and golden-spiral point mesh), matching the source script and `tag_placement.py`.
+  Those conventions are now applied by biotite's kernel rather than
+  `Bio.PDB.SASA`, which is ~20x faster on identical inputs - see §7 and the
+  `target_contacts` module docstring. `make_apo_structure` is gone with it: dropping the
+  binder from the occluder set replaces deep-copying the structure.
 - New: `residue_min_distances(structure, binder_chains) -> Dict[ResidueKey, Tuple[float, float, float]]`,
   a single scipy `cKDTree` query over binder heavy atoms giving `d_ca`, `d_cb`,
   `d_heavy` per target residue.
@@ -515,11 +519,16 @@ write the residue conditions that select for it.
 
 ## 7. Performance
 
-Per design: two Shrake-Rupley passes plus a KD-tree query, roughly 0.2-0.4 s for a
-300-residue complex at `n_points=100`. With the per-run apo reference reused (the normal
-case) that drops to about one pass, 0.1-0.2 s. On 8 workers, 10,000 designs is
-roughly 3-6 minutes. Filter evaluation itself is a dictionary lookup per design per
-filter, negligible next to the existing polars pass.
+Per design: two Shrake-Rupley passes plus a KD-tree query. As first written, against
+BioPython's `ShrakeRupley`, that measured ~0.65 s for a 174-residue complex at
+`n_points=100` - `Bio.PDB.SASA` builds a fresh KDTree of the point mesh for every atom.
+Moving the kernel to biotite, keeping BioPython's radii and point mesh so the numbers
+are unchanged, and asking only for the residues inside the record cutoff brought that to
+~0.034 s (measured on the bundled ccl7 run, whose target moves, so both passes run).
+With the per-run apo reference reused - the normal case - only one pass runs.
+
+Filter evaluation itself is a dictionary lookup per design per filter, negligible next
+to the existing polars pass.
 
 Cache reads for a 10,000-design run scope are a single indexed `SELECT` returning about
 70 MB of JSON in the worst case. If that proves slow in practice, the fallback is an
