@@ -90,6 +90,11 @@ const computeProgress = computed(() => {
   const { done, total } = filteringStore.contactsComputeProgress
   return total > 0 ? Math.round((done / total) * 100) : 0
 })
+const computeProgressLabel = computed(() => {
+  const { done, total } = filteringStore.contactsComputeProgress
+  if (!total) return ''
+  return `${done.toLocaleString()} / ${total.toLocaleString()} designs`
+})
 
 const handleValueInput = (filter: TargetContactFilterSpecDto, event: InputNumberInputEvent) => {
   filter.value = typeof event.value === 'number' ? event.value : 0
@@ -148,7 +153,10 @@ watch(
         :disabled="computeRunning || !filteringStore.hasSelectedRuns"
         @click="handleCompute"
       />
-      <ProgressBar v-if="computeRunning" :value="computeProgress" class="tcf-progress" />
+      <div v-if="computeRunning" class="tcf-progress-wrap">
+        <ProgressBar :value="computeProgress" class="tcf-progress" />
+        <span class="tcf-progress-label">{{ computeProgressLabel }}</span>
+      </div>
       <span v-if="movingTargetRunNames.length" class="tcf-coverage__moving">
         Target moves between designs in {{ movingTargetRunNames.join(', ') }}, so unbound
         SASA is computed per design rather than once per run.
@@ -374,9 +382,24 @@ watch(
   padding: 0.5rem 0.75rem;
 }
 
-.tcf-progress {
+.tcf-progress-wrap {
   flex: 1 1 200px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 12rem;
+}
+
+.tcf-progress {
+  flex: 1 1 auto;
   height: 0.5rem;
+}
+
+.tcf-progress-label {
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  color: #6c757d;
+  white-space: nowrap;
 }
 
 .tcf-coverage__moving {

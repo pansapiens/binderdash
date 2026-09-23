@@ -41,11 +41,10 @@ const APPLY_DEBOUNCE_MS = 300
 const PERSIST_DEBOUNCE_MS = 400
 
 /**
- * Designs per target-contact compute request. Small enough that the progress bar moves
- * and a failure costs little rework, large enough that per-request overhead stays
- * negligible next to the SASA passes themselves.
+ * Designs per target-contact compute request. Sized to keep the process pool busy while
+ * still advancing the progress bar every few seconds; a failure only redoes this many.
  */
-const CONTACTS_BATCH_SIZE = 200
+const CONTACTS_BATCH_SIZE = 32
 
 export interface RankedDesignInfo {
     final_rank: number | null
@@ -501,6 +500,25 @@ export const useFilteringStore = defineStore('filtering', () => {
     }
 
     /**
+     * Resolve design keys for the active run scope from the Designs store when the
+     * caller does not supply them. Without this, Compute sends one empty-keys request
+     * and the progress bar only jumps once the whole pool finishes.
+     */
+    const designKeysForActiveRuns = (): DesignKeyDto[] => {
+        const runIds = new Set(activeRunIds.value)
+        return useDesignsStore()
+            .designs.filter((d) => runIds.has(String(d.run_id)))
+            .map((d) => {
+                const sp = (d as Record<string, unknown>).source_path
+                return {
+                    run_id: String(d.run_id),
+                    design_id: String(d.design_id),
+                    source_path: sp != null ? String(sp) : null
+                }
+            })
+    }
+
+    /**
      * Compute contact records for the runs in scope, in batches so the progress bar
      * advances and no single request runs long enough to time out. Sequential by
      * design: the backend already parallelises across a process pool internally.
@@ -508,17 +526,19 @@ export const useFilteringStore = defineStore('filtering', () => {
     const computeTargetContacts = async (designKeys?: DesignKeyDto[]) => {
         if (!hasSelectedRuns.value) return
         contactsComputeError.value = null
-        const keys = designKeys ?? []
+        const keys = designKeys?.length ? designKeys : designKeysForActiveRuns()
         const batches: DesignKeyDto[][] = []
         if (keys.length) {
             for (let i = 0; i < keys.length; i += CONTACTS_BATCH_SIZE) {
                 batches.push(keys.slice(i, i + CONTACTS_BATCH_SIZE))
             }
         } else {
+            // Designs table empty for this scope — fall back to one all-designs request.
             batches.push([])
         }
 
-        contactsComputeProgress.value = { done: 0, total: batches.length, running: true }
+        const progressTotal = keys.length || 1
+        contactsComputeProgress.value = { done: 0, total: progressTotal, running: true }
         try {
             for (const batch of batches) {
                 const res = await filteringApi.computeTargetContacts({
@@ -528,7 +548,10 @@ export const useFilteringStore = defineStore('filtering', () => {
                 targetCoverage.value = res.coverage
                 contactsComputeProgress.value = {
                     ...contactsComputeProgress.value,
-                    done: contactsComputeProgress.value.done + 1
+                    done: Math.min(
+                        progressTotal,
+                        contactsComputeProgress.value.done + (batch.length || progressTotal)
+                    )
                 }
                 if (res.errors.length && !contactsComputeError.value) {
                     contactsComputeError.value = res.errors.slice(0, 3).join('; ')
