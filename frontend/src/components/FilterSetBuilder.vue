@@ -454,10 +454,10 @@ const alphaLogSlider = computed<number>({
       <TargetContactFilters />
     </Panel>
 
-    <Panel v-if="filteringStore.hasSelectedRuns" header="3. Ranking Metrics" class="fsb-panel">
+    <Panel v-if="filteringStore.hasSelectedRuns" header="3. Ranking Metrics (Quality Score)" class="fsb-panel">
       <p class="fsb-hint">
         Designs are ranked by the <em>worst</em> of their scaled ranks across these
-        metrics (boltzgen's "Algorithm 2" — see plan §2.2). Weight is inverse
+        metrics (BoltzGen-style). Weight is inverse
         importance: a larger weight de-emphasises that metric.
       </p>
       <label class="fsb-preset-row">
