@@ -44,8 +44,8 @@
           <DataTable 
           :value="designsStore.filteredDesigns" 
           :loading="designsStore.loading"
-          v-model:sortField="designsStore.tableSortField"
-          v-model:sortOrder="designsStore.tableSortOrder"
+          v-model:multiSortMeta="designsStore.tableMultiSortMeta"
+          v-model:first="designsStore.tableFirst"
           sortMode="multiple"
           stripedRows
           paginator
@@ -1010,6 +1010,7 @@ import type { Design } from '../types/store'
 import { PERSISTENCE_KEYS, tagPlacementKey, advRefKey } from '../persistence/keys'
 import { kvGet, kvSet, kvRemove } from '../persistence/store'
 import {
+    BINDERDASH_RANKING_FIELD,
     STRUCTURE_CARD_SCORE_ORDER,
     niceNameForScoreField,
     scoreFieldColor,
@@ -2621,6 +2622,7 @@ const extraVisibleScoreFields = computed((): string[] => {
   const out: string[] = []
   for (const field of structureDetailFieldSource.value) {
     if (STATIC_STRUCTURE_DETAIL_FIELDS.has(field) || primary.has(field)) continue
+    if (field === BINDERDASH_RANKING_FIELD) continue
     const v = getDetailFieldValue(design, field)
     if (v !== null && v !== undefined && typeof v === 'object') continue
     if (isBooleanDetailValue(v) || isNumericDetailValue(v)) out.push(field)
@@ -2636,6 +2638,10 @@ const extraVisibleDesignDataFields = computed((): string[] => {
   for (const field of structureDetailFieldSource.value) {
     if (STATIC_STRUCTURE_DETAIL_FIELDS.has(field) || primary.has(field)) continue
     const v = getDetailFieldValue(design, field)
+    if (field === BINDERDASH_RANKING_FIELD) {
+      if (isNumericDetailValue(v)) out.push(field)
+      continue
+    }
     if (isStringDetailValue(v) && !isNumericDetailValue(v)) out.push(field)
   }
   return out

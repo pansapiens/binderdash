@@ -5,6 +5,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, shallowRef, computed, watch, nextTick } from 'vue'
+import type { DataTableSortMeta } from 'primevue/datatable'
 import { localeComparator, resolveFieldData, sort } from '@primeuix/utils/object'
 import { designsApi, savedSetsApi } from '../webapi'
 import type { SavedSetDesignRowDto } from '../webapi'
@@ -20,6 +21,8 @@ import {
     getStructureFilenameFromDesign,
     designHasStructureFile,
     defaultVisibleScoreColumnFields,
+    BINDERDASH_RANKING_FIELD,
+    BINDERDASH_RANKING_HEADER,
 } from '../config/pipelineDisplay'
 
 /** Cap rows scanned when inferring dynamic table columns (full data still loaded). */
@@ -107,8 +110,47 @@ export const useDesignsStore = defineStore('designs', () => {
     const visibleColumns = ref<string[]>(['design_id', 'project_id', 'run_name', 'method', 'Length'])
     const loading = ref(false)
     const currentNavDesignId = ref<string | null>(null)
-    const tableSortField = ref<string | undefined>(undefined)
-    const tableSortOrder = ref<number | undefined>(undefined)
+    /** Mirrors DataTable `multiSortMeta` (`sortMode="multiple"`). */
+    const tableMultiSortMeta = ref<DataTableSortMeta[]>([])
+    /** Mirrors DataTable paginator `first` (row offset). */
+    const tableFirst = ref(0)
+
+    const binderdashRankingColumn = (): ColumnConfig => ({
+        field: BINDERDASH_RANKING_FIELD,
+        header: BINDERDASH_RANKING_HEADER,
+        sortable: true,
+        filter: true,
+        filterType: 'numeric',
+        showFilterMenu: false,
+        style: 'min-width: 110px',
+    })
+
+    /** Place `field` immediately after the identity columns (tag, else good, else method). */
+    const insertFieldAfterIdentity = (fields: string[], field: string): string[] => {
+        const without = fields.filter((f) => f !== field)
+        let anchor = -1
+        for (const name of ['tag', 'good', 'method'] as const) {
+            const idx = without.indexOf(name)
+            if (idx >= 0) {
+                anchor = idx
+                break
+            }
+        }
+        without.splice(anchor + 1, 0, field)
+        return without
+    }
+
+    const insertBinderdashRankingColumn = (cols: ColumnConfig[]): ColumnConfig[] => {
+        const ranking = binderdashRankingColumn()
+        const without = cols.filter((c) => c.field !== BINDERDASH_RANKING_FIELD)
+        const order = insertFieldAfterIdentity(
+            without.map((c) => c.field),
+            BINDERDASH_RANKING_FIELD
+        )
+        const byField = new Map(without.map((c) => [c.field, c]))
+        byField.set(BINDERDASH_RANKING_FIELD, ranking)
+        return order.map((field) => byField.get(field) as ColumnConfig)
+    }
 
     function buildColumnsFromData(allDesigns: Design[]): ColumnConfig[] {
         if (!allDesigns || allDesigns.length === 0) return []
@@ -236,8 +278,22 @@ export const useDesignsStore = defineStore('designs', () => {
             }
         }
         if (parts.length === 0) return []
-        return buildColumnsFromData(parts)
+        const cols = buildColumnsFromData(parts)
+        if (useFilteringStore().rankedDesigns?.size) {
+            return insertBinderdashRankingColumn(cols)
+        }
+        return cols
     })
+
+    const showBinderdashRankingColumn = () => {
+        if (visibleColumns.value.includes(BINDERDASH_RANKING_FIELD)) return
+        visibleColumns.value = insertFieldAfterIdentity(visibleColumns.value, BINDERDASH_RANKING_FIELD)
+    }
+
+    const hideBinderdashRankingColumn = () => {
+        if (!visibleColumns.value.includes(BINDERDASH_RANKING_FIELD)) return
+        visibleColumns.value = visibleColumns.value.filter((f) => f !== BINDERDASH_RANKING_FIELD)
+    }
 
     watch(
         columnsForSelectedRuns,
@@ -248,6 +304,22 @@ export const useDesignsStore = defineStore('designs', () => {
         },
         { deep: true }
     )
+
+    /** Show the ranking column and sort the Designs table by it (1 = best, ascending). */
+    const presentBinderdashRanking = () => {
+        showBinderdashRankingColumn()
+        tableMultiSortMeta.value = [{ field: BINDERDASH_RANKING_FIELD, order: 1 }]
+        tableFirst.value = 0
+    }
+
+    const dismissBinderdashRanking = () => {
+        hideBinderdashRankingColumn()
+        if (tableMultiSortMeta.value.some((m) => m.field === BINDERDASH_RANKING_FIELD)) {
+            tableMultiSortMeta.value = tableMultiSortMeta.value.filter(
+                (m) => m.field !== BINDERDASH_RANKING_FIELD
+            )
+        }
+    }
 
     const hydrateFromPersistence = async () => {
         try {
@@ -337,14 +409,14 @@ export const useDesignsStore = defineStore('designs', () => {
             filtered = _filterBestMpnnDesigns(filtered)
         }
 
-        // Attach final_rank/quality_score from an "Apply Ranking"/"Apply Diversity
-        // Filter" result (see plan §7A.2), for display/sorting in the Designs table.
+        // Attach binderdash_ranking (1 = best) from Apply Ranking / Apply Diversity.
+        // Written under our own field so it cannot overwrite a pipeline quality_score.
         const rankedDesigns = useFilteringStore().rankedDesigns
         if (rankedDesigns) {
             filtered = filtered.map(design => {
                 const info = rankedDesigns.get(buildDesignKey(design))
-                if (!info) return design
-                return { ...design, final_rank: info.final_rank, quality_score: info.quality_score }
+                if (!info || info.final_rank == null) return design
+                return { ...design, [BINDERDASH_RANKING_FIELD]: info.final_rank }
             })
         }
 
@@ -479,20 +551,33 @@ export const useDesignsStore = defineStore('designs', () => {
 
     const orderedFilteredDesigns = computed(() => {
         const data = [...filteredDesigns.value]
-        const field = tableSortField.value
-        const order = tableSortOrder.value
-        if (field == null || order == null || order === 0) {
+        const meta = tableMultiSortMeta.value.filter(
+            (m): m is DataTableSortMeta & { field: NonNullable<DataTableSortMeta['field']>; order: 1 | -1 } =>
+                !!m.field && (m.order === 1 || m.order === -1)
+        )
+        if (meta.length === 0) {
             return data
         }
-        const resolvedFieldData = new Map<Design, unknown>()
+        // Same comparison as PrimeVue DataTable `sortMultiple` / `multisortField`
+        // (nullSortOrder 1), with field values resolved once per row.
+        const resolvedFieldData = new Map<Design, unknown[]>()
         for (const item of data) {
-            resolvedFieldData.set(item, resolveFieldData(item, field))
+            resolvedFieldData.set(
+                item,
+                meta.map((m) => resolveFieldData(item, m.field))
+            )
         }
         const comparer = localeComparator()
         data.sort((a, b) => {
-            const v1 = resolvedFieldData.get(a)
-            const v2 = resolvedFieldData.get(b)
-            return sort(v1 as any, v2 as any, order, comparer as any, 1)
+            const valuesA = resolvedFieldData.get(a) ?? []
+            const valuesB = resolvedFieldData.get(b) ?? []
+            for (let i = 0; i < meta.length; i++) {
+                const v1 = valuesA[i]
+                const v2 = valuesB[i]
+                if (v1 === v2) continue
+                return sort(v1 as any, v2 as any, meta[i].order, comparer as any, 1)
+            }
+            return 0
         })
         return data
     })
@@ -756,10 +841,14 @@ export const useDesignsStore = defineStore('designs', () => {
                 }
             })
 
+            const rankingActive = (useFilteringStore().rankedDesigns?.size ?? 0) > 0
             if (!hadDesigns) {
-                visibleColumns.value = newDefaultColumns
+                visibleColumns.value = rankingActive
+                    ? insertFieldAfterIdentity(newDefaultColumns, BINDERDASH_RANKING_FIELD)
+                    : newDefaultColumns
             } else {
                 const fieldSet = new Set(columns.value.map(c => c.field))
+                if (rankingActive) fieldSet.add(BINDERDASH_RANKING_FIELD)
                 visibleColumns.value = prevVisible.filter(f => fieldSet.has(f))
             }
         } catch (err) {
@@ -1212,8 +1301,8 @@ export const useDesignsStore = defineStore('designs', () => {
         visibleColumns,
         loading,
         currentNavDesignId,
-        tableSortField,
-        tableSortOrder,
+        tableMultiSortMeta,
+        tableFirst,
 
         // Getters
         filteredDesigns,
@@ -1233,6 +1322,8 @@ export const useDesignsStore = defineStore('designs', () => {
         toggleBestMpnnOnly,
         selectDesigns,
         toggleColumn,
+        presentBinderdashRanking,
+        dismissBinderdashRanking,
         ensureColumnsVisible,
         navigateStructure,
         clearDesigns,

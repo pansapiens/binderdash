@@ -414,6 +414,7 @@ export const useFilteringStore = defineStore('filtering', () => {
                 })
             }
             rankedDesigns.value = map
+            if (map.size > 0) useDesignsStore().presentBinderdashRanking()
         } catch (err) {
             rankError.value = err instanceof Error ? err.message : 'Failed to apply ranking'
             console.error('Error applying ranking:', err)
@@ -448,6 +449,7 @@ export const useFilteringStore = defineStore('filtering', () => {
                 if (d.in_diverse_set) diverseKeys.add(key)
             }
             rankedDesigns.value = rankMap
+            if (rankMap.size > 0) useDesignsStore().presentBinderdashRanking()
             // Kept separate from passingDesignKeys (hard-filter-only) — see
             // effectivePassingKeys — so the step can be toggled off without discarding
             // the computed diverse subset.
@@ -668,6 +670,7 @@ export const useFilteringStore = defineStore('filtering', () => {
     const clearAppliedFilters = () => {
         passingDesignKeys.value = null
         rankedDesigns.value = null
+        useDesignsStore().dismissBinderdashRanking()
         applyError.value = null
         rankError.value = null
         diversityError.value = null

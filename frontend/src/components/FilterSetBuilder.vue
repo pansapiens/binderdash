@@ -124,7 +124,12 @@ const handlePreview = async () => {
 const handleApplyRanking = async () => {
   try {
     await filteringStore.applyRanking()
-    toast.add({ severity: 'success', summary: 'Ranking applied', life: 4000 })
+    toast.add({
+      severity: 'success',
+      summary: 'Ranking applied',
+      detail: 'Designs table sorted by Ranking (binderdash_ranking, 1 = best).',
+      life: 4000
+    })
   } catch (err) {
     toast.add({
       severity: 'error',
@@ -552,8 +557,8 @@ const alphaLogSlider = computed<number>({
       </Message>
       <p class="fsb-hint">
         Ranking is not applied automatically — click "Apply Ranking" after configuring
-        metrics. This attaches <code>final_rank</code>/<code>quality_score</code> to the
-        Designs table without narrowing which rows are shown.
+        metrics. This adds a <code>binderdash_ranking</code> column (1 = best) to the
+        Designs table, shows it, and sorts by it, without narrowing which rows are shown.
       </p>
     </Panel>
 
@@ -659,7 +664,8 @@ const alphaLogSlider = computed<number>({
       </Message>
       <p class="fsb-hint">
         Not applied automatically — this can be slow (pairwise alignment-based
-        diversity selection). Narrows the Designs table to just the diverse subset.
+        diversity selection). Narrows the Designs table to the diverse subset and
+        sorts it by Ranking (<code>binderdash_ranking</code>, 1 = best).
       </p>
     </Panel>
 

@@ -280,9 +280,16 @@ const DESIGN_BUILD_COLUMN_EXTRA_KEYS = [
     'design_ptm',
 ] as const
 
+/** Designs-table field written by Filtering → Apply Ranking. 1 = best.
+ * Kept off pipeline names (`quality_score`, `final_rank`) so it cannot clash with a method's own column. */
+export const BINDERDASH_RANKING_FIELD = 'binderdash_ranking'
+
+export const BINDERDASH_RANKING_HEADER = 'Ranking'
+
 export const DESIGN_BUILD_COLUMN_STATIC_KEYS: ReadonlySet<string> = new Set([
     ...DESIGN_TABLE_STATIC_FIELD_KEYS,
     ...DESIGN_BUILD_COLUMN_EXTRA_KEYS,
+    BINDERDASH_RANKING_FIELD,
 ])
 
 // --- Best design within MPNN group (primary / secondary scores) --------------
