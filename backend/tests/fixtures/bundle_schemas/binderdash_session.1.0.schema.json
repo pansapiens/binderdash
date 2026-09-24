@@ -1,0 +1,227 @@
+{
+  "$defs": {
+    "SessionRunRef": {
+      "additionalProperties": true,
+      "description": "Enough per-run identity to find the run again, or to say what is missing.",
+      "properties": {
+        "method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "run_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Name"
+        },
+        "run_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Path"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "title": "SessionRunRef",
+      "type": "object"
+    },
+    "SessionSort": {
+      "additionalProperties": true,
+      "description": "One entry of PrimeVue's DataTable multiSortMeta.",
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "order": {
+          "default": 1,
+          "title": "Order",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "field"
+      ],
+      "title": "SessionSort",
+      "type": "object"
+    }
+  },
+  "$id": "https://binderdash.dev/schemas/binderdash_session/1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "active_view": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Active View"
+    },
+    "best_mpnn_only": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Best Mpnn Only"
+    },
+    "captured": {
+      "default": true,
+      "title": "Captured",
+      "type": "boolean"
+    },
+    "captured_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Captured At"
+    },
+    "filtering": {
+      "additionalProperties": true,
+      "title": "Filtering",
+      "type": "object"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "plots": {
+      "additionalProperties": true,
+      "title": "Plots",
+      "type": "object"
+    },
+    "run_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Run Ids",
+      "type": "array"
+    },
+    "runs": {
+      "items": {
+        "$ref": "#/$defs/SessionRunRef"
+      },
+      "title": "Runs",
+      "type": "array"
+    },
+    "saved_set_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Saved Set Id"
+    },
+    "saved_set_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Saved Set Ids",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "selected_design_count": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selected Design Count"
+    },
+    "selection_mode": {
+      "default": "explicit",
+      "title": "Selection Mode",
+      "type": "string"
+    },
+    "sort": {
+      "items": {
+        "$ref": "#/$defs/SessionSort"
+      },
+      "title": "Sort",
+      "type": "array"
+    },
+    "visible_columns": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Visible Columns",
+      "type": "array"
+    }
+  },
+  "title": "SessionState",
+  "type": "object",
+  "x-binderdash-schema-version": "1.0"
+}

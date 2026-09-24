@@ -1,0 +1,301 @@
+{
+  "$defs": {
+    "BuildInfo": {
+      "properties": {
+        "app_version": {
+          "title": "App Version",
+          "type": "string"
+        },
+        "build_source": {
+          "default": "unknown",
+          "enum": [
+            "env",
+            "build_file",
+            "git",
+            "unknown"
+          ],
+          "title": "Build Source",
+          "type": "string"
+        },
+        "git_commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Git Commit"
+        },
+        "git_dirty": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Git Dirty"
+        },
+        "platform": {
+          "default": "",
+          "title": "Platform",
+          "type": "string"
+        },
+        "python_version": {
+          "default": "",
+          "title": "Python Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "app_version"
+      ],
+      "title": "BuildInfo",
+      "type": "object"
+    },
+    "BundleCoverage": {
+      "properties": {
+        "constructs": {
+          "default": 0,
+          "title": "Constructs",
+          "type": "integer"
+        },
+        "contact_params_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contact Params Key"
+        },
+        "designs": {
+          "default": 0,
+          "title": "Designs",
+          "type": "integer"
+        },
+        "designs_with_contacts": {
+          "default": 0,
+          "title": "Designs With Contacts",
+          "type": "integer"
+        },
+        "designs_with_sequence": {
+          "default": 0,
+          "title": "Designs With Sequence",
+          "type": "integer"
+        },
+        "designs_without_contacts": {
+          "default": 0,
+          "title": "Designs Without Contacts",
+          "type": "integer"
+        },
+        "designs_without_sequence": {
+          "default": 0,
+          "title": "Designs Without Sequence",
+          "type": "integer"
+        },
+        "structures_included": {
+          "default": 0,
+          "title": "Structures Included",
+          "type": "integer"
+        },
+        "structures_missing": {
+          "default": 0,
+          "title": "Structures Missing",
+          "type": "integer"
+        },
+        "structures_requested": {
+          "default": 0,
+          "title": "Structures Requested",
+          "type": "integer"
+        }
+      },
+      "title": "BundleCoverage",
+      "type": "object"
+    },
+    "BundleFileEntry": {
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "media_type": {
+          "default": "application/octet-stream",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "size_bytes",
+        "sha256"
+      ],
+      "title": "BundleFileEntry",
+      "type": "object"
+    },
+    "BundleProvenance": {
+      "properties": {
+        "filter_params": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filter Params"
+        },
+        "run_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Run Ids",
+          "type": "array"
+        },
+        "saved_set_created_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Saved Set Created At"
+        },
+        "saved_set_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Saved Set Id"
+        },
+        "saved_set_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Saved Set Name"
+        },
+        "source": {
+          "enum": [
+            "live_selection",
+            "saved_set"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "BundleProvenance",
+      "type": "object"
+    }
+  },
+  "$id": "https://binderdash.dev/schemas/manifest/1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "build": {
+      "$ref": "#/$defs/BuildInfo"
+    },
+    "bundle_id": {
+      "title": "Bundle Id",
+      "type": "string"
+    },
+    "bundle_kind": {
+      "enum": [
+        "designs",
+        "prepare_sequences"
+      ],
+      "title": "Bundle Kind",
+      "type": "string"
+    },
+    "coverage": {
+      "$ref": "#/$defs/BundleCoverage"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/BundleFileEntry"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "kind": {
+      "const": "binderdash.manifest",
+      "default": "binderdash.manifest",
+      "title": "Kind",
+      "type": "string"
+    },
+    "label": {
+      "title": "Label",
+      "type": "string"
+    },
+    "provenance": {
+      "$ref": "#/$defs/BundleProvenance"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "bundle_id",
+    "bundle_kind",
+    "created_at",
+    "label",
+    "build",
+    "provenance",
+    "coverage"
+  ],
+  "title": "BundleManifest",
+  "type": "object",
+  "x-binderdash-schema-version": "1.0"
+}

@@ -1,0 +1,248 @@
+{
+  "$defs": {
+    "BuildInfo": {
+      "properties": {
+        "app_version": {
+          "title": "App Version",
+          "type": "string"
+        },
+        "build_source": {
+          "default": "unknown",
+          "enum": [
+            "env",
+            "build_file",
+            "git",
+            "unknown"
+          ],
+          "title": "Build Source",
+          "type": "string"
+        },
+        "git_commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Git Commit"
+        },
+        "git_dirty": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Git Dirty"
+        },
+        "platform": {
+          "default": "",
+          "title": "Platform",
+          "type": "string"
+        },
+        "python_version": {
+          "default": "",
+          "title": "Python Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "app_version"
+      ],
+      "title": "BuildInfo",
+      "type": "object"
+    },
+    "ContactReferenceResidue": {
+      "properties": {
+        "aa1": {
+          "default": "",
+          "title": "Aa1",
+          "type": "string"
+        },
+        "chain": {
+          "title": "Chain",
+          "type": "string"
+        },
+        "icode": {
+          "default": " ",
+          "title": "Icode",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "resname": {
+          "title": "Resname",
+          "type": "string"
+        },
+        "resseq": {
+          "title": "Resseq",
+          "type": "integer"
+        },
+        "sasa_apo": {
+          "title": "Sasa Apo",
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "chain",
+        "resseq",
+        "resname",
+        "sasa_apo"
+      ],
+      "title": "ContactReferenceResidue",
+      "type": "object"
+    },
+    "ContactReferenceRun": {
+      "properties": {
+        "binder_chain_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Binder Chain Ids",
+          "type": "array"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "method": {
+          "default": "",
+          "title": "Method",
+          "type": "string"
+        },
+        "residues": {
+          "items": {
+            "$ref": "#/$defs/ContactReferenceResidue"
+          },
+          "title": "Residues",
+          "type": "array"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "run_name": {
+          "default": "",
+          "title": "Run Name",
+          "type": "string"
+        },
+        "target_chain_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Target Chain Ids",
+          "type": "array"
+        },
+        "target_key": {
+          "default": "",
+          "title": "Target Key",
+          "type": "string"
+        },
+        "target_moves": {
+          "default": false,
+          "title": "Target Moves",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "title": "ContactReferenceRun",
+      "type": "object"
+    }
+  },
+  "$id": "https://binderdash.dev/schemas/target_contacts_reference/1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "binderdash": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BuildInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "generated_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generated At"
+    },
+    "kind": {
+      "const": "binderdash.target_contacts_reference",
+      "default": "binderdash.target_contacts_reference",
+      "title": "Kind",
+      "type": "string"
+    },
+    "note": {
+      "default": "Residues further than record_cutoff_angstrom from the binder are omitted from target_contacts.tsv: their bound SASA equals sasa_apo here and their delta is 0.",
+      "title": "Note",
+      "type": "string"
+    },
+    "params_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Params Key"
+    },
+    "record_cutoff_angstrom": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Record Cutoff Angstrom"
+    },
+    "runs": {
+      "items": {
+        "$ref": "#/$defs/ContactReferenceRun"
+      },
+      "title": "Runs",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "TargetContactsReference",
+  "type": "object",
+  "x-binderdash-schema-version": "1.0"
+}

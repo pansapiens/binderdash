@@ -355,9 +355,11 @@ class TestSavedSetsCrud:
         resp = api_client.patch(f"/api/saved-sets/{saved_set_id}", json={"name": "   "})
         assert resp.status_code == 400
 
-    def test_download_zip_contains_csv_and_structures(
+    def test_download_bundle_contains_table_and_structures(
         self, api_client, sqlite_designs_repo
     ) -> None:
+        """Saved sets download the standard bundle (see routers/bundles.py), which is
+        TSV rather than the CSV this endpoint emitted before bundles existed."""
         saved_set_id = self._create_saved_set(api_client, sqlite_designs_repo)
         resp = api_client.get(f"/api/saved-sets/{saved_set_id}/download")
         assert resp.status_code == 200, resp.text
@@ -365,13 +367,15 @@ class TestSavedSetsCrud:
 
         zf = zipfile.ZipFile(BytesIO(resp.content))
         names = zf.namelist()
-        assert "designs.csv" in names
+        assert "designs.tsv" in names
+        assert "manifest.json" in names
+        assert "designs.csv" not in names
         structure_entries = [n for n in names if n.startswith("structures/")]
         assert len(structure_entries) == 10
 
-        csv_bytes = zf.read("designs.csv")
-        assert b"design_id" in csv_bytes
-        assert b"final_rank" in csv_bytes
+        header = zf.read("designs.tsv").decode().splitlines()[0]
+        assert "design_id" in header
+        assert "final_rank" in header
 
     def test_download_missing_returns_404(self, api_client, sqlite_designs_repo) -> None:
         resp = api_client.get("/api/saved-sets/does-not-exist/download")

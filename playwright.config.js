@@ -4,6 +4,11 @@ const { defineConfig, devices } = require('@playwright/test');
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
+// Point the suite at an already-running Binderdash (any port) with BINDERDASH_BASE_URL.
+// Without it the suite starts its own server on :8000 — or reuses one already listening
+// there, which silently tests whatever code that server was started from.
+const BASE_URL = process.env.BINDERDASH_BASE_URL || 'http://localhost:8000';
+
 module.exports = defineConfig({
     testDir: './tests',
     /* Run tests in files in parallel */
@@ -19,7 +24,7 @@ module.exports = defineConfig({
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
     use: {
         /* Base URL to use in actions like `await page.goto('/')`. */
-        baseURL: 'http://localhost:8000',
+        baseURL: BASE_URL,
 
         /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
         trace: 'on-first-retry',
@@ -64,10 +69,12 @@ module.exports = defineConfig({
     ],
 
     /* Run your local dev server before starting the tests */
-    webServer: {
-        command: 'source .venv/bin/activate && uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000',
-        url: 'http://localhost:8000',
-        reuseExistingServer: !process.env.CI,
-        timeout: 120 * 1000,
-    },
+    webServer: process.env.BINDERDASH_BASE_URL
+        ? undefined
+        : {
+              command: 'source .venv/bin/activate && uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000',
+              url: 'http://localhost:8000',
+              reuseExistingServer: !process.env.CI,
+              timeout: 120 * 1000,
+          },
 });

@@ -38,6 +38,10 @@ dev = [
     "pytest-timeout",
     "pytest-asyncio",
     "fastmcp>=3.4,<4",
+    # Validates the JSON Schemas shipped inside download bundles against the JSON they
+    # describe. Test-only: never add to requirements.txt, which the PyInstaller desktop
+    # build installs from.
+    "jsonschema",
 ]
 
 [tool.pytest.ini_options]

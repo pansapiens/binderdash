@@ -35,6 +35,10 @@ class RawSettings(BaseSettings):
     binderdash_admin_users: str = ""
     pam_gecos_email: str = ""
     binderdash_desktop: str = ""
+    bundle_max_structure_files: int = 5000
+    bundle_max_structure_bytes: int = 2 * 1024**3
+    bundle_max_total_bytes: int = 4 * 1024**3
+    bundle_spool_dir: str = ""
 
 
 class LocalUser(BaseModel):
@@ -59,6 +63,12 @@ class AppSettings(BaseModel):
     binderdash_admin_users: List[str] = []
     pam_gecos_email: bool = False
     binderdash_desktop: bool = False
+    # Guards against a runaway bundle request, not a limit users meet in normal
+    # use: a bundle only ever covers rows already in the designs table.
+    bundle_max_structure_files: int = 5000
+    bundle_max_structure_bytes: int = 2 * 1024**3
+    bundle_max_total_bytes: int = 4 * 1024**3
+    bundle_spool_dir: str = ""
 
     def local_auth_enabled(self) -> bool:
         return len(self.local_users) > 0
@@ -174,6 +184,10 @@ settings = AppSettings(
     binderdash_admin_users=_parse_csv_lower(raw_settings.binderdash_admin_users),
     pam_gecos_email=raw_settings.pam_gecos_email.lower() == "true",
     binderdash_desktop=raw_settings.binderdash_desktop.lower() == "true",
+    bundle_max_structure_files=raw_settings.bundle_max_structure_files,
+    bundle_max_structure_bytes=raw_settings.bundle_max_structure_bytes,
+    bundle_max_total_bytes=raw_settings.bundle_max_total_bytes,
+    bundle_spool_dir=(raw_settings.bundle_spool_dir or "").strip(),
 )
 
 SECRET_KEY = raw_settings.secret_key or secrets.token_urlsafe(32)

@@ -5,6 +5,7 @@ export const PERSISTENCE_KEYS = {
     advRefGlobal: 'binderdash-adv-ref-ui-global',
     foldersUi: 'binderdash:folders-ui-v1',
     filteringViewState: 'binderdash:filtering-view-state-v1',
+    seqPrepState: 'binderdash:seq-prep-state-v1',
 } as const
 
 export function tagPlacementKey(runId: string): string {

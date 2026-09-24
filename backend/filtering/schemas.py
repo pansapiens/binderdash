@@ -4,6 +4,8 @@ from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from ..session_state import SessionState
+
 
 NUMERIC_OPERATORS = ("<", "<=", ">", ">=")
 STRING_OPERATORS = (
@@ -263,6 +265,10 @@ class FilteringRunRequest(BaseModel):
     # / lazy-greedy diversity pass). Budget and alpha are still accepted so a disabled
     # diversity recipe can round-trip without losing the user's last settings.
     apply_diversity: bool = True
+    # The UI state when the set was saved. Rides into the saved set's filter_params
+    # blob, so a set downloaded later reproduces the table layout and not just the
+    # filter recipe. Absent on sets created before this field existed.
+    ui_state: Optional[SessionState] = None
 
 
 class FilteringRunResponse(BaseModel):

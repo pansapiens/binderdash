@@ -252,7 +252,22 @@ For custom analysis, prefer `GET /api/designs` or `GET /api/runs/{run_id}/table`
 | `GET` | `/api/saved-sets/{id}/designs` | Full ranked design table for the set (see below) |
 | `PATCH` | `/api/saved-sets/{id}` | Rename (the only allowed mutation — sets are otherwise immutable snapshots) |
 | `DELETE` | `/api/saved-sets/{id}` | Delete |
-| `GET` | `/api/saved-sets/{id}/download` | ZIP: `designs.csv` (ranked rows + metrics) plus each design's structure file under `structures/` |
+| `GET` | `/api/saved-sets/{id}/download` | ZIP: the standard [design bundle](download-bundles.md) — ranked rows, structures, and the UI state the set was saved with |
+
+### Download bundles
+
+One zip carrying the data plus the UI state that produced it. See
+[Download bundles](download-bundles.md) for the member list and the JSON schema contract.
+Requests carry design **keys**, not rows — the server re-reads each design from its cache.
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `POST` | `/api/bundles/estimate` | Pre-flight counts and byte sizes; stats structure files without reading them |
+| `POST` | `/api/bundles/designs` | The designs bundle (zip) |
+| `POST` | `/api/bundles/prepare-sequences` | Superset bundle adding construct sequences and the Prepare Sequences settings |
+
+Returns `413` with the measured estimate when a request exceeds the configured caps, and
+`507` when there is not enough scratch space to assemble the archive.
 
 ### Administration
 
@@ -463,4 +478,5 @@ Deleting a run (`DELETE /api/runs/{run_id}`) removes database and cache entries 
 
 - [Pipeline method types](pipeline-methods.md) — run signatures, score columns, structure paths
 - [Sequence preparation](sequence_preparation.md) — short names, hashing, UI behaviour
+- [Download bundles](download-bundles.md) — bundle contents, JSON schema versioning, restore
 - Agent-oriented quick reference: [`skills/binderdash-api/SKILL.md`](../../skills/binderdash-api/SKILL.md)
