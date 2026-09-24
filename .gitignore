@@ -43,3 +43,6 @@ db.sqlite
 /sync_to_rotibom.sh
 
 *.no-git.md
+
+# Generated at package time so a frozen build can report its commit (backend/version.py)
+backend/_build_info.json

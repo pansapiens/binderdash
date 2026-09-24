@@ -9,31 +9,11 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ..settings import settings, update_run_base_dirs
+from ..version import app_version as _app_version
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/desktop", tags=["desktop"])
-
-
-def _app_version() -> str:
-    try:
-        from importlib.metadata import version
-
-        return version("binderdash-backend")
-    except Exception:
-        pass
-    try:
-        import re
-        from pathlib import Path
-
-        pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
-        text = pyproject.read_text(encoding="utf-8")
-        match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
-        if match:
-            return match.group(1)
-    except OSError:
-        pass
-    return "0.0.0"
 
 
 def _user_data_dir() -> str:

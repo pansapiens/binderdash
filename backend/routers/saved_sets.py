@@ -1,17 +1,12 @@
 import asyncio
-import csv
-import io
 import logging
-import zipfile
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
 
 from ..auth import get_current_user_optional
 from ..auth_providers.base import AuthUser
-from ..cache import get_run_metadata
+from ..bundles import BundleCapsError, check_caps, spec_from_saved_set, write_bundle
 from ..filtering import service
 from ..filtering.schemas import (
     SavedSet,
@@ -19,7 +14,7 @@ from ..filtering.schemas import (
     SavedSetListResponse,
     SavedSetRenameRequest,
 )
-from ..routers.files import _resolve_structure_path
+from ..routers.bundles import bundle_response, current_caps
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/saved-sets", tags=["saved-sets"])
@@ -91,57 +86,18 @@ async def rename_saved_set(
     return result
 
 
-def _build_download_zip_sync(saved_set_id: str) -> Optional[bytes]:
-    saved_set = service.get_saved_set(saved_set_id)
-    if saved_set is None:
+def _build_bundle_sync(saved_set_id: str):
+    """Build the saved set's bundle, or None if the set is gone.
+
+    Deliberately the same builder the live Designs download uses, so the two cannot
+    drift: only row production differs (a set exports its frozen metrics snapshot rather
+    than re-reading the design cache).
+    """
+    spec = spec_from_saved_set(saved_set_id)
+    if spec is None:
         return None
-    designs_resp = service.get_saved_set_designs(saved_set_id)
-    rows = designs_resp.designs if designs_resp else []
-
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        csv_buf = io.StringIO()
-        fieldnames = ["design_id", "run_id", "final_rank", "quality_score", "in_diverse_set"]
-        extra_metric_keys: List[str] = []
-        seen = set(fieldnames)
-        for row in rows:
-            for k in row.metrics.keys():
-                if k not in seen:
-                    seen.add(k)
-                    extra_metric_keys.append(k)
-        writer = csv.DictWriter(csv_buf, fieldnames=fieldnames + extra_metric_keys)
-        writer.writeheader()
-        for row in rows:
-            record: Dict[str, Any] = {
-                "design_id": row.design_id,
-                "run_id": row.run_id,
-                "final_rank": row.final_rank,
-                "quality_score": row.quality_score,
-                "in_diverse_set": row.in_diverse_set,
-            }
-            record.update(row.metrics)
-            writer.writerow(record)
-        zf.writestr("designs.csv", csv_buf.getvalue())
-
-        # Structure files: read directly from each design's original path (no
-        # intermediate copy/symlink directory — same lightweight-reference intent as
-        # the plan's "use symlinks" answer, just without the extra filesystem step).
-        for row in rows:
-            pdb_file = row.metrics.get("pdb_file")
-            if not pdb_file:
-                continue
-            run = get_run_metadata(row.run_id)
-            if not run:
-                continue
-            structure_path = _resolve_structure_path(
-                run.get("pdb_files", []), Path(str(pdb_file)).name, run.get("method")
-            )
-            if structure_path is None or not structure_path.is_file():
-                continue
-            arcname = f"structures/rank{row.final_rank or 0:04d}_{structure_path.name}"
-            zf.write(structure_path, arcname=arcname)
-
-    return buf.getvalue()
+    check_caps(spec, current_caps())
+    return write_bundle(spec)
 
 
 @router.get("/{saved_set_id}/download")
@@ -149,13 +105,12 @@ async def download_saved_set(
     saved_set_id: str,
     current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
-    data = await asyncio.to_thread(_build_download_zip_sync, saved_set_id)
-    if data is None:
+    try:
+        built = await asyncio.to_thread(_build_bundle_sync, saved_set_id)
+    except BundleCapsError as e:
+        raise HTTPException(
+            status_code=413, detail={"message": str(e), "estimate": e.estimate.model_dump()}
+        ) from e
+    if built is None:
         raise HTTPException(status_code=404, detail="Saved set not found")
-    return Response(
-        content=data,
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": f'attachment; filename="saved_set_{saved_set_id}.zip"'
-        },
-    )
+    return bundle_response(built)

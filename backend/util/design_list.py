@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from typing import Any, Dict, FrozenSet, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional, TextIO
 
 # Omitted from default list payloads to reduce JSON size; use include_heavy=true to restore.
 LIST_DESIGN_OMIT_FIELDS: FrozenSet[str] = frozenset(
@@ -67,8 +67,8 @@ def _tsv_cell(value: Any) -> str:
     return json.dumps(value, default=str, separators=(",", ":"))
 
 
-def designs_to_tsv(designs: List[Dict[str, Any]]) -> str:
-    """Serialise design dicts as TSV (union of keys, stable column order)."""
+def design_columns(designs: List[Dict[str, Any]]) -> List[str]:
+    """Union of keys across rows, in first-seen order."""
     columns: List[str] = []
     seen = set()
     for design in designs:
@@ -76,9 +76,30 @@ def designs_to_tsv(designs: List[Dict[str, Any]]) -> str:
             if key not in seen:
                 seen.add(key)
                 columns.append(key)
-    buf = io.StringIO()
-    writer = csv.writer(buf, delimiter="\t", lineterminator="\n", quoting=csv.QUOTE_MINIMAL)
-    writer.writerow(columns)
+    return columns
+
+
+def write_designs_tsv(
+    fh: "TextIO",
+    designs: List[Dict[str, Any]],
+    *,
+    columns: Optional[List[str]] = None,
+) -> None:
+    """Stream design dicts as TSV into a text file object.
+
+    Streaming rather than returning a string: a large run set is tens of thousands of
+    rows by a couple of hundred columns, which is a several-hundred-megabyte ``str`` if
+    built up in memory.
+    """
+    cols = columns if columns is not None else design_columns(designs)
+    writer = csv.writer(fh, delimiter="\t", lineterminator="\n", quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(cols)
     for design in designs:
-        writer.writerow([_tsv_cell(design.get(col)) for col in columns])
+        writer.writerow([_tsv_cell(design.get(col)) for col in cols])
+
+
+def designs_to_tsv(designs: List[Dict[str, Any]]) -> str:
+    """Serialise design dicts as TSV (union of keys, stable column order)."""
+    buf = io.StringIO()
+    write_designs_tsv(buf, designs)
     return buf.getvalue()

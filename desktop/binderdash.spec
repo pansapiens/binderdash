@@ -22,6 +22,12 @@ datas = [
     (str(static_dir), "backend/static"),
 ]
 
+# Written by packaging/build-common.sh; backend/version.py reads it because a frozen
+# build has no .git to interrogate.
+_build_info = repo_root / "backend" / "_build_info.json"
+if _build_info.is_file():
+    datas.append((str(_build_info), "backend"))
+
 def _add_package_datas(import_name: str, subpath: str, dest: str) -> None:
     try:
         import importlib
@@ -70,6 +76,9 @@ hiddenimports = [
     "backend.main",
     "backend.routers.desktop",
     "backend.runtime_paths",
+    "backend.version",
+    "backend.bundles",
+    "backend.routers.bundles",
     "backend.persistence.sqlite_repo",
     "backend.util.codon_tables",
     "jose",

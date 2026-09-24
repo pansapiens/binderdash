@@ -83,11 +83,12 @@
                     <div class="designs-download-upload-row flex align-items-center">
                       <SplitButton 
                         :model="exportMenuItems"
-                        label="Download TSV"
-                        icon="pi pi-download"
+                        label="Download Design Bundle (zip)"
+                        icon="pi pi-box"
                         severity="secondary"
                         dropdownIcon="pi pi-chevron-down"
-                        @click="onDownloadTsv"
+                        :loading="bundleDownloading"
+                        @click="onDownloadBundle"
                         size="small"
                       />
                       <SplitButton
@@ -888,7 +889,33 @@
     </div>
     
     <Toast />
-  
+
+  <Dialog
+    v-model:visible="bundleConfirmVisible"
+    modal
+    header="Large download"
+    :style="{ width: '32rem' }"
+  >
+    <p class="mb-3">
+      This bundle is about
+      <strong>{{ formatBytes(bundleEstimate?.estimated_zip_bytes ?? 0) }}</strong>
+      across {{ bundleEstimate?.structure_count ?? 0 }} structure file(s). The browser holds
+      the whole archive in memory while it downloads.
+    </p>
+    <p class="mb-0 text-sm text-color-secondary">
+      Narrow the selection or the active filters for a smaller bundle.
+    </p>
+    <template #footer>
+      <Button label="Cancel" severity="secondary" text @click="bundleConfirmVisible = false" />
+      <Button
+        label="Download anyway"
+        icon="pi pi-download"
+        :loading="bundleDownloading"
+        @click="runBundleDownload"
+      />
+    </template>
+  </Dialog>
+
   <Dialog 
     v-model:visible="showParamsDialog" 
     modal 
@@ -1003,9 +1030,10 @@ import MolstarViewer from './MolstarViewer.vue'
 import TargetContactMapPanel from './TargetContactMapPanel.vue'
 import FilterChainSummary from './FilterChainSummary.vue'
 import type { MembraneData } from '../membraneOverlay'
-import { designsApi, runsApi } from '../webapi'
+import { bundlesApi, designsApi, runsApi } from '../webapi'
 import type { MergeTableResponse, TagMetricsRow, TagPlacementResultRow } from '../webapi'
 import { useDesignsStore, useAppStore, useAuthStore } from '../stores'
+import { buildSessionState } from '../session/sessionState'
 import type { Design } from '../types/store'
 import { PERSISTENCE_KEYS, tagPlacementKey, advRefKey } from '../persistence/keys'
 import { kvGet, kvSet, kvRemove } from '../persistence/store'
@@ -1796,10 +1824,17 @@ const goodRatingPending = ref(false)
 const exportIncludeAllColumns = ref(false)
 const selectTopCount = ref<number | null>(null)
 const exportMenuItems = ref([
+  { label: 'Download TSV', icon: 'pi pi-download', command: () => onDownloadTsv() },
   { label: 'Download CSV', icon: 'pi pi-download', command: () => onDownloadCsv() },
   { label: 'Download PDBs', icon: 'pi pi-box', command: () => onDownloadPdbs() },
   { label: 'Download FASTA (Binders)', icon: 'pi pi-file', command: () => onDownloadFasta() }
 ])
+
+const bundleDownloading = ref(false)
+const bundleConfirmVisible = ref(false)
+const bundleEstimate = ref<{ estimated_zip_bytes: number; structure_count: number } | null>(null)
+/** Above this the zip is held in browser memory long enough to be worth a warning. */
+const BUNDLE_CONFIRM_BYTES = 500 * 1024 * 1024
 
 const mergeUploadMenuItems = ref([
   {
@@ -2191,6 +2226,103 @@ const onDownloadPdbs = async () => {
     console.error('Error downloading PDBs tar:', err)
     toast.add({ severity: 'error', summary: 'Download Failed', detail: err?.message || 'Failed to download PDBs', life: 3000 })
   }
+}
+
+const formatBytes = (value: number): string => {
+  if (!value) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = value
+  let unit = 0
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024
+    unit += 1
+  }
+  return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
+}
+
+const bundleRequest = () => {
+  const rows = getRowsToExport()
+  const keys = rows.map((d: any) => ({
+    run_id: String(d.run_id),
+    design_id: String(d.design_id),
+    source_path: d.source_path ?? ''
+  }))
+  const runIds = Array.from(new Set(keys.map((k: any) => k.run_id)))
+
+  // Columns the server cannot recompute (the Binderdash ranking is applied client-side
+  // from the filtering store), keyed the same way the backend keys a design.
+  const clientColumns: Record<string, Record<string, any>> = {}
+  for (const row of rows as any[]) {
+    const rank = row[BINDERDASH_RANKING_FIELD]
+    if (rank === undefined || rank === null) continue
+    clientColumns[`${row.run_id}\u001f${row.design_id}\u001f${row.source_path ?? ''}`] = {
+      [BINDERDASH_RANKING_FIELD]: rank
+    }
+  }
+
+  return {
+    keys,
+    run_ids: runIds,
+    label: 'binderdash_designs',
+    include_heavy: exportIncludeAllColumns.value,
+    session: buildSessionState(),
+    client_columns: clientColumns
+  }
+}
+
+const runBundleDownload = async () => {
+  bundleDownloading.value = true
+  try {
+    const request = bundleRequest()
+    const blob = await bundlesApi.downloadDesignsBundle(request)
+    downloadBlob(blob, 'binderdash_designs.zip')
+    toast.add({
+      severity: 'success',
+      summary: 'Design bundle',
+      detail: `${request.keys.length} design(s) with structures, tables and session state`,
+      life: 3000
+    })
+  } catch (err: any) {
+    console.error('Error downloading design bundle:', err)
+    toast.add({
+      severity: 'error',
+      summary: 'Download Failed',
+      detail: err?.message || 'Failed to build the design bundle',
+      life: 5000
+    })
+  } finally {
+    bundleDownloading.value = false
+    bundleConfirmVisible.value = false
+  }
+}
+
+const onDownloadBundle = async () => {
+  const rows = getRowsToExport()
+  if (rows.length === 0) {
+    toast.add({ severity: 'warn', summary: 'No Designs', detail: 'No designs to export', life: 2500 })
+    return
+  }
+  try {
+    const estimate = await bundlesApi.estimate(bundleRequest())
+    bundleEstimate.value = estimate
+    if (estimate.exceeds_cap) {
+      toast.add({
+        severity: 'error',
+        summary: 'Selection too large',
+        detail: estimate.cap_messages.join('; '),
+        life: 8000
+      })
+      return
+    }
+    if (estimate.estimated_zip_bytes > BUNDLE_CONFIRM_BYTES) {
+      bundleConfirmVisible.value = true
+      return
+    }
+  } catch (err) {
+    // The estimate is a courtesy; if it fails, still let the download be attempted.
+    console.warn('Bundle estimate failed, downloading anyway', err)
+  }
+  await runBundleDownload()
 }
 
 const onDownloadFasta = () => {

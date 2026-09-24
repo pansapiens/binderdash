@@ -50,6 +50,12 @@ RUN if [ "$BUILD_FRONTEND" = "true" ]; then \
         || (echo "frontend build did not produce backend/static/assets" && exit 1); \
     fi
 
+# Recorded in downloaded bundles' manifest.json. There is no .git in the image, so
+# this is the only way the commit reaches the running app.
+#   docker compose build --build-arg GIT_COMMIT=$(git rev-parse --short=12 HEAD)
+ARG GIT_COMMIT=""
+ENV BINDERDASH_GIT_COMMIT=$GIT_COMMIT
+
 USER app
 
 EXPOSE 8000

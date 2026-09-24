@@ -2,6 +2,8 @@
 import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
 import Tabs from 'primevue/tabs'
 import TabList from 'primevue/tablist'
+import Button from 'primevue/button'
+import RestoreSessionDialog from './components/RestoreSessionDialog.vue'
 import Tab from 'primevue/tab'
 import TabPanels from 'primevue/tabpanels'
 import TabPanel from 'primevue/tabpanel'
@@ -132,6 +134,7 @@ const tabNavGroupSecondaryPt = {
 
 // Track if authentication has been initialized
 const authInitialized = ref(false)
+const restoreDialogVisible = ref(false)
 
 // Initialize authentication on app start
 onMounted(async () => {
@@ -189,11 +192,20 @@ const shouldShowLoading = computed(() => {
     <!-- Show main app if authentication is disabled or user is authenticated -->
     <template v-else>
       <header class="app-header">
-        <div
-          v-if="authStore.isAuthEnabled && authStore.isAuthenticated"
-          class="app-header__actions"
-        >
-          <UserMenu @navigate="handleUserMenuNavigate" />
+        <div class="app-header__actions">
+          <Button
+            icon="pi pi-history"
+            label="Restore session"
+            severity="secondary"
+            text
+            size="small"
+            v-tooltip.bottom="'Load a session JSON from a downloaded design bundle'"
+            @click="restoreDialogVisible = true"
+          />
+          <UserMenu
+            v-if="authStore.isAuthEnabled && authStore.isAuthenticated"
+            @navigate="handleUserMenuNavigate"
+          />
         </div>
         <div class="banner-overlay">
           <h1>Binderdash</h1>
@@ -295,6 +307,8 @@ const shouldShowLoading = computed(() => {
           </TabPanels>
         </Tabs>
       </main>
+
+      <RestoreSessionDialog v-model:visible="restoreDialogVisible" />
     </template>
 
     <Toast />

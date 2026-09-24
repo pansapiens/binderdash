@@ -12,6 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .auth import CSRF_COOKIE_NAME, request_has_valid_api_key
 from .mcp_server import MCP_MOUNT_PATH, build_mcp_http_app
 from .routers import api_keys as api_keys_routes
+from .routers import bundles as bundles_routes
 from .routers import auth as auth_routes
 from .routers import designs as designs_routes
 from .routers import files as files_routes
@@ -232,6 +233,7 @@ app.include_router(plots_routes.router)
 app.include_router(sequences_routes.router)
 app.include_router(filtering_routes.router)
 app.include_router(saved_sets_routes.router)
+app.include_router(bundles_routes.router)
 if settings.binderdash_desktop:
     app.include_router(desktop_routes.router)
 

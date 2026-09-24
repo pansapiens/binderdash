@@ -26,6 +26,20 @@ uv pip install -e backend 2>/dev/null || uv pip install -r backend/requirements.
 # pywebview[gtk] would pull pip pygobject and fail to compile in CI.
 uv pip install pywebview pyinstaller
 
+# A frozen build has no .git and no installed dist-info, so the commit has to be baked
+# in here for downloaded bundles to record which build produced them.
+GIT_COMMIT="$(git rev-parse --short=12 HEAD 2>/dev/null || echo '')"
+GIT_DIRTY="false"
+if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then GIT_DIRTY="true"; fi
+cat > backend/_build_info.json <<JSON
+{
+  "version": "${VERSION}",
+  "git_commit": "${GIT_COMMIT}",
+  "git_dirty": ${GIT_DIRTY},
+  "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+JSON
+
 echo "Running PyInstaller..."
 pyinstaller --noconfirm desktop/binderdash.spec
 

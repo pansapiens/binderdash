@@ -843,15 +843,22 @@ export const useFilteringStore = defineStore('filtering', () => {
     const loadRecipe = (recipe: FilteringRunRequestDto): void => {
         // A saved recipe's filters/metrics never carry `enabled` (it's UI-only, never
         // sent to or stored by the backend — see activeFilters/activeRankingMetrics
-        // above) — every loaded row starts enabled.
-        filters.value = recipe.filters ? recipe.filters.map((f) => ({ ...f, enabled: true })) : []
+        // above), so an absent flag means enabled. A session-state restore does carry
+        // it, though, and reads back through here: honour it when present, or restoring
+        // a session would silently re-enable rows the user had switched off.
+        const wasEnabled = (row: { enabled?: boolean }) => row.enabled !== false
+        filters.value = recipe.filters
+            ? recipe.filters.map((f) => ({ ...f, enabled: wasEnabled(f) }))
+            : []
         targetContactGroups.value = recipe.target_contact_groups
             ? recipe.target_contact_groups.map((g) => ({
                   ...g,
-                  filters: g.filters.map((f) => ({ ...f, enabled: true }))
+                  filters: g.filters.map((f) => ({ ...f, enabled: wasEnabled(f) }))
               }))
             : []
-        rankingMetrics.value = recipe.metrics ? recipe.metrics.map((m) => ({ ...m, enabled: true })) : []
+        rankingMetrics.value = recipe.metrics
+            ? recipe.metrics.map((m) => ({ ...m, enabled: wasEnabled(m) }))
+            : []
         budget.value = recipe.budget ?? 24
         alpha.value = recipe.alpha ?? 0.001
         sizeBuckets.value = recipe.size_buckets ? [...recipe.size_buckets] : []

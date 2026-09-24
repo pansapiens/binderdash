@@ -1412,6 +1412,99 @@ export const apiKeysApi = {
     }
 }
 
+// --- Download bundles ------------------------------------------------------------
+
+export interface BundleDesignKeyDto {
+    run_id: string
+    design_id: string
+    source_path?: string | null
+}
+
+export interface BundleRequestDto {
+    keys: BundleDesignKeyDto[]
+    run_ids: string[]
+    label?: string
+    include_heavy?: boolean
+    session?: Record<string, any> | null
+    client_columns?: Record<string, Record<string, any>>
+    include?: {
+        designs_table?: boolean
+        binder_fasta?: boolean
+        structures?: boolean
+        target_contacts?: boolean
+        session?: boolean
+    }
+}
+
+export interface PrepareBundleRequestDto extends BundleRequestDto {
+    prepared: Record<string, any>
+}
+
+export interface BundleEstimateDto {
+    design_count: number
+    structure_count: number
+    structures_missing: number
+    structure_bytes: number
+    estimated_zip_bytes: number
+    contacts_rows: number
+    designs_with_contacts: number
+    max_structure_files: number
+    max_structure_bytes: number
+    max_total_bytes: number
+    exceeds_cap: boolean
+    cap_messages: string[]
+    warnings: string[]
+}
+
+async function postForBlob(url: string, body: unknown): Promise<Blob> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    const token = getCsrfToken()
+    if (token) headers['X-CSRF-Token'] = token
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        credentials: 'include'
+    })
+
+    if (!response.ok) {
+        if (response.status === 401) throw new Error('Authentication required')
+        // 413 carries a structured estimate; surface the measured size rather than a bare code.
+        let detail = ''
+        try {
+            const payload = await response.json()
+            detail =
+                typeof payload?.detail === 'string'
+                    ? payload.detail
+                    : payload?.detail?.message ?? ''
+        } catch (_) {
+            // Non-JSON error body; fall through to the status code.
+        }
+        throw new Error(detail || `Download failed (HTTP ${response.status})`)
+    }
+
+    return await response.blob()
+}
+
+export const bundlesApi = {
+    async estimate(request: BundleRequestDto): Promise<BundleEstimateDto> {
+        return await apiRequest<BundleEstimateDto>(`${API_BASE}/api/bundles/estimate`, {
+            method: 'POST',
+            body: JSON.stringify(request),
+            requireAuth: true
+        })
+    },
+
+    async downloadDesignsBundle(request: BundleRequestDto): Promise<Blob> {
+        return await postForBlob(`${API_BASE}/api/bundles/designs`, request)
+    },
+
+    async downloadPrepareBundle(request: PrepareBundleRequestDto): Promise<Blob> {
+        return await postForBlob(`${API_BASE}/api/bundles/prepare-sequences`, request)
+    }
+}
+
 /**
  * Default export with all API modules
  */
@@ -1425,5 +1518,6 @@ export default {
     savedSets: savedSetsApi,
     auth: authApi,
     apiKeys: apiKeysApi,
-    desktop: desktopApi
+    desktop: desktopApi,
+    bundles: bundlesApi
 }

@@ -77,6 +77,18 @@ Two independent things live on disk, outside the database:
   `data/` directory at the repo root when run via Docker Compose (mounted as a
   volume — see `docker-compose.dev.yml`) so it survives container rebuilds.
 
+## 4. Download bundles
+
+Nothing new is *stored* for these, but they are where the three locations above get
+combined into one file: a design bundle zip carries the run output (§3), the cached
+metrics (§1) and a JSON copy of the browser-side UI state (§2), so a download can be
+explained and restored later. See [Download bundles](download-bundles.md).
+
+Saved Sets now also store the UI state that was active when they were created, inside
+their existing `filter_params` JSON column - so a set downloaded months later reproduces
+the table layout, not just the filter recipe. Sets created before this have no such
+record and say so in the bundle.
+
 ## Quick answers
 
 - **Are Saved Sets stored server-side?** Yes — `binderdash_saved_sets` /

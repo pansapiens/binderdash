@@ -17,12 +17,12 @@ from ..auth import (
     get_current_user_optional_with_query,
 )
 from ..cache import get_run_metadata
-from ..config.method_paths import structure_resolve_uses_strip_after_first_underscore
 from ..path_policy import is_allowed_path
 from ..auth_providers.base import AuthUser
 from ..settings import settings
 from ..schemas import PdbTarRequest
 from ..util.input_targets import find_input_target_by_id
+from ..util.structure_paths import resolve_structure_path
 from ..util.superpose import (
     PDB_ID_PATTERN,
     fetch_reference_structure,
@@ -122,24 +122,9 @@ def _sync_aligned_reference(
     return out, metrics
 
 
-def _resolve_structure_path(
-    structure_files: List[str], filename: str, method: Optional[str]
-) -> Optional[Path]:
-    basename_to_path: dict[str, Path] = {Path(p).name: Path(p) for p in structure_files}
-    if filename in basename_to_path:
-        return basename_to_path[filename]
-    if structure_resolve_uses_strip_after_first_underscore(method):
-        for p in structure_files:
-            name = Path(p).name
-            if "_" in name:
-                rest = name.split("_", 1)[1]
-                if rest == filename:
-                    return Path(p)
-    if not filename.endswith(".gz"):
-        gz_name = f"{filename}.gz"
-        if gz_name in basename_to_path:
-            return basename_to_path[gz_name]
-    return None
+# Implementation lives in util/structure_paths so non-router code can use it; the
+# private alias is kept because several modules already import it from here.
+_resolve_structure_path = resolve_structure_path
 
 
 def _media_type_for_structure_path(structure_path: Path) -> str:

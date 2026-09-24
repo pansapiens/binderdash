@@ -828,11 +828,12 @@
 
     <div class="ps-download">
       <SplitButton
-        label="Download CSV (Twist-ready)"
-        icon="pi pi-download"
+        label="Download Design Bundle (zip)"
+        icon="pi pi-box"
         severity="secondary"
         :disabled="!downloadAllowed"
-        @click="toCsvTwist"
+        :loading="bundleDownloading"
+        @click="downloadBundle"
         :model="downloadMenuItems"
       />
     </div>
@@ -866,6 +867,10 @@ import {
   type PreparedRow
 } from '../stores/seqPrep'
 import type { ShortNameStrategy } from '../stores/shortName'
+import { useDesignsStore } from '../stores/designs'
+import { bundlesApi } from '../webapi'
+import { buildPreparedRows, buildPrepareState } from '../session/prepareState'
+import { buildSessionState } from '../session/sessionState'
 import {
   RESTRICTION_ENZYMES,
   type RestrictionEnzyme
@@ -1446,7 +1451,57 @@ function toCsvTwist(): void {
   toast.add({ severity: 'success', summary: 'Twist CSV', detail: `${rows.length} row(s)`, life: 2500 })
 }
 
+const bundleDownloading = ref(false)
+
+/**
+ * The superset bundle: everything the Designs bundle carries, plus the construct
+ * sequences and the settings that produced them.
+ */
+async function downloadBundle(): Promise<void> {
+  if (!guardDownload()) return
+  const rows = seqPrep.preparedRows
+  if (rows.length === 0) {
+    toast.add({ severity: 'warn', summary: 'No data', detail: 'No sequences to export', life: 2500 })
+    return
+  }
+
+  bundleDownloading.value = true
+  try {
+    const designsStore = useDesignsStore()
+    const keys = rows.map((r: PreparedRow) => ({
+      run_id: String(r.run_id),
+      design_id: String(r.design_id),
+      source_path: r.source_path ?? ''
+    }))
+    const blob = await bundlesApi.downloadPrepareBundle({
+      keys,
+      run_ids: Array.from(new Set(keys.map((k) => k.run_id))),
+      label: exportDownloadStem(),
+      session: buildSessionState(),
+      prepared: { ...buildPrepareState(), rows: buildPreparedRows() }
+    })
+    downloadBlob(blob, `${exportDownloadStem()}.zip`)
+    toast.add({
+      severity: 'success',
+      summary: 'Design bundle',
+      detail: `${rows.length} construct(s) with sequences, structures and settings`,
+      life: 3000
+    })
+  } catch (err: any) {
+    console.error('Error downloading prepare-sequences bundle:', err)
+    toast.add({
+      severity: 'error',
+      summary: 'Download Failed',
+      detail: err?.message || 'Failed to build the design bundle',
+      life: 5000
+    })
+  } finally {
+    bundleDownloading.value = false
+  }
+}
+
 const downloadMenuItems = [
+  { label: 'Download CSV (Twist-ready)', icon: 'pi pi-download', command: () => toCsvTwist() },
   { label: 'Download FASTA', icon: 'pi pi-download', command: () => downloadFasta() },
   { label: 'Download TSV', icon: 'pi pi-download', command: () => toTsv() },
   { label: 'Download CSV', icon: 'pi pi-download', command: () => toCsv() }

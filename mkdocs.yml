@@ -17,6 +17,7 @@ nav:
       - Pipeline method types: development/pipeline-methods.md
       - Sequence preparation: development/sequence_preparation.md
       - Storage architecture: development/storage.md
+      - Download bundles: development/download-bundles.md
 
 markdown_extensions:
   - toc:
