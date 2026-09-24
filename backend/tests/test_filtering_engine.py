@@ -373,6 +373,24 @@ class TestRunFilteringPipeline:
         assert len(diverse) == 2
         assert set(diverse["design_id"].to_list()) == {"a", "c"}
 
+    def test_pipeline_apply_diversity_false_keeps_all_passing(self):
+        df = _df()
+        filters = [FilterSpec(column="rmsd", operator="<", threshold=2.5)]
+        metrics = [RankingMetric(column="iptm", weight=1, higher_is_better=True)]
+        ranked, diverse = run_filtering_pipeline(
+            df,
+            filters,
+            metrics,
+            budget=1,
+            alpha=0.2,
+            sequence_col="sequence",
+            apply_diversity=False,
+        )
+        assert len(ranked) == 4
+        assert diverse is not None
+        assert len(diverse) == 2
+        assert set(diverse["design_id"].to_list()) == {"a", "c"}
+
 
 class TestMissingSequencesAreExcludedNotBlankFilled:
     """A design with no sequence must never reach the diversity pool.

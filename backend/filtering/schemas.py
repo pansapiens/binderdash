@@ -259,6 +259,10 @@ class FilteringRunRequest(BaseModel):
     alpha: float = 0.001
     size_buckets: List[SizeBucket] = Field(default_factory=list)
     random_state: int = 0
+    # When False, the saved set is every design that passed the hard filters (no budget
+    # / lazy-greedy diversity pass). Budget and alpha are still accepted so a disabled
+    # diversity recipe can round-trip without losing the user's last settings.
+    apply_diversity: bool = True
 
 
 class FilteringRunResponse(BaseModel):

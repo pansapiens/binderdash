@@ -851,6 +851,8 @@ export interface FilteringRunRequestDto {
     alpha: number
     size_buckets?: SizeBucketDto[]
     random_state?: number
+    /** When false, save every design that passed hard filters (no budget/diversity). */
+    apply_diversity?: boolean
 }
 
 export interface FilteringRunResponseDto {

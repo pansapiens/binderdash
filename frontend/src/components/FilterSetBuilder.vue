@@ -181,11 +181,11 @@ const handleDisableAllFilters = () => {
   toast.add({ severity: 'info', summary: 'All filters disabled', life: 3000 })
 }
 
-const handleToggleDiversityEnabled = () => {
-  filteringStore.toggleDiversityEnabled()
+const handleDiversityEnabledChange = (enabled: boolean) => {
+  filteringStore.setDiversityEnabled(enabled)
   toast.add({
     severity: 'info',
-    summary: filteringStore.diversityEnabled ? 'Diversity selection re-enabled' : 'Diversity selection disabled',
+    summary: enabled ? 'Diversity selection enabled' : 'Diversity selection disabled',
     life: 3000
   })
 }
@@ -562,111 +562,152 @@ const alphaLogSlider = computed<number>({
       </p>
     </Panel>
 
-    <Panel v-if="filteringStore.hasSelectedRuns" header="4. Diversity Selection" class="fsb-panel">
-      <div class="fsb-diversity-row">
-        <label class="fsb-diversity-field">
-          Budget (designs in final set)
-          <InputNumber v-model="filteringStore.budget" :min="1" show-buttons />
-        </label>
-        <label class="fsb-diversity-field fsb-diversity-field--alpha">
-          Quality ↔ Diversity (α = {{ filteringStore.alpha }})
-          <div class="fsb-alpha-slider-wrap">
-            <Slider v-model="alphaLogSlider" :min="ALPHA_LOG_MIN" :max="ALPHA_LOG_MAX" :step="0.01" />
-            <span
-              v-for="mark in ALPHA_MARKS"
-              :key="mark.value"
-              class="fsb-alpha-mark"
-              :style="{ left: alphaMarkPosition(mark.value) + '%' }"
-            >{{ mark.label }}</span>
-          </div>
-          <div class="fsb-alpha-manual">
-            <InputNumber
-              v-model="filteringStore.alpha"
-              :min="0"
-              :max="1"
-              :step="0.001"
-              :min-fraction-digits="0"
-              :max-fraction-digits="6"
-              size="small"
-              class="fsb-alpha-input"
-            />
-            <span class="fsb-hint">
-              0 = quality only, 1 = diversity only. BoltzGen defaults: 0.001 (protein), 0.01
-              (peptide-anything protocol).
-            </span>
-          </div>
-        </label>
-      </div>
-
-      <div class="fsb-best-mpnn-row">
-        <Checkbox
-          :modelValue="designsStore.bestMpnnOnly"
-          @update:modelValue="designsStore.toggleBestMpnnOnly"
-          :binary="true"
-          inputId="fsb-best-mpnn-only"
-        />
-        <label for="fsb-best-mpnn-only">Only best MPNN variant per backbone</label>
-      </div>
-
-      <details class="fsb-size-buckets">
-        <summary>Size buckets (optional — caps selections per sequence-length range)</summary>
-        <div
-          v-for="(bucket, idx) in filteringStore.sizeBuckets"
-          :key="idx"
-          class="fsb-bucket-row"
-        >
-          <label>Min <InputNumber v-model="bucket.min" :min="0" /></label>
-          <label>Max <InputNumber v-model="bucket.max" :min="0" /></label>
-          <label>Count <InputNumber v-model="bucket.num_designs" :min="0" /></label>
-          <Button
-            icon="pi pi-trash"
+    <Panel
+      v-if="filteringStore.hasSelectedRuns"
+      class="fsb-panel"
+      :class="{
+        'fsb-panel--diversity-off': !filteringStore.diversityEnabled,
+        'fsb-panel--diversity-dirty': filteringStore.diversityDirty
+      }"
+    >
+      <template #header>
+        <div class="fsb-diversity-header">
+          <ToggleSwitch
+            :modelValue="filteringStore.diversityEnabled"
+            aria-label="Enable diversity selection"
+            @update:modelValue="handleDiversityEnabledChange"
+          />
+          <span>4. Diversity Selection</span>
+          <Tag
+            v-if="filteringStore.diversityDirty"
             severity="danger"
-            text
-            rounded
-            aria-label="Remove size bucket"
-            @click="filteringStore.removeSizeBucket(idx)"
+            value="Unapplied"
+            class="fsb-diversity-header__dirty"
           />
         </div>
-        <Button
-          label="Add size bucket"
-          icon="pi pi-plus"
-          text
-          size="small"
-          @click="filteringStore.addSizeBucket()"
-        />
-      </details>
+      </template>
+      <div class="fsb-diversity-body" :aria-disabled="!filteringStore.diversityEnabled">
+        <div class="fsb-diversity-row">
+          <label class="fsb-diversity-field">
+            Budget (designs in final set)
+            <InputNumber
+              v-model="filteringStore.budget"
+              :min="1"
+              show-buttons
+              :disabled="!filteringStore.diversityEnabled"
+            />
+          </label>
+          <label class="fsb-diversity-field fsb-diversity-field--alpha">
+            Quality ↔ Diversity (α = {{ filteringStore.alpha }})
+            <div class="fsb-alpha-slider-wrap">
+              <Slider
+                v-model="alphaLogSlider"
+                :min="ALPHA_LOG_MIN"
+                :max="ALPHA_LOG_MAX"
+                :step="0.01"
+                :disabled="!filteringStore.diversityEnabled"
+              />
+              <span
+                v-for="mark in ALPHA_MARKS"
+                :key="mark.value"
+                class="fsb-alpha-mark"
+                :style="{ left: alphaMarkPosition(mark.value) + '%' }"
+              >{{ mark.label }}</span>
+            </div>
+            <div class="fsb-alpha-manual">
+              <InputNumber
+                v-model="filteringStore.alpha"
+                :min="0"
+                :max="1"
+                :step="0.001"
+                :min-fraction-digits="0"
+                :max-fraction-digits="6"
+                size="small"
+                class="fsb-alpha-input"
+                :disabled="!filteringStore.diversityEnabled"
+              />
+              <span class="fsb-hint">
+                0 = quality only, 1 = diversity only. BoltzGen defaults: 0.001 (protein), 0.01
+                (peptide-anything protocol).
+              </span>
+            </div>
+          </label>
+        </div>
 
-      <div class="fsb-filter-actions">
-        <Button
-          label="Apply Diversity Filter"
-          icon="pi pi-sitemap"
-          size="small"
-          :loading="filteringStore.diversityLoading"
-          :disabled="!filteringStore.hasSelectedRuns"
-          @click="handleApplyDiversity"
-        />
-        <Button
-          v-if="filteringStore.lastDiversityResult"
-          :label="filteringStore.diversityEnabled ? 'Disable diversity selection' : 'Enable diversity selection'"
-          :icon="filteringStore.diversityEnabled ? 'pi pi-ban' : 'pi pi-check'"
-          text
-          size="small"
-          severity="secondary"
-          @click="handleToggleDiversityEnabled"
-        />
-        <span v-if="filteringStore.lastDiversityResult" class="fsb-apply-status">
-          {{ filteringStore.lastDiversityResult.diverse_set_count }} diverse designs selected
-          <template v-if="!filteringStore.diversityEnabled"> (disabled)</template>
-        </span>
+        <div class="fsb-best-mpnn-row">
+          <Checkbox
+            :modelValue="designsStore.bestMpnnOnly"
+            @update:modelValue="designsStore.toggleBestMpnnOnly"
+            :binary="true"
+            inputId="fsb-best-mpnn-only"
+            :disabled="!filteringStore.diversityEnabled"
+          />
+          <label for="fsb-best-mpnn-only">Only best MPNN variant per backbone</label>
+        </div>
+
+        <details class="fsb-size-buckets">
+          <summary>Size buckets (optional — caps selections per sequence-length range)</summary>
+          <div
+            v-for="(bucket, idx) in filteringStore.sizeBuckets"
+            :key="idx"
+            class="fsb-bucket-row"
+          >
+            <label>Min <InputNumber v-model="bucket.min" :min="0" :disabled="!filteringStore.diversityEnabled" /></label>
+            <label>Max <InputNumber v-model="bucket.max" :min="0" :disabled="!filteringStore.diversityEnabled" /></label>
+            <label>Count <InputNumber v-model="bucket.num_designs" :min="0" :disabled="!filteringStore.diversityEnabled" /></label>
+            <Button
+              icon="pi pi-trash"
+              severity="danger"
+              text
+              rounded
+              aria-label="Remove size bucket"
+              :disabled="!filteringStore.diversityEnabled"
+              @click="filteringStore.removeSizeBucket(idx)"
+            />
+          </div>
+          <Button
+            label="Add size bucket"
+            icon="pi pi-plus"
+            text
+            size="small"
+            :disabled="!filteringStore.diversityEnabled"
+            @click="filteringStore.addSizeBucket()"
+          />
+        </details>
+
+        <div class="fsb-filter-actions">
+          <Button
+            label="Apply Diversity Filter"
+            icon="pi pi-sitemap"
+            size="small"
+            :loading="filteringStore.diversityLoading"
+            :disabled="!filteringStore.hasSelectedRuns || !filteringStore.diversityEnabled"
+            @click="handleApplyDiversity"
+          />
+          <span v-if="filteringStore.lastDiversityResult && !filteringStore.diversityDirty" class="fsb-apply-status">
+            {{ filteringStore.lastDiversityResult.diverse_set_count }} diverse designs selected
+            <template v-if="!filteringStore.diversityEnabled"> (disabled)</template>
+          </span>
+          <span v-else-if="filteringStore.diversityDirty" class="fsb-apply-status fsb-apply-status--dirty">
+            Settings changed — click Apply to update the diverse subset.
+          </span>
+        </div>
+        <Message v-if="filteringStore.diversityError" severity="error" :closable="false" class="fsb-preview-error">
+          {{ filteringStore.diversityError }}
+        </Message>
+        <p class="fsb-hint">
+          <template v-if="!filteringStore.diversityEnabled">
+            Off — creating a Saved Set keeps every design that passes the hard filters
+            (no budget). Turn on to select a diverse subset of size Budget.
+          </template>
+          <template v-else>
+            Not applied automatically — this can be slow (pairwise alignment-based
+            diversity selection). Narrows the Designs table to the diverse subset and
+            sorts it by Ranking (<code>binderdash_ranking</code>, 1 = best). Same
+            on/off as the Diversity tag in the filter cascade above.
+          </template>
+        </p>
       </div>
-      <Message v-if="filteringStore.diversityError" severity="error" :closable="false" class="fsb-preview-error">
-        {{ filteringStore.diversityError }}
-      </Message>
-      <p class="fsb-hint">
-        Not applied automatically — this can be slow (pairwise alignment-based
-        diversity selection). Narrows the Designs table to the diverse subset and
-        sorts it by Ranking (<code>binderdash_ranking</code>, 1 = best).
-      </p>
     </Panel>
 
     <Panel v-if="filteringStore.hasSelectedRuns" header="5. Filter cascade" class="fsb-panel">
@@ -703,8 +744,11 @@ const alphaLogSlider = computed<number>({
           </Column>
           <Column field="remaining" header="Remaining" />
         </DataTable>
-        <p v-if="!filteringStore.lastDiversityResult" class="fsb-hint">
-          No diversity filter applied.
+        <p v-if="!filteringStore.diversityEnabled" class="fsb-hint">
+          Diversity selection is off — the final set is every design that passes the hard filters.
+        </p>
+        <p v-else-if="!filteringStore.lastDiversityResult || filteringStore.diversityDirty" class="fsb-hint">
+          Diversity selection is on but not yet applied.
         </p>
       </div>
     </Panel>
@@ -735,7 +779,13 @@ const alphaLogSlider = computed<number>({
       <p v-if="filteringStore.lastCreatedSavedSet" class="fsb-hint">
         Last created: <strong>{{ filteringStore.lastCreatedSavedSet.name }}</strong> —
         {{ filteringStore.lastCreatedSavedSet.diverse_set_count }} designs selected
-        (budget {{ filteringStore.lastCreatedSavedSet.top_set_count }}), from
+        <template v-if="filteringStore.diversityEnabled">
+          (budget {{ filteringStore.lastCreatedSavedSet.top_set_count }})
+        </template>
+        <template v-else>
+          (all passing filters — diversity off)
+        </template>
+        , from
         {{ filteringStore.lastCreatedSavedSet.passing_filters }} passing filters of
         {{ filteringStore.lastCreatedSavedSet.total_input }} total. View it under Saved
         Sets.
@@ -969,17 +1019,45 @@ const alphaLogSlider = computed<number>({
   margin-top: 1rem;
 }
 
-.fsb-cascade-row--final {
+.fsb-diversity-header {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-weight: 600;
+}
+
+.fsb-diversity-header__dirty {
+  font-weight: 500;
+}
+
+.fsb-panel--diversity-off {
+  opacity: 0.55;
+}
+
+.fsb-panel--diversity-dirty {
+  border: 2px solid #e53935;
+  border-radius: 6px;
+}
+
+.fsb-apply-status--dirty {
+  color: #c62828;
+}
+
+/* rowClass lands on PrimeVue <tr>s outside this component's scoped
+   attribute, so :deep is required. text-decoration on <tr> is ignored by
+   browsers — apply it (and the muted colour) to the cells. */
+:deep(.fsb-cascade-row--final) {
   font-weight: 600;
   background-color: #e6f4ea !important;
 }
 
-.fsb-cascade-row--disabled {
-  opacity: 0.5;
+:deep(.fsb-cascade-row--disabled td) {
+  color: var(--p-text-muted-color, #888);
   text-decoration: line-through;
+  opacity: 0.65;
 }
 
-.fsb-cascade-row--diversity:not(.fsb-cascade-row--disabled) {
+:deep(.fsb-cascade-row--diversity:not(.fsb-cascade-row--disabled)) {
   background-color: #fff8e6 !important;
   font-style: italic;
 }

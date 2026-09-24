@@ -412,6 +412,7 @@ def run_filtering_and_save(request: FilteringRunRequest) -> FilteringRunResponse
         tiebreak_column=_pick_tiebreak_column(df),
         size_buckets=request.size_buckets,
         random_state=request.random_state,
+        apply_diversity=request.apply_diversity,
     )
 
     diverse_keys = set()
@@ -426,9 +427,16 @@ def run_filtering_and_save(request: FilteringRunRequest) -> FilteringRunResponse
     passing_filters = (
         int(ranked["pass_filters"].sum()) if "pass_filters" in ranked.columns else ranked.height
     )
-    top_set_count = min(request.budget, ranked.height)
     diverse_set_count = diverse.height if diverse is not None else 0
-    warnings = _diversity_warnings(ranked, sequence_col, request.budget, diverse_set_count)
+    # Without diversity selection the "budget" is the full passing set.
+    top_set_count = (
+        diverse_set_count if not request.apply_diversity else min(request.budget, ranked.height)
+    )
+    warnings = (
+        []
+        if not request.apply_diversity
+        else _diversity_warnings(ranked, sequence_col, request.budget, diverse_set_count)
+    )
 
     saved_set_id = str(uuid.uuid4())
     repo = get_designs_repository()

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Changed (Filtering / UI)**: Diversity selection defaults to **off**. Section 4 has an on/off toggle (synced with the Diversity tag in the filter cascade). When off, creating a Saved Set keeps every design that passed the hard filters (no budget). When on but unapplied — or after budget/α/bucket edits — the panel shows a red border until Apply.
 - **Fixed (UI)**: Structure viewer next/previous again follows the Designs table row order after a column sort, including multi-column sorts.
 - **Changed (Filtering / UI)**: Apply Ranking adds a **Ranking** column (`binderdash_ranking`, 1 = best) to the Designs table, shows it, and sorts by it. The name is separate from any pipeline `quality_score` or `final_rank`.
 - **Fixed (Auth)**: Google sign-in returns to the tab in the URL fragment (`#designs`, `#filtering`, and the others) instead of landing on `/`.

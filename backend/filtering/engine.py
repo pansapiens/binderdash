@@ -518,6 +518,7 @@ def run_filtering_pipeline(
     tiebreak_column: Optional[str] = None,
     size_buckets: Optional[List[SizeBucket]] = None,
     random_state: int = 0,
+    apply_diversity: bool = True,
 ) -> Tuple[pl.DataFrame, Optional[pl.DataFrame]]:
     """Run the full filter -> rank -> diversity pipeline.
 
@@ -527,19 +528,27 @@ def run_filtering_pipeline(
     ``SavedSetDesignsResponse``). ``diverse_df`` is the diversity-selected subset,
     picked only from designs that passed every hard filter (a design that fails a
     filter must never end up in the saved/diverse set); it's ``None`` when
-    ``sequence_col`` is not provided or absent from ``df`` (quality-only ranking).
+    ``apply_diversity`` is True but ``sequence_col`` is not provided or absent from
+    ``df`` (quality-only ranking).
 
-    Designs whose sequence is missing or blank are excluded from ``diverse_df`` (see
-    ``select_diverse``), so it can be smaller than ``budget`` — or empty — even when
-    plenty of designs passed the filters. Callers should report that with
-    ``count_missing_sequences`` rather than leave the shortfall unexplained.
+    When ``apply_diversity`` is False, ``diverse_df`` is every design that passed the
+    hard filters (no budget / lazy-greedy pass) — used when the user turns diversity
+    selection off and wants the saved set to be "all that pass".
+
+    Designs whose sequence is missing or blank are excluded from ``diverse_df`` when
+    diversity selection runs (see ``select_diverse``), so it can be smaller than
+    ``budget`` — or empty — even when plenty of designs passed the filters. Callers
+    should report that with ``count_missing_sequences`` rather than leave the
+    shortfall unexplained.
     """
     filtered = apply_hard_filters(df, filters)
     ranked = rank_designs(filtered, metrics, tiebreak_column=tiebreak_column)
 
+    candidates = ranked.filter(pl.col("pass_filters")) if "pass_filters" in ranked.columns else ranked
     diverse_df: Optional[pl.DataFrame] = None
-    if sequence_col and sequence_col in ranked.columns:
-        candidates = ranked.filter(pl.col("pass_filters")) if "pass_filters" in ranked.columns else ranked
+    if not apply_diversity:
+        diverse_df = candidates
+    elif sequence_col and sequence_col in ranked.columns:
         diverse_df = select_diverse(
             candidates,
             sequence_col=sequence_col,

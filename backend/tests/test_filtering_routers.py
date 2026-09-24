@@ -248,6 +248,31 @@ class TestFilteringRun:
         assert body["top_set_count"] == 3
         assert body["diverse_set_count"] == 3
 
+    def test_run_without_diversity_keeps_all_passing(self, api_client, sqlite_designs_repo) -> None:
+        _seed_run()
+        resp = api_client.post(
+            "/api/filtering/run",
+            json={
+                "name": "All passing",
+                "run_ids": ["run-filt-1"],
+                "filters": [{"column": "Binder_RMSD", "operator": "<", "threshold": 2.8}],
+                "metrics": [{"column": "Average_i_pTM", "weight": 1.0, "higher_is_better": True}],
+                "budget": 3,
+                "alpha": 0.2,
+                "apply_diversity": False,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["passing_filters"] == 7
+        assert body["diverse_set_count"] == 7
+        assert body["top_set_count"] == 7
+        assert body.get("warnings", []) == []
+
+        designs = api_client.get(f"/api/saved-sets/{body['saved_set_id']}/designs")
+        assert designs.status_code == 200, designs.text
+        assert sum(1 for r in designs.json()["designs"] if r["in_diverse_set"]) == 7
+
     def test_run_no_matching_runs_returns_400(self, api_client, sqlite_designs_repo) -> None:
         cache_mod.run_cache.clear()
         cache_mod.designs_by_run_id.clear()

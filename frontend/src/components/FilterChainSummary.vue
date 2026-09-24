@@ -34,7 +34,7 @@ function itemTooltip(item: FilterChainItem): string {
 
 function toggleItem(item: FilterChainItem) {
   if (item.type === 'diversity') {
-    filteringStore.toggleDiversityEnabled()
+    filteringStore.setDiversityEnabled(!item.enabled)
   } else if (item.type === 'target_contact') {
     filteringStore.toggleTargetContactFilterEnabled(item.groupIndex ?? 0, item.index)
   } else {

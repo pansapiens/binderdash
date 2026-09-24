@@ -125,7 +125,16 @@ export const useFilteringStore = defineStore('filtering', () => {
     // can be toggled off — reverting to the hard-filter-only set — without re-running
     // the (slow, pairwise-alignment-based) diversity selection.
     const diverseDesignKeys = ref<Set<string> | null>(null)
-    const diversityEnabled = ref(true)
+    // Master on/off for diversity selection — shared by section 4's toggle and the
+    // cascade tag. Default off: creating a Saved Set takes every design that passed
+    // the hard filters (no budget). Turning it on without applying (or after editing
+    // budget/α/buckets) is the "dirty" state the panel paints with a red border.
+    const diversityEnabled = ref(false)
+    const diversityAppliedSnapshot = ref<{
+        budget: number
+        alpha: number
+        sizeBuckets: SizeBucketDto[]
+    } | null>(null)
 
     // Preview (filter cascade) — unchanged behaviour, now against designsStore.selectedRunIds
     const previewResult = ref<FilteringPreviewResponseDto | null>(null)
@@ -216,8 +225,23 @@ export const useFilteringStore = defineStore('filtering', () => {
     })
 
     const canCreateSavedSet = computed(
-        () => hasSelectedRuns.value && budget.value > 0 && !creatingSavedSet.value
+        () =>
+            hasSelectedRuns.value &&
+            !creatingSavedSet.value &&
+            (!diversityEnabled.value || budget.value > 0)
     )
+
+    /** True when diversity is on but settings have not been applied (or have changed since). */
+    const diversityDirty = computed(() => {
+        if (!diversityEnabled.value) return false
+        const snap = diversityAppliedSnapshot.value
+        if (!snap) return true
+        return (
+            snap.budget !== budget.value ||
+            snap.alpha !== alpha.value ||
+            JSON.stringify(snap.sizeBuckets) !== JSON.stringify(sizeBuckets.value)
+        )
+    })
 
     // Total designs before any hard filter — same DataFrame the cascade counts below
     // derive from (previewResult always covers the full active run scope, even with
@@ -225,11 +249,13 @@ export const useFilteringStore = defineStore('filtering', () => {
     const initialDesignCount = computed<number | null>(() => previewResult.value?.total_designs ?? null)
 
     // The key set that actually narrows the Designs table: diversity selection's result
-    // when it has been run and is still enabled, else the hard-filter-only set. See
-    // diverseDesignKeys/diversityEnabled above — toggling diversity off reverts here
-    // without discarding the cached diverse subset.
+    // when it has been run, is still enabled, and settings match the last apply; else
+    // the hard-filter-only set. Toggling diversity off (or editing budget/α/buckets)
+    // reverts here without discarding the cached diverse subset until the next apply.
     const effectivePassingKeys = computed<Set<string> | null>(() =>
-        diversityEnabled.value && diverseDesignKeys.value ? diverseDesignKeys.value : passingDesignKeys.value
+        diversityEnabled.value && !diversityDirty.value && diverseDesignKeys.value
+            ? diverseDesignKeys.value
+            : passingDesignKeys.value
     )
 
     // Per-filter cascade, positioned for UI consumers that render the filter list as a
@@ -294,7 +320,14 @@ export const useFilteringStore = defineStore('filtering', () => {
             })
         })
 
-        if (lastDiversityResult.value) {
+        // Show once the user has turned diversity on (even before apply) or has a
+        // cached result they can re-enable — keeps the cascade tag in lock-step with
+        // section 4's toggle.
+        if (diversityEnabled.value || lastDiversityResult.value) {
+            const applied =
+                diversityEnabled.value &&
+                !diversityDirty.value &&
+                lastDiversityResult.value != null
             items.push({
                 index: -1,
                 type: 'diversity',
@@ -303,10 +336,11 @@ export const useFilteringStore = defineStore('filtering', () => {
                 threshold: null,
                 text_value: null,
                 enabled: diversityEnabled.value,
-                // Only counts as narrowing the cascade while enabled — matches disabled
-                // hard filters above (remaining=null), so cascade-final-row logic that
-                // walks backward for the last non-null remaining skips it when off.
-                remaining: diversityEnabled.value ? lastDiversityResult.value.diverse_set_count : null
+                // Only counts as narrowing the cascade while enabled *and* applied —
+                // matches disabled hard filters above (remaining=null), so cascade-
+                // final-row logic that walks backward for the last non-null remaining
+                // skips it when off or dirty.
+                remaining: applied ? lastDiversityResult.value!.diverse_set_count : null
             })
         }
         return items
@@ -455,6 +489,11 @@ export const useFilteringStore = defineStore('filtering', () => {
             // the computed diverse subset.
             diverseDesignKeys.value = diverseKeys
             diversityEnabled.value = true
+            diversityAppliedSnapshot.value = {
+                budget: budget.value,
+                alpha: alpha.value,
+                sizeBuckets: sizeBuckets.value.map((b) => ({ ...b }))
+            }
             lastDiversityResult.value = {
                 passing_filters: res.passing_filters,
                 diverse_set_count: res.diverse_set_count,
@@ -676,7 +715,8 @@ export const useFilteringStore = defineStore('filtering', () => {
         diversityError.value = null
         lastDiversityResult.value = null
         diverseDesignKeys.value = null
-        diversityEnabled.value = true
+        diversityAppliedSnapshot.value = null
+        diversityEnabled.value = false
     }
 
     const disableAllFilters = () => {
@@ -701,6 +741,10 @@ export const useFilteringStore = defineStore('filtering', () => {
     /** Toggle the diversity-selection stage on/off without re-running selection. */
     const toggleDiversityEnabled = () => {
         diversityEnabled.value = !diversityEnabled.value
+    }
+
+    const setDiversityEnabled = (enabled: boolean) => {
+        diversityEnabled.value = enabled
     }
 
     // --- Preview (cascade) ---
@@ -793,7 +837,11 @@ export const useFilteringStore = defineStore('filtering', () => {
                 metrics: activeRankingMetrics.value,
                 budget: budget.value,
                 alpha: alpha.value,
-                size_buckets: sizeBuckets.value
+                size_buckets: sizeBuckets.value,
+                // Honour the same on/off as section 4 / the cascade tag — when off,
+                // every design that passed the hard filters becomes the saved set
+                // (no budget / lazy-greedy pass).
+                apply_diversity: diversityEnabled.value
             })
             lastCreatedSavedSet.value = res
             await fetchSavedSets()
@@ -856,6 +904,9 @@ export const useFilteringStore = defineStore('filtering', () => {
         alpha.value = recipe.alpha ?? 0.001
         sizeBuckets.value = recipe.size_buckets ? [...recipe.size_buckets] : []
         clearAppliedFilters()
+        // Old recipes predate apply_diversity; they always ran diversity, so default on.
+        // clearAppliedFilters resets the toggle to the fresh-UI default (off).
+        diversityEnabled.value = recipe.apply_diversity !== false
         scheduleApply()
     }
 
@@ -877,13 +928,14 @@ export const useFilteringStore = defineStore('filtering', () => {
                 rankingMetrics: rankingMetrics.value,
                 budget: budget.value,
                 alpha: alpha.value,
-                sizeBuckets: sizeBuckets.value
+                sizeBuckets: sizeBuckets.value,
+                diversityEnabled: diversityEnabled.value
             })
         }, PERSIST_DEBOUNCE_MS)
     }
 
     watch(
-        [filters, targetContactGroups, rankingMetrics, budget, alpha, sizeBuckets],
+        [filters, targetContactGroups, rankingMetrics, budget, alpha, sizeBuckets, diversityEnabled],
         persistFilteringViewState,
         { deep: true }
     )
@@ -897,6 +949,7 @@ export const useFilteringStore = defineStore('filtering', () => {
                 budget?: unknown
                 alpha?: unknown
                 sizeBuckets?: unknown
+                diversityEnabled?: unknown
             }>(PERSISTENCE_KEYS.filteringViewState)
             if (payload) {
                 if (Array.isArray(payload.filters)) {
@@ -916,6 +969,9 @@ export const useFilteringStore = defineStore('filtering', () => {
                 }
                 if (Array.isArray(payload.sizeBuckets)) {
                     sizeBuckets.value = payload.sizeBuckets as SizeBucketDto[]
+                }
+                if (typeof payload.diversityEnabled === 'boolean') {
+                    diversityEnabled.value = payload.diversityEnabled
                 }
             }
         } catch (e) {
@@ -953,6 +1009,7 @@ export const useFilteringStore = defineStore('filtering', () => {
         lastDiversityResult,
         diverseDesignKeys,
         diversityEnabled,
+        diversityDirty,
         previewResult,
         previewLoading,
         previewError,
@@ -990,6 +1047,7 @@ export const useFilteringStore = defineStore('filtering', () => {
         disableAllFilters,
         toggleFilterEnabled,
         toggleDiversityEnabled,
+        setDiversityEnabled,
         runPreview,
         addFilter,
         removeFilter,
