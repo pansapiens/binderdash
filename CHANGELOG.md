@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Structure viewer**: The terminus tag marker is drawn as soon as next/previous finishes loading a structure. It previously stayed blank until pLDDT was toggled, because the viewer read terminal coordinates before Mol* had finished loading the model.
 - **Filtering**: **Only best MPNN variant per backbone** no longer collapses the Designs table while diversity selection is off. The checkbox stays as set and applies again when diversity selection is turned back on.
 - **Designs**: Structure viewer next/previous follows the Designs table row order after a column sort, including multi-column sorts.
 - **Runs / ingest**: BindCraft multi-target runs (nf-binder-design) no longer report `Accepted / Total` using per-target `bindcraft_n_traj` alone — total trajectories are `bindcraft_n_traj × n_targets`. CSV trajectory counts also handle CR-only BindCraft merges correctly.

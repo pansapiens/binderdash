@@ -18,16 +18,16 @@
     <div
       ref="molstarContainer"
       class="molstar-viewer"
-      v-show="!loading && !error"
+      v-show="!error"
     ></div>
     <canvas
-      v-show="!loading && !error"
+      v-show="!error"
       ref="membraneCanvasEl"
       class="molstar-membrane-overlay"
       aria-hidden="true"
     />
     <canvas
-      v-show="!loading && !error"
+      v-show="!error"
       ref="tagMarkerCanvasEl"
       class="molstar-tag-marker-overlay"
       aria-hidden="true"
@@ -49,6 +49,38 @@ if (typeof window !== 'undefined') {
 }
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+
+/**
+ * `PDBeMolstarPlugin.render()` starts `load()` and returns before the model is
+ * in the hierarchy. `events.loadComplete` is that signal — `visual.update()`
+ * (the pLDDT toggle) already awaits `load()`, which is why the tag marker
+ * appears after a toggle and not after next/prev.
+ */
+function waitForPdbeLoad(
+  viewer: { events?: { loadComplete?: { subscribe: (cb: (ok: boolean) => void) => { unsubscribe: () => void } } } },
+  timeoutMs = 30000,
+): { promise: Promise<boolean>; cancel: () => void } {
+  let cancel = () => {}
+  const promise = new Promise<boolean>((resolve) => {
+    const events = viewer.events?.loadComplete
+    if (!events?.subscribe) {
+      resolve(false)
+      return
+    }
+    let settled = false
+    const finish = (ok: boolean) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timer)
+      sub.unsubscribe()
+      resolve(ok)
+    }
+    const sub = events.subscribe((ok: boolean) => finish(!!ok))
+    const timer = window.setTimeout(() => finish(false), timeoutMs)
+    cancel = () => finish(false)
+  })
+  return { promise, cancel }
+}
 
 // Extend Window interface for PDBeMolstarPlugin
 declare global {
@@ -553,6 +585,13 @@ const runLoadStructure = async (): Promise<void> => {
     lastCompletedStructureLoadKey = null
   } finally {
     loading.value = false
+    // Paint after the loading cover is gone. A draw made while the WebGL
+    // canvas still had no size would otherwise stick until the next redraw.
+    if (viewerAlive.value && viewerInstance.value) {
+      await nextTick()
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      if (viewerAlive.value) paintAllOverlays()
+    }
   }
 }
 
@@ -583,9 +622,11 @@ const fullReload = async () => {
 
   if (!viewerAlive.value || !molstarContainer.value) return
 
-  // Create plugin instance
+  // Create plugin instance. Subscribe before render(): load() is not awaited
+  // by render(), and a fast file can emit loadComplete before we get to await it.
   const viewer = new PDBeMolstarPlugin()
-  
+  const structureReady = waitForPdbeLoad(viewer)
+
   const appearance = primaryStructureVisualOptions()
   // Set options following the documentation pattern
   const options = {
@@ -615,10 +656,23 @@ const fullReload = async () => {
   
   
   // Call render method to display the 3D view
-  await viewer.render(molstarContainer.value, options)
-  if (!viewerAlive.value) return
+  try {
+    await viewer.render(molstarContainer.value, options)
+  } catch (e) {
+    structureReady.cancel()
+    throw e
+  }
+  if (!viewerAlive.value) {
+    structureReady.cancel()
+    return
+  }
 
   viewerInstance.value = viewer
+  const loaded = await structureReady.promise
+  if (!viewerAlive.value) return
+  if (!loaded) {
+    console.warn('PDBe Molstar: structure load did not finish; tag marker may be missing')
+  }
 
   await nextTick()
   if (!viewerAlive.value) return
