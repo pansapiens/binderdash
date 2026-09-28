@@ -87,7 +87,33 @@
 - Run Playwright tests: `pnpm test` (from project root)
 - Update `.env.example` when env vars change
 - Update documentation in `docs/`
-- Update `CHANGELOG.md` for notable features and fixes
+- Update `CHANGELOG.md` for notable features and fixes (see format below)
+
+## CHANGELOG.md
+
+Follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Under each version heading (`## [Unreleased]` or `## [X.Y.Z] - YYYY-MM-DD`), use category subsections in this order:
+
+- `### Added` — new features
+- `### Changed` — changes in existing functionality
+- `### Deprecated` — soon-to-be removed features
+- `### Removed` — now removed features
+- `### Fixed` — bug fixes
+- `### Security` — vulnerabilities
+
+Omit empty categories. Do **not** put `**Added**` / `**Changed**` / etc. at the start of bullet points — that belongs in the `###` heading.
+
+Each bullet starts with a bold area prefix, then a colon and the change:
+
+```markdown
+### Added
+
+- **Filtering**: Ranking has two modes. **Simple ranking** (the UI default) …
+- **Auth / API**: **Per-user API keys** — named, expiring, revocable …
+```
+
+Prefer that prefix over topic subsections (`### Filtering`, `#### Docker Containerization`). If a topic spans categories, split its bullets across the matching `###` sections rather than inventing a nested heading.
+
+For `[Unreleased]`, document the net state relative to the last release — consolidate overlapping entries, and drop or fold intermediate changes that later unreleased work superseded. Mark breaking behaviour with **BREAKING** in the bullet (or heading) when users must act.
 
 ## Releasing
 
@@ -102,7 +128,7 @@ Bump the version in **all four** project manifests (keep them in sync):
 
 Also update before tagging:
 
-- [`CHANGELOG.md`](CHANGELOG.md) — move `[Unreleased]` entries into a dated section (e.g. `## [0.3.0] - YYYY-MM-DD`)
+- [`CHANGELOG.md`](CHANGELOG.md) — consolidate `[Unreleased]` to the net state since the last release, then move those entries into a dated section (e.g. `## [0.3.0] - YYYY-MM-DD`); keep the empty `## [Unreleased]` heading at the top
 - **Git tag** — `vX.Y.Z` must match `backend/pyproject.toml` (e.g. `v0.3.0` for version `0.3.0`). Pushing a `v*` tag triggers [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) to build and publish Linux AppImage, macOS zip, and Windows zip.
 
 Check that documentation is up to date in `docs/`.
