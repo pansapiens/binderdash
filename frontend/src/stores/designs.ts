@@ -370,7 +370,8 @@ export const useDesignsStore = defineStore('designs', () => {
         // otherwise keep only designs whose key is in the passing set. Lazily looked up
         // to avoid a circular store-init dependency (filteringStore.activeRunIds reads
         // this store).
-        const passingKeys = useFilteringStore().effectivePassingKeys
+        const filteringStore = useFilteringStore()
+        const passingKeys = filteringStore.effectivePassingKeys
         if (passingKeys) {
             filtered = filtered.filter(design => passingKeys.has(buildDesignKey(design)))
         }
@@ -388,14 +389,16 @@ export const useDesignsStore = defineStore('designs', () => {
             filtered = []
         }
 
-        // Apply best MPNN filtering if enabled
-        if (bestMpnnOnly.value) {
+        // Best-MPNN collapse lives in the Diversity Selection panel. The checkbox is
+        // disabled while that section is off, but the preference is kept so turning
+        // diversity back on restores it. Do not keep filtering the table in the meantime.
+        if (bestMpnnOnly.value && filteringStore.diversityEnabled) {
             filtered = _filterBestMpnnDesigns(filtered)
         }
 
         // Attach binderdash_ranking (1 = best) from Apply Ranking / Apply Diversity.
         // Written under our own field so it cannot overwrite a pipeline quality_score.
-        const rankedDesigns = useFilteringStore().rankedDesigns
+        const rankedDesigns = filteringStore.rankedDesigns
         if (rankedDesigns) {
             filtered = filtered.map(design => {
                 const info = rankedDesigns.get(buildDesignKey(design))

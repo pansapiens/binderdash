@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Filtering**: **Only best MPNN variant per backbone** no longer collapses the Designs table while diversity selection is off. The checkbox stays as set and applies again when diversity selection is turned back on.
 - **Designs**: Structure viewer next/previous follows the Designs table row order after a column sort, including multi-column sorts.
 - **Runs / ingest**: BindCraft multi-target runs (nf-binder-design) no longer report `Accepted / Total` using per-target `bindcraft_n_traj` alone — total trajectories are `bindcraft_n_traj × n_targets`. CSV trajectory counts also handle CR-only BindCraft merges correctly.
 - **Auth / Docker**: PAM logins failed in Docker even with host `/etc/passwd`, `/etc/group` and `/etc/shadow` bind-mounted. `pam_unix` shells out to the setgid-`shadow` helper `/sbin/unix_chkpwd`, which will not check a user other than its caller, so a container running as a non-root `user:` always got `PAM_AUTHINFO_UNAVAIL` — reported as an indistinguishable "Incorrect username or password". The compose services now set `group_add: ["42"]`. Documented alongside it: those single-file mounts pin an inode, so host password changes and new users need `docker compose up -d --force-recreate`, not `restart`.

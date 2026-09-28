@@ -163,7 +163,7 @@ Changing budget, α, or the size buckets after an apply marks the panel **Unappl
 
 Designs with a missing or blank sequence are left out of the pool. A blank sequence would look maximally dissimilar to everything, so including it would prefer the designs the selector knows least about. If the runs have no `Sequence` column at all, selection is skipped until sequences are extracted (`POST /api/sequences/extract`).
 
-**Only best MPNN variant per backbone** is a Designs-table view option that sits in this panel. It is applied in the browser after the server returns rows: designs that share a `backbone_id` collapse to the one with the best primary score, and designs with no `backbone_id` are kept. It does not change the diverse subset or the Saved Set.
+**Only best MPNN variant per backbone** is a Designs-table view option in this panel. While diversity selection is on, designs that share a `backbone_id` collapse in the browser to the one with the best primary score, and designs with no `backbone_id` are kept. Turning diversity selection off leaves the checkbox as it was but stops the collapse. It does not change the diverse subset or the Saved Set.
 
 ## 5. Filter cascade
 
