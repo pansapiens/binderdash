@@ -114,6 +114,11 @@ export const useDesignsStore = defineStore('designs', () => {
     const tableMultiSortMeta = ref<DataTableSortMeta[]>([])
     /** Mirrors DataTable paginator `first` (row offset). */
     const tableFirst = ref(0)
+    /**
+     * Bumped whenever ranking is applied so the Designs table drops a dragged
+     * column order and puts Ranking back in the first position.
+     */
+    const tableColumnOrderEpoch = ref(0)
 
     const binderdashRankingColumn = (): ColumnConfig => ({
         field: BINDERDASH_RANKING_FIELD,
@@ -125,31 +130,9 @@ export const useDesignsStore = defineStore('designs', () => {
         style: 'min-width: 110px',
     })
 
-    /** Place `field` immediately after the identity columns (tag, else good, else method). */
-    const insertFieldAfterIdentity = (fields: string[], field: string): string[] => {
-        const without = fields.filter((f) => f !== field)
-        let anchor = -1
-        for (const name of ['tag', 'good', 'method'] as const) {
-            const idx = without.indexOf(name)
-            if (idx >= 0) {
-                anchor = idx
-                break
-            }
-        }
-        without.splice(anchor + 1, 0, field)
-        return without
-    }
-
     const insertBinderdashRankingColumn = (cols: ColumnConfig[]): ColumnConfig[] => {
-        const ranking = binderdashRankingColumn()
         const without = cols.filter((c) => c.field !== BINDERDASH_RANKING_FIELD)
-        const order = insertFieldAfterIdentity(
-            without.map((c) => c.field),
-            BINDERDASH_RANKING_FIELD
-        )
-        const byField = new Map(without.map((c) => [c.field, c]))
-        byField.set(BINDERDASH_RANKING_FIELD, ranking)
-        return order.map((field) => byField.get(field) as ColumnConfig)
+        return [binderdashRankingColumn(), ...without]
     }
 
     function buildColumnsFromData(allDesigns: Design[]): ColumnConfig[] {
@@ -286,8 +269,8 @@ export const useDesignsStore = defineStore('designs', () => {
     })
 
     const showBinderdashRankingColumn = () => {
-        if (visibleColumns.value.includes(BINDERDASH_RANKING_FIELD)) return
-        visibleColumns.value = insertFieldAfterIdentity(visibleColumns.value, BINDERDASH_RANKING_FIELD)
+        const rest = visibleColumns.value.filter((f) => f !== BINDERDASH_RANKING_FIELD)
+        visibleColumns.value = [BINDERDASH_RANKING_FIELD, ...rest]
     }
 
     const hideBinderdashRankingColumn = () => {
@@ -305,11 +288,12 @@ export const useDesignsStore = defineStore('designs', () => {
         { deep: true }
     )
 
-    /** Show the ranking column and sort the Designs table by it (1 = best, ascending). */
+    /** Show Ranking as the first column and sort the Designs table by it (1 = best, ascending). */
     const presentBinderdashRanking = () => {
         showBinderdashRankingColumn()
         tableMultiSortMeta.value = [{ field: BINDERDASH_RANKING_FIELD, order: 1 }]
         tableFirst.value = 0
+        tableColumnOrderEpoch.value += 1
     }
 
     const dismissBinderdashRanking = () => {
@@ -844,7 +828,7 @@ export const useDesignsStore = defineStore('designs', () => {
             const rankingActive = (useFilteringStore().rankedDesigns?.size ?? 0) > 0
             if (!hadDesigns) {
                 visibleColumns.value = rankingActive
-                    ? insertFieldAfterIdentity(newDefaultColumns, BINDERDASH_RANKING_FIELD)
+                    ? [BINDERDASH_RANKING_FIELD, ...newDefaultColumns]
                     : newDefaultColumns
             } else {
                 const fieldSet = new Set(columns.value.map(c => c.field))
@@ -1303,6 +1287,7 @@ export const useDesignsStore = defineStore('designs', () => {
         currentNavDesignId,
         tableMultiSortMeta,
         tableFirst,
+        tableColumnOrderEpoch,
 
         // Getters
         filteredDesigns,

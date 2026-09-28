@@ -9,6 +9,8 @@ theme:
 
 nav:
   - Home: index.md
+  - Usage:
+      - Filtering and ranking: usage/filtering-ranking.md
   - Setup:
       - Authentication: setup/authentication.md
   - Development:

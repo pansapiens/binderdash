@@ -22,7 +22,12 @@ from .engine import (
     rank_designs,
     run_filtering_pipeline,
 )
-from .metrics import METRIC_ALIASES, available_columns_for_methods, is_excluded_metric_column
+from .metrics import (
+    RAW_TO_CANONICAL,
+    available_columns_for_methods,
+    higher_is_better,
+    is_excluded_metric_column,
+)
 from .target_contacts_service import augment_with_target_contacts
 from .schemas import (
     ColumnInfo,
@@ -46,17 +51,6 @@ from .schemas import (
     SavedSetListResponse,
     TargetContactGroup,
 )
-
-# raw column name -> canonical name, built from METRIC_ALIASES for the reverse lookup
-# used by compute_available_columns. Best-effort: a raw column can only report one
-# canonical name even if (in principle) two different canonical concepts happened to
-# share a raw name for different methods; first-registered wins.
-_RAW_TO_CANONICAL: Dict[str, str] = {}
-for _canonical, _by_method in METRIC_ALIASES.items():
-    for _raw in _by_method.values():
-        _candidates = [_raw] if isinstance(_raw, str) else (_raw or [])
-        for _c in _candidates:
-            _RAW_TO_CANONICAL.setdefault(_c, _canonical)
 
 # Identity/text columns exposed to the Hard Filters column picker alongside numeric
 # metrics, so string-match/regex filters (e.g. run_name contains "..."), which the
@@ -145,7 +139,7 @@ def compute_available_columns(run_ids: List[str]) -> List[ColumnInfo]:
     canonical_groups: Dict[str, List[str]] = {}
     standalone_cols: List[str] = []
     for col in all_numeric_cols:
-        canonical = _RAW_TO_CANONICAL.get(col)
+        canonical = RAW_TO_CANONICAL.get(col)
         if canonical:
             canonical_groups.setdefault(canonical, []).append(col)
         else:
@@ -172,6 +166,7 @@ def compute_available_columns(run_ids: List[str]) -> List[ColumnInfo]:
                 dtype="f64",
                 sample_values=_sample_values(combined),
                 raw_columns=raw_columns_by_method,
+                higher_is_better=higher_is_better(canonical),
             )
         )
 
@@ -184,6 +179,7 @@ def compute_available_columns(run_ids: List[str]) -> List[ColumnInfo]:
                 present_in_runs=present_in_runs,
                 dtype=str(df[col].dtype),
                 sample_values=_sample_values(df[col]),
+                higher_is_better=higher_is_better(col),
             )
         )
 
@@ -283,7 +279,12 @@ def compute_rank(request: FilteringRankRequest) -> FilteringRankResponse:
         return FilteringRankResponse(designs=[], total_designs=0)
 
     filtered = apply_hard_filters(df, inputs.specs)
-    ranked = rank_designs(filtered, request.metrics, tiebreak_column=_pick_tiebreak_column(df))
+    ranked = rank_designs(
+        filtered,
+        request.metrics,
+        tiebreak_column=_pick_tiebreak_column(df),
+        mode=request.ranking_mode,
+    )
 
     rows = [
         RankedDesignRow(
@@ -355,6 +356,7 @@ def compute_diversity_preview(request: FilteringDiversityRequest) -> FilteringDi
         tiebreak_column=_pick_tiebreak_column(df),
         size_buckets=request.size_buckets,
         random_state=request.random_state,
+        ranking_mode=request.ranking_mode,
     )
 
     diverse_keys = set()
@@ -413,6 +415,7 @@ def run_filtering_and_save(request: FilteringRunRequest) -> FilteringRunResponse
         size_buckets=request.size_buckets,
         random_state=request.random_state,
         apply_diversity=request.apply_diversity,
+        ranking_mode=request.ranking_mode,
     )
 
     diverse_keys = set()

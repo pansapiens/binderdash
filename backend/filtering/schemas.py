@@ -51,12 +51,16 @@ class FilterSpec(BaseModel):
     text_value: Optional[str] = None
 
 
-class RankingMetric(BaseModel):
-    """A metric used in the worst-case rank quality score (boltzgen Algorithm 2).
+RankingMode = Literal["worst_rank", "simple"]
 
-    ``weight`` is the *inverse-importance* weight: a design's rank on this metric is
-    divided by ``weight`` before taking the max across metrics, so a larger weight
-    de-emphasises the metric's influence on the final rank.
+
+class RankingMetric(BaseModel):
+    """One column in a ranking recipe.
+
+    In ``worst_rank`` mode, ``weight`` is the *inverse-importance* weight: a design's
+    rank on this metric is divided by ``weight`` before taking the max across metrics,
+    so a larger weight de-emphasises the metric. In ``simple`` mode the list order is
+    the sort priority (first metric is primary) and ``weight`` is ignored.
     """
 
     column: str
@@ -82,6 +86,9 @@ class ColumnInfo(BaseModel):
     # per-method column this concept resolves to, e.g. {"rfd": "pae_interaction",
     # "bindcraft": "Average_i_pAE"}. Empty/absent for standalone raw columns.
     raw_columns: Dict[str, str] = Field(default_factory=dict)
+    # Known sort/filter direction from filtering.metrics.METRIC_DIRECTIONS (also
+    # resolved for raw aliases). None when unknown or non-score (identity columns).
+    higher_is_better: Optional[bool] = None
 
 
 class FilterCascadeStage(BaseModel):
@@ -253,6 +260,8 @@ class FilteringRunRequest(BaseModel):
     filters: List[FilterSpec] = Field(default_factory=list)
     target_contact_groups: List[TargetContactGroup] = Field(default_factory=list)
     metrics: List[RankingMetric] = Field(default_factory=list)
+    # Omitted by older clients, which always used boltzgen worst-case rank.
+    ranking_mode: RankingMode = "worst_rank"
     budget: int = 24
     # BoltzGen's own default is 0.01 for its "peptide-anything" protocol but 0.001 for
     # everything else (see its --alpha docs) — 0.001 ("protein") is the safer default
@@ -349,6 +358,7 @@ class FilteringRankRequest(BaseModel):
     filters: List[FilterSpec] = Field(default_factory=list)
     target_contact_groups: List[TargetContactGroup] = Field(default_factory=list)
     metrics: List[RankingMetric] = Field(default_factory=list)
+    ranking_mode: RankingMode = "worst_rank"
 
 
 class RankedDesignRow(BaseModel):
@@ -374,6 +384,7 @@ class FilteringDiversityRequest(BaseModel):
     filters: List[FilterSpec] = Field(default_factory=list)
     target_contact_groups: List[TargetContactGroup] = Field(default_factory=list)
     metrics: List[RankingMetric] = Field(default_factory=list)
+    ranking_mode: RankingMode = "worst_rank"
     budget: int = 24
     alpha: float = 0.001
     size_buckets: List[SizeBucket] = Field(default_factory=list)

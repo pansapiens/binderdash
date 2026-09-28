@@ -82,6 +82,8 @@ class TestFilteringColumns:
         assert "median" in by_name["iptm"]["sample_values"]
         assert by_name["iptm"]["raw_columns"] == {"bindcraft": "Average_i_pTM"}
         assert by_name["rmsd"]["raw_columns"] == {"bindcraft": "Binder_RMSD"}
+        assert by_name["iptm"]["higher_is_better"] is True
+        assert by_name["rmsd"]["higher_is_better"] is False
 
 
 class TestFilteringApply:

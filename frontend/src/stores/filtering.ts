@@ -32,7 +32,11 @@ import { buildDesignKey } from '../utils/designKey'
 import { useDesignsStore } from './designs'
 import { PERSISTENCE_KEYS } from '../persistence/keys'
 import { kvGet, kvSet } from '../persistence/store'
-import { DEFAULT_RANKING_METRICS } from '../config/rankingPresets'
+import {
+    DEFAULT_RANKING_METRICS,
+    DEFAULT_RANKING_MODE,
+    type RankingMode
+} from '../config/rankingPresets'
 
 /** Debounce window for hard-filter round-trips (see plan §7A.2 — cheap, ~0.16s/60k rows). */
 const APPLY_DEBOUNCE_MS = 300
@@ -92,6 +96,7 @@ export const useFilteringStore = defineStore('filtering', () => {
     // Fresh sessions (no persisted/loaded state) start with a single iptm@1.0 metric
     // rather than an empty list — see setRankingMetrics/RANKING_PRESETS for the
     // "iptm"/"BoltzGen" preset dropdown that can replace this.
+    const rankingMode = ref<RankingMode>(DEFAULT_RANKING_MODE)
     const rankingMetrics = ref<RankingMetricDto[]>(DEFAULT_RANKING_METRICS.map((m) => ({ ...m })))
     const budget = ref<number>(24)
     // BoltzGen's own default is 0.01 for its "peptide-anything" protocol but 0.001 for
@@ -438,7 +443,8 @@ export const useFilteringStore = defineStore('filtering', () => {
                 run_ids: activeRunIds.value,
                 filters: activeFilters.value,
                 target_contact_groups: activeTargetContactGroups.value,
-                metrics: activeRankingMetrics.value
+                metrics: activeRankingMetrics.value,
+                ranking_mode: rankingMode.value
             })
             const map = new Map<string, RankedDesignInfo>()
             for (const d of res.designs) {
@@ -468,6 +474,7 @@ export const useFilteringStore = defineStore('filtering', () => {
                 filters: activeFilters.value,
                 target_contact_groups: activeTargetContactGroups.value,
                 metrics: activeRankingMetrics.value,
+                ranking_mode: rankingMode.value,
                 budget: budget.value,
                 alpha: alpha.value,
                 size_buckets: sizeBuckets.value
@@ -774,9 +781,31 @@ export const useFilteringStore = defineStore('filtering', () => {
 
     // --- Filter/metric/bucket row editing ---
 
+    const directionForColumn = (column: string): boolean | null => {
+        const info = availableColumns.value.find((c) => c.name === column)
+        const direction = info?.higher_is_better
+        return typeof direction === 'boolean' ? direction : null
+    }
+
+    const defaultOperatorForColumn = (column: string): FilterSpecDto['operator'] => {
+        // Match backend filtering.metrics.default_numeric_operator: ">" when known
+        // higher-is-better, otherwise "<" (lower-is-better or unknown).
+        return directionForColumn(column) === true ? '>' : '<'
+    }
+
+    const defaultHigherIsBetterForColumn = (column: string): boolean => {
+        const direction = directionForColumn(column)
+        return direction === null ? true : direction
+    }
+
     const addFilter = () => {
         const firstColumn = availableColumns.value[0]?.name ?? ''
-        filters.value.push({ column: firstColumn, operator: '<', threshold: 0, enabled: true })
+        filters.value.push({
+            column: firstColumn,
+            operator: defaultOperatorForColumn(firstColumn),
+            threshold: 0,
+            enabled: true
+        })
         scheduleApply()
     }
 
@@ -785,13 +814,46 @@ export const useFilteringStore = defineStore('filtering', () => {
         scheduleApply()
     }
 
+    /** Column picker changed: reset operator to the metric's known direction default. */
+    const onFilterColumnChange = (index: number, column: string | null) => {
+        const filter = filters.value[index]
+        if (!filter) return
+        filter.column = column ?? ''
+        if (column && isNumericDtype(column)) {
+            filter.operator = defaultOperatorForColumn(column)
+        }
+        scheduleApply()
+    }
+
+    const isNumericDtype = (column: string): boolean => {
+        const info = availableColumns.value.find((c) => c.name === column)
+        if (!info) return true
+        const dtype = info.dtype.toLowerCase()
+        return !dtype.includes('str') && !dtype.includes('utf8')
+    }
+
     const addRankingMetric = () => {
         const firstColumn = availableColumns.value[0]?.name ?? ''
-        rankingMetrics.value.push({ column: firstColumn, weight: 1, higher_is_better: true, enabled: true })
+        rankingMetrics.value.push({
+            column: firstColumn,
+            weight: 1,
+            higher_is_better: defaultHigherIsBetterForColumn(firstColumn),
+            enabled: true
+        })
     }
 
     const removeRankingMetric = (index: number) => {
         rankingMetrics.value.splice(index, 1)
+    }
+
+    /** Column picker changed: reset higher_is_better from known direction. */
+    const onRankingColumnChange = (index: number, column: string | null) => {
+        const metric = rankingMetrics.value[index]
+        if (!metric) return
+        metric.column = column ?? ''
+        if (column) {
+            metric.higher_is_better = defaultHigherIsBetterForColumn(column)
+        }
     }
 
     /** Wholesale-replace the ranking metrics list — backs the presets dropdown
@@ -835,6 +897,7 @@ export const useFilteringStore = defineStore('filtering', () => {
                 filters: activeFilters.value,
                 target_contact_groups: activeTargetContactGroups.value,
                 metrics: activeRankingMetrics.value,
+                ranking_mode: rankingMode.value,
                 budget: budget.value,
                 alpha: alpha.value,
                 size_buckets: sizeBuckets.value,
@@ -870,6 +933,7 @@ export const useFilteringStore = defineStore('filtering', () => {
     const resetFilterSet = () => {
         filters.value = []
         targetContactGroups.value = []
+        rankingMode.value = DEFAULT_RANKING_MODE
         rankingMetrics.value = DEFAULT_RANKING_METRICS.map((m) => ({ ...m }))
         budget.value = 24
         alpha.value = 0.001
@@ -907,6 +971,11 @@ export const useFilteringStore = defineStore('filtering', () => {
         rankingMetrics.value = recipe.metrics
             ? recipe.metrics.map((m) => ({ ...m, enabled: wasEnabled(m) }))
             : []
+        // Recipes saved before ranking_mode existed always used worst-case rank.
+        rankingMode.value =
+            recipe.ranking_mode === 'simple' || recipe.ranking_mode === 'worst_rank'
+                ? recipe.ranking_mode
+                : 'worst_rank'
         budget.value = recipe.budget ?? 24
         alpha.value = recipe.alpha ?? 0.001
         sizeBuckets.value = recipe.size_buckets ? [...recipe.size_buckets] : []
@@ -932,6 +1001,7 @@ export const useFilteringStore = defineStore('filtering', () => {
             void kvSet(PERSISTENCE_KEYS.filteringViewState, {
                 filters: filters.value,
                 targetContactGroups: targetContactGroups.value,
+                rankingMode: rankingMode.value,
                 rankingMetrics: rankingMetrics.value,
                 budget: budget.value,
                 alpha: alpha.value,
@@ -942,7 +1012,7 @@ export const useFilteringStore = defineStore('filtering', () => {
     }
 
     watch(
-        [filters, targetContactGroups, rankingMetrics, budget, alpha, sizeBuckets, diversityEnabled],
+        [filters, targetContactGroups, rankingMode, rankingMetrics, budget, alpha, sizeBuckets, diversityEnabled],
         persistFilteringViewState,
         { deep: true }
     )
@@ -952,6 +1022,7 @@ export const useFilteringStore = defineStore('filtering', () => {
             const payload = await kvGet<{
                 filters?: unknown
                 targetContactGroups?: unknown
+                rankingMode?: unknown
                 rankingMetrics?: unknown
                 budget?: unknown
                 alpha?: unknown
@@ -964,6 +1035,9 @@ export const useFilteringStore = defineStore('filtering', () => {
                 }
                 if (Array.isArray(payload.targetContactGroups)) {
                     targetContactGroups.value = payload.targetContactGroups as TargetContactGroupDto[]
+                }
+                if (payload.rankingMode === 'simple' || payload.rankingMode === 'worst_rank') {
+                    rankingMode.value = payload.rankingMode
                 }
                 if (Array.isArray(payload.rankingMetrics)) {
                     rankingMetrics.value = payload.rankingMetrics as RankingMetricDto[]
@@ -1001,6 +1075,7 @@ export const useFilteringStore = defineStore('filtering', () => {
         targetsError,
         contactsComputeProgress,
         contactsComputeError,
+        rankingMode,
         rankingMetrics,
         budget,
         alpha,
@@ -1058,6 +1133,7 @@ export const useFilteringStore = defineStore('filtering', () => {
         runPreview,
         addFilter,
         removeFilter,
+        onFilterColumnChange,
         fetchTargets,
         computeTargetContacts,
         fetchTargetContactProfile,
@@ -1070,6 +1146,7 @@ export const useFilteringStore = defineStore('filtering', () => {
         toggleTargetContactFilterEnabled,
         addRankingMetric,
         removeRankingMetric,
+        onRankingColumnChange,
         setRankingMetrics,
         addSizeBucket,
         removeSizeBucket,

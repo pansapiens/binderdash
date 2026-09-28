@@ -8,12 +8,13 @@ Pipeline (mirrors boltzgen's three phases):
 1. ``apply_hard_filters`` — each design is checked against threshold filters; designs
    are not dropped, only annotated (``pass_<column>_filter``, ``num_filters_passed``,
    ``pass_filters``), so ranking can penalise (not eliminate) filter failures.
-2. ``rank_designs`` — boltzgen "Algorithm 2": rank-based, not z-score/absolute, scoring.
-   For each ranking metric, compute the row's rank on ``(num_filters_passed, metric)``
-   (descending, so passing more filters and having a better metric both help), divide by
-   the metric's inverse-importance weight, then take the *worst* (max) scaled rank across
-   metrics as the design's quality key. This avoids relying on across-run absolute metric
-   scales (see plan Q3).
+2. ``rank_designs`` — two modes. ``worst_rank`` is boltzgen "Algorithm 2": rank-based,
+   not z-score/absolute, scoring. For each ranking metric, compute the row's rank on
+   ``(num_filters_passed, metric)`` (descending, so passing more filters and having a
+   better metric both help), divide by the metric's inverse-importance weight, then take
+   the *worst* (max) scaled rank across metrics as the design's quality key. ``simple``
+   is a lexicographic sort: more filters passed first, then the metrics in list order
+   (first metric is the primary key, the next breaks ties).
 3. ``select_diverse`` — lazy-greedy selection over sequence identity (BioPython pairwise
    alignment), trading off quality vs. diversity via ``alpha``, honouring optional
    per-length-bucket selection caps.
@@ -212,32 +213,72 @@ def filter_cascade_counts(df: pl.DataFrame, filters: List[FilterSpec]) -> List[F
     return stages
 
 
+def _metric_value_expr(df: pl.DataFrame, metric: RankingMetric) -> Optional[pl.Expr]:
+    """Raw metric value for one ranking row, or ``None`` when the metric is skipped.
+
+    A weight of 0 drops the metric. A canonical name is resolved per row; a method
+    with no equivalent contributes null (sorts last). A literal column that is absent
+    from ``df`` is skipped.
+    """
+    if metric.weight == 0:
+        return None
+    resolved = _resolve_canonical(df, metric.column)
+    if resolved is not None:
+        raw_value_expr, applicable_expr = resolved
+        return pl.when(applicable_expr).then(raw_value_expr).otherwise(None)
+    if metric.column in df.columns:
+        return pl.col(metric.column)
+    return None
+
+
+def _stamp_final_rank(out: pl.DataFrame) -> pl.DataFrame:
+    """``final_rank`` is 1…N in the current row order; ``quality_score`` is 1…0."""
+    n = out.height
+    out = out.with_columns(pl.Series("final_rank", np.arange(1, n + 1)))
+    denom = max(n - 1, 1)
+    return out.with_columns(
+        (1 - (pl.col("final_rank") - 1) / denom).alias("quality_score")
+    )
+
+
 def rank_designs(
     df: pl.DataFrame,
     metrics: List[RankingMetric],
     tiebreak_column: Optional[str] = None,
+    mode: str = "worst_rank",
 ) -> pl.DataFrame:
-    """Compute the boltzgen-style worst-case rank quality score.
+    """Rank designs and stamp ``final_rank`` (1 = best) and ``quality_score``.
+
+    ``mode="worst_rank"`` is boltzgen Algorithm 2: each metric's rank on
+    ``(num_filters_passed, value)`` is divided by its inverse-importance weight, and
+    the worst (max) scaled rank decides the order.
+
+    ``mode="simple"`` sorts lexicographically. Passing more filters comes first, then
+    the metrics in list order — the first is the primary key, the next breaks ties.
+    Weights are ignored. Null metric values sort last.
 
     Requires ``num_filters_passed`` to already be present (see ``apply_hard_filters``).
-    Adds one ``rank_<column>`` column per metric, plus ``max_rank``, ``final_rank``
-    (1 = best), and ``quality_score`` (1 = best, 0 = worst).
     """
+    if mode == "simple":
+        return _rank_designs_simple(df, metrics, tiebreak_column=tiebreak_column)
+    if mode != "worst_rank":
+        raise ValueError(f"Unknown ranking mode: {mode}")
+    return _rank_designs_worst(df, metrics, tiebreak_column=tiebreak_column)
+
+
+def _rank_designs_worst(
+    df: pl.DataFrame,
+    metrics: List[RankingMetric],
+    tiebreak_column: Optional[str] = None,
+) -> pl.DataFrame:
     out = df
     if "num_filters_passed" not in out.columns:
         out = out.with_columns(pl.lit(0).alias("num_filters_passed"))
 
     rank_cols: List[str] = []
     for metric in metrics:
-        if metric.weight == 0:
-            continue
-        resolved = _resolve_canonical(out, metric.column)
-        if resolved is not None:
-            raw_value_expr, applicable_expr = resolved
-            metric_expr = pl.when(applicable_expr).then(raw_value_expr).otherwise(None)
-        elif metric.column in out.columns:
-            metric_expr = pl.col(metric.column)
-        else:
+        metric_expr = _metric_value_expr(out, metric)
+        if metric_expr is None:
             continue
         value_expr = metric_expr if metric.higher_is_better else -metric_expr
         rank_col = f"rank_{metric.column}"
@@ -263,13 +304,46 @@ def rank_designs(
         descending.append(True)
 
     out = out.sort(by=sort_cols, descending=descending)
-    n = out.height
-    out = out.with_columns(pl.Series("final_rank", np.arange(1, n + 1)))
-    denom = max(n - 1, 1)
-    out = out.with_columns(
-        (1 - (pl.col("final_rank") - 1) / denom).alias("quality_score")
-    )
-    return out
+    return _stamp_final_rank(out)
+
+
+def _rank_designs_simple(
+    df: pl.DataFrame,
+    metrics: List[RankingMetric],
+    tiebreak_column: Optional[str] = None,
+) -> pl.DataFrame:
+    out = df
+    if "num_filters_passed" not in out.columns:
+        out = out.with_columns(pl.lit(0).alias("num_filters_passed"))
+
+    sort_cols = ["num_filters_passed"]
+    descending = [True]
+    helper_cols: List[str] = []
+    used_columns = set()
+    for index, metric in enumerate(metrics):
+        metric_expr = _metric_value_expr(out, metric)
+        if metric_expr is None:
+            continue
+        helper = f"_simple_{index}"
+        helper_cols.append(helper)
+        used_columns.add(metric.column)
+        out = out.with_columns(metric_expr.alias(helper))
+        sort_cols.append(helper)
+        descending.append(metric.higher_is_better)
+
+    if (
+        tiebreak_column
+        and tiebreak_column in out.columns
+        and tiebreak_column not in used_columns
+    ):
+        sort_cols.append(tiebreak_column)
+        descending.append(True)
+
+    out = out.sort(by=sort_cols, descending=descending, nulls_last=True)
+    if helper_cols:
+        out = out.drop(helper_cols)
+    out = out.with_columns(pl.lit(None).cast(pl.Float64).alias("max_rank"))
+    return _stamp_final_rank(out)
 
 
 def _bucket_index(length: int, size_buckets: List[SizeBucket]) -> Optional[int]:
@@ -519,6 +593,7 @@ def run_filtering_pipeline(
     size_buckets: Optional[List[SizeBucket]] = None,
     random_state: int = 0,
     apply_diversity: bool = True,
+    ranking_mode: str = "worst_rank",
 ) -> Tuple[pl.DataFrame, Optional[pl.DataFrame]]:
     """Run the full filter -> rank -> diversity pipeline.
 
@@ -542,7 +617,9 @@ def run_filtering_pipeline(
     shortfall unexplained.
     """
     filtered = apply_hard_filters(df, filters)
-    ranked = rank_designs(filtered, metrics, tiebreak_column=tiebreak_column)
+    ranked = rank_designs(
+        filtered, metrics, tiebreak_column=tiebreak_column, mode=ranking_mode
+    )
 
     candidates = ranked.filter(pl.col("pass_filters")) if "pass_filters" in ranked.columns else ranked
     diverse_df: Optional[pl.DataFrame] = None

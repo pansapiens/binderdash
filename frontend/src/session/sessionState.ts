@@ -66,6 +66,7 @@ export function buildSessionState(): SessionStateDto {
             target_contact_groups: JSON.parse(
                 JSON.stringify(filtering.targetContactGroups ?? [])
             ),
+            ranking_mode: filtering.rankingMode,
             metrics: JSON.parse(JSON.stringify(filtering.rankingMetrics ?? [])),
             budget: filtering.budget,
             alpha: filtering.alpha,
@@ -182,6 +183,7 @@ export async function applySessionState(state: SessionStateDto): Promise<Restore
             filters: recipe.filters ?? [],
             target_contact_groups: recipe.target_contact_groups ?? [],
             metrics: recipe.metrics ?? [],
+            ranking_mode: recipe.ranking_mode,
             budget: recipe.budget ?? 24,
             alpha: recipe.alpha ?? 0.001,
             size_buckets: recipe.size_buckets ?? [],

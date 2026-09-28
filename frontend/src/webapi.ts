@@ -810,6 +810,8 @@ export interface ColumnInfoDto {
     dtype: string
     sample_values?: { min: number; max: number; mean: number; median: number } | null
     raw_columns?: Record<string, string>
+    /** Known sort/filter direction for canonical metrics (and raw aliases). */
+    higher_is_better?: boolean | null
 }
 
 export interface FilterCascadeStageDto {
@@ -847,6 +849,7 @@ export interface FilteringRunRequestDto {
     filters?: FilterSpecDto[]
     target_contact_groups?: TargetContactGroupDto[]
     metrics?: RankingMetricDto[]
+    ranking_mode?: 'simple' | 'worst_rank'
     budget: number
     alpha: number
     size_buckets?: SizeBucketDto[]
@@ -916,6 +919,7 @@ export interface FilteringRankRequestDto {
     filters?: FilterSpecDto[]
     target_contact_groups?: TargetContactGroupDto[]
     metrics?: RankingMetricDto[]
+    ranking_mode?: 'simple' | 'worst_rank'
 }
 
 export interface RankedDesignRowDto {
@@ -936,6 +940,7 @@ export interface FilteringDiversityRequestDto {
     filters?: FilterSpecDto[]
     target_contact_groups?: TargetContactGroupDto[]
     metrics?: RankingMetricDto[]
+    ranking_mode?: 'simple' | 'worst_rank'
     budget: number
     alpha: number
     size_buckets?: SizeBucketDto[]

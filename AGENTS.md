@@ -86,6 +86,7 @@
 - Run frontend build  (`pnpm run build`) and linters
 - Run Playwright tests: `pnpm test` (from project root)
 - Update `.env.example` when env vars change
+- Update documentation in `docs/`
 - Update `CHANGELOG.md` for notable features and fixes
 
 ## Releasing
@@ -103,6 +104,8 @@ Also update before tagging:
 
 - [`CHANGELOG.md`](CHANGELOG.md) — move `[Unreleased]` entries into a dated section (e.g. `## [0.3.0] - YYYY-MM-DD`)
 - **Git tag** — `vX.Y.Z` must match `backend/pyproject.toml` (e.g. `v0.3.0` for version `0.3.0`). Pushing a `v*` tag triggers [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) to build and publish Linux AppImage, macOS zip, and Windows zip.
+
+Check that documentation is up to date in `docs/`.
 
 Optional doc touch-ups (examples only): [`desktop/README.md`](desktop/README.md).
 

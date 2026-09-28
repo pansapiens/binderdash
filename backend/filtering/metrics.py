@@ -44,10 +44,26 @@ METRIC_ALIASES: Dict[str, Dict[str, Optional[Union[str, List[str]]]]] = {
         # boltz_iptm may be present as an extra column.
         "rfd": ["boltz_iptm"],
     },
+    # Interface ipSAE (higher is better, same 0–1 sense as iptm). BindCraft and
+    # plain RFdiffusion do not write an ipSAE column.
+    "ipsae": {
+        "boltzgen": "design_ipsae_min",
+        "rfd3": "rf3_ipsae_min",
+    },
     "ptm": {
         "boltzgen": "design_ptm",
         "bindcraft": "Average_pTM",
         "rfd3": "ptm",
+    },
+    # Binder-chain confidence (pLDDT), not the complex-wide average. Candidates are
+    # tried in order; a method with none of them present has no equivalent.
+    "binder_plddt": {
+        "bindcraft": "Average_Binder_pLDDT",
+        "rfd": ["plddt_binder", "plddt"],
+        # BoltzGen's final metrics table often has no pLDDT column (see boltzgen
+        # issue #202); these are the names that appear when a run does carry one.
+        "boltzgen": ["complex_plddt", "design_plddt"],
+        "rfd3": ["plddt"],
     },
     "rmsd": {
         "boltzgen": "bb_rmsd",
@@ -97,11 +113,60 @@ METRIC_ALIASES: Dict[str, Dict[str, Optional[Union[str, List[str]]]]] = {
     },
 }
 
+# canonical metric -> (higher_is_better, one-line meaning). Shared by MCP, REST
+# ColumnInfo, and Filtering UI defaults. Identifiers/sequences are excluded below.
+METRIC_DIRECTIONS: Dict[str, tuple[bool, str]] = {
+    "iptm": (True, "Interface pTM: predicted accuracy of the binder-target interface, 0-1."),
+    "ipsae": (True, "Interface ipSAE: interaction score from aligned error, 0-1. Higher is better."),
+    "ptm": (True, "pTM: predicted accuracy of the whole complex, 0-1."),
+    "binder_plddt": (True, "Binder-chain pLDDT: local confidence of the designed chain."),
+    "rmsd": (False, "Backbone RMSD of the refolded/predicted binder against the design, Angstrom."),
+    "pae_interaction": (False, "Predicted aligned error across the interface, Angstrom."),
+    "hbonds": (True, "Hydrogen bonds across the interface."),
+    "saltbridge": (True, "Salt bridges across the interface."),
+    "delta_sasa": (True, "Interface area buried on complex formation, Angstrom^2."),
+}
+
+# Metrics that are identifiers/sequences rather than scores — rankable never.
+NON_SCORE_METRICS = {"sequence", "design_id"}
+
+# raw column name -> canonical name. Best-effort: a raw column can only report one
+# canonical name even if two concepts shared a raw name; first-registered wins.
+RAW_TO_CANONICAL: Dict[str, str] = {}
+for _canonical, _by_method in METRIC_ALIASES.items():
+    for _raw in _by_method.values():
+        _cands = [_raw] if isinstance(_raw, str) else (_raw or [])
+        for _c in _cands:
+            RAW_TO_CANONICAL.setdefault(_c, _canonical)
+
 
 def _candidates(raw: Optional[Union[str, List[str]]]) -> List[str]:
     if raw is None:
         return []
     return [raw] if isinstance(raw, str) else raw
+
+
+def higher_is_better(name: str) -> Optional[bool]:
+    """Known sort direction for a canonical metric or a raw alias thereof.
+
+    Returns ``None`` for unknown columns and non-score metrics (``sequence``,
+    ``design_id``).
+    """
+    if name in NON_SCORE_METRICS:
+        return None
+    entry = METRIC_DIRECTIONS.get(name)
+    if entry is not None:
+        return entry[0]
+    canonical = RAW_TO_CANONICAL.get(name)
+    if canonical is None or canonical in NON_SCORE_METRICS:
+        return None
+    mapped = METRIC_DIRECTIONS.get(canonical)
+    return mapped[0] if mapped is not None else None
+
+
+def default_numeric_operator(name: str) -> str:
+    """Sensible hard-filter operator for ``name``: ``>`` if higher-is-better, else ``<``."""
+    return ">" if higher_is_better(name) is True else "<"
 
 
 def resolve_column(canonical_or_raw: str, method: str, columns: List[str]) -> Optional[str]:

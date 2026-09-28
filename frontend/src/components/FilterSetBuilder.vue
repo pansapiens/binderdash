@@ -15,7 +15,7 @@ import Checkbox from 'primevue/checkbox'
 import { useToast } from 'primevue/usetoast'
 import { useDesignsStore, useFilteringStore } from '../stores'
 import { getMethodTagStyle } from '../config/pipelineDisplay'
-import { RANKING_PRESETS } from '../config/rankingPresets'
+import { RANKING_MODES, RANKING_PRESETS, rankingOrdinal } from '../config/rankingPresets'
 import MetricColumnSelector from './MetricColumnSelector.vue'
 import TargetContactFilters from './TargetContactFilters.vue'
 import type { FilterSpecDto, RankingMetricDto } from '../webapi'
@@ -69,10 +69,10 @@ const savedSetName = ref('')
 // Presets dropdown for "3. Ranking Metrics" — a one-shot action (replaces the whole
 // list), not stored as its own persisted state. Its displayed value is derived from
 // filteringStore.rankingMetrics itself (below), not tracked separately, so it stays
-// accurate no matter how those metrics got there: the fresh-session default (iptm@1.0
-// — see DEFAULT_RANKING_METRICS), a hydrated-from-IndexedDB previous session, or a
-// loaded Saved Set recipe. It reverts to the empty placeholder once the metrics no
-// longer match any preset exactly (e.g. after editing a weight).
+// accurate no matter how those metrics got there: the fresh-session default, a
+// hydrated-from-IndexedDB previous session, or a loaded Saved Set recipe. It reverts
+// to the empty placeholder once the metrics no longer match a preset for the current
+// mode exactly (e.g. after editing a weight or the column order).
 function metricsEqual(a: RankingMetricDto[], b: RankingMetricDto[]): boolean {
   return (
     a.length === b.length &&
@@ -80,9 +80,24 @@ function metricsEqual(a: RankingMetricDto[], b: RankingMetricDto[]): boolean {
   )
 }
 
-const selectedPreset = computed<string | null>(
-  () => RANKING_PRESETS.find((p) => metricsEqual(filteringStore.rankingMetrics, p.metrics))?.key ?? null
+const presetsForMode = computed(() =>
+  RANKING_PRESETS.filter((p) => p.mode === filteringStore.rankingMode)
 )
+
+const selectedPreset = computed<string | null>(
+  () => presetsForMode.value.find((p) => metricsEqual(filteringStore.rankingMetrics, p.metrics))?.key ?? null
+)
+
+/** Priority label for an enabled simple-ranking row (1st, 2nd, …), counting only
+ * enabled rows above it. Disabled rows are not keys. */
+function simplePriority(index: number): string | null {
+  const metric = filteringStore.rankingMetrics[index]
+  if (!metric || metric.enabled === false) return null
+  const position = filteringStore.rankingMetrics
+    .slice(0, index + 1)
+    .filter((m) => m.enabled !== false).length
+  return rankingOrdinal(position)
+}
 
 function handleApplyPreset(key: string | null) {
   const preset = RANKING_PRESETS.find((p) => p.key === key)
@@ -385,7 +400,7 @@ const alphaLogSlider = computed<number>({
           :columns="filteringStore.availableColumns"
           :disabled="filter.enabled === false"
           class="fsb-filter-row__column"
-          @update:model-value="filteringStore.scheduleApply()"
+          @update:model-value="filteringStore.onFilterColumnChange(idx, $event)"
         />
         <Select
           v-model="filter.operator"
@@ -455,7 +470,22 @@ const alphaLogSlider = computed<number>({
     </Panel>
 
     <Panel v-if="filteringStore.hasSelectedRuns" header="3. Ranking Metrics (Quality Score)" class="fsb-panel">
-      <p class="fsb-hint">
+      <label class="fsb-preset-row">
+        Mode
+        <Select
+          v-model="filteringStore.rankingMode"
+          :options="RANKING_MODES"
+          option-label="label"
+          option-value="key"
+          class="fsb-preset-row__select fsb-preset-row__select--mode"
+        />
+      </label>
+      <p v-if="filteringStore.rankingMode === 'simple'" class="fsb-hint">
+        Simple ranking sorts by these metrics in order. The first enabled metric is
+        the primary key, the next breaks ties, and so on. A design that passed more
+        filters still ranks ahead of one that passed fewer.
+      </p>
+      <p v-else class="fsb-hint">
         Designs are ranked by the <em>worst</em> of their scaled ranks across these
         metrics (BoltzGen-style). Weight is inverse
         importance: a larger weight de-emphasises that metric.
@@ -464,7 +494,7 @@ const alphaLogSlider = computed<number>({
         Preset
         <Select
           :model-value="selectedPreset"
-          :options="RANKING_PRESETS"
+          :options="presetsForMode"
           option-label="label"
           option-value="key"
           placeholder="Load a preset…"
@@ -489,14 +519,19 @@ const alphaLogSlider = computed<number>({
           aria-label="Enable ranking metric"
           class="fsb-row__enable-toggle"
         />
+        <span
+          v-if="filteringStore.rankingMode === 'simple'"
+          class="fsb-metric-row__priority"
+        >{{ simplePriority(idx) ?? '—' }}</span>
         <MetricColumnSelector
           v-model="metric.column"
           :columns="filteringStore.availableColumns"
           :disabled="metric.enabled === false"
           :invalid="filteringStore.rankingMetricWarnings.includes(idx)"
           class="fsb-metric-row__column"
+          @update:model-value="filteringStore.onRankingColumnChange(idx, $event)"
         />
-        <label class="fsb-metric-row__weight-label">
+        <label v-if="filteringStore.rankingMode === 'worst_rank'" class="fsb-metric-row__weight-label">
           Weight
           <InputNumber
             v-model="metric.weight"
@@ -885,6 +920,18 @@ const alphaLogSlider = computed<number>({
 
 .fsb-preset-row__select {
   min-width: 14rem;
+}
+
+.fsb-preset-row__select--mode {
+  min-width: 28rem;
+}
+
+.fsb-metric-row__priority {
+  flex: 0 0 2.5rem;
+  margin-top: 0.45rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #495057;
 }
 
 .fsb-preset-row__hint {

@@ -41,7 +41,8 @@
         </div>
 
         <div class="designs-table-section">
-          <DataTable 
+          <DataTable
+          ref="designsTableRef"
           :value="designsStore.filteredDesigns" 
           :loading="designsStore.loading"
           v-model:multiSortMeta="designsStore.tableMultiSortMeta"
@@ -169,6 +170,18 @@
               />
             </template>
           </Column>
+
+          <Column
+            v-if="rankingColumn"
+            :key="rankingColumn.field"
+            :field="rankingColumn.field"
+            :header="rankingColumn.header"
+            :sortable="rankingColumn.sortable"
+            :filter="rankingColumn.filter"
+            :filterType="rankingColumn.filterType || 'text'"
+            :showFilterMenu="rankingColumn.showFilterMenu"
+            :style="rankingColumn.style"
+          />
 
           <!-- Dynamic columns based on available data -->
           <Column 
@@ -1045,11 +1058,20 @@ import {
 } from '../config/pipelineDisplay'
 
 const toast = useToast()
+const designsTableRef = ref<{ d_columnOrder: string[] | null } | null>(null)
 
 // Use Pinia stores
 const designsStore = useDesignsStore()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+
+watch(
+  () => designsStore.tableColumnOrderEpoch,
+  () => {
+    const table = designsTableRef.value
+    if (table) table.d_columnOrder = null
+  }
+)
 
 // Local UI state (not shared across components)
 const showColumnSelector = ref(false)
@@ -2779,13 +2801,18 @@ const extraVisibleDesignDataFields = computed((): string[] => {
   return out
 })
 
+const rankingColumn = computed(() => {
+  if (!designsStore.visibleColumns.includes(BINDERDASH_RANKING_FIELD)) return null
+  return designsStore.columnsForSelectedRuns.find((col) => col.field === BINDERDASH_RANKING_FIELD) ?? null
+})
+
 const getVisibleColumns = () => {
   if (designsStore.columnsForSelectedRuns.length === 0) {
     return []
   }
 
   return designsStore.columnsForSelectedRuns.filter((col: any) =>
-    designsStore.visibleColumns.includes(col.field)
+    col.field !== BINDERDASH_RANKING_FIELD && designsStore.visibleColumns.includes(col.field)
   )
 }
 

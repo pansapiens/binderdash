@@ -254,6 +254,73 @@ class TestRankDesigns:
         )
         assert ranked[0, "design_id"] == "y"
 
+    def test_simple_ranking_is_lexicographic(self):
+        # a and c tie on iptm; c's lower rmsd breaks the tie. b has the best rmsd
+        # but a worse iptm, so it sorts after both.
+        df = apply_hard_filters(
+            pl.DataFrame(
+                {
+                    "design_id": ["a", "b", "c"],
+                    "iptm": [0.9, 0.8, 0.9],
+                    "rmsd": [5.0, 1.0, 2.0],
+                }
+            ),
+            [],
+        )
+        ranked = rank_designs(
+            df,
+            [
+                RankingMetric(column="iptm", weight=1, higher_is_better=True),
+                RankingMetric(column="rmsd", weight=1, higher_is_better=False),
+            ],
+            mode="simple",
+        )
+        assert ranked["design_id"].to_list() == ["c", "a", "b"]
+
+    def test_simple_ranking_ignores_weight(self):
+        df = apply_hard_filters(
+            pl.DataFrame(
+                {
+                    "design_id": ["a", "b", "c"],
+                    "iptm": [0.9, 0.8, 0.9],
+                    "rmsd": [5.0, 1.0, 2.0],
+                }
+            ),
+            [],
+        )
+        metrics = [
+            RankingMetric(column="iptm", weight=99, higher_is_better=True),
+            RankingMetric(column="rmsd", weight=0.01, higher_is_better=False),
+        ]
+        ranked = rank_designs(df, metrics, mode="simple")
+        assert ranked["design_id"].to_list() == ["c", "a", "b"]
+
+    def test_simple_ranking_filter_failure_sorts_last(self):
+        df = apply_hard_filters(_df(), [FilterSpec(column="rmsd", operator="<", threshold=2.5)])
+        ranked = rank_designs(
+            df,
+            [RankingMetric(column="iptm", weight=1, higher_is_better=True)],
+            mode="simple",
+        )
+        passing_ranks = ranked.filter(pl.col("pass_filters"))["final_rank"]
+        failing_ranks = ranked.filter(~pl.col("pass_filters"))["final_rank"]
+        assert passing_ranks.max() < failing_ranks.min()
+
+    def test_simple_ranking_null_sorts_last(self):
+        df = pl.DataFrame({"design_id": ["a", "b"], "iptm": [0.4, None]})
+        df = apply_hard_filters(df, [])
+        ranked = rank_designs(
+            df,
+            [RankingMetric(column="iptm", weight=1, higher_is_better=True)],
+            mode="simple",
+        )
+        assert ranked["design_id"].to_list() == ["a", "b"]
+
+    def test_unknown_ranking_mode_raises(self):
+        df = apply_hard_filters(_df(), [])
+        with pytest.raises(ValueError, match="Unknown ranking mode"):
+            rank_designs(df, [], mode="zscore")
+
 
 class TestDiversitySelection:
     def test_lazy_greedy_returns_budget_items(self):
@@ -483,6 +550,18 @@ class TestMetricsMapping:
 
     def test_resolve_rfd_iptm_fallback_when_boltz_iptm_present(self):
         assert resolve_column("iptm", "rfd", ["rmsd", "boltz_iptm"]) == "boltz_iptm"
+
+    def test_resolve_ipsae_per_method(self):
+        assert resolve_column("ipsae", "boltzgen", ["design_ipsae_min", "design_to_target_ipsae"]) == "design_ipsae_min"
+        assert resolve_column("ipsae", "rfd3", ["rf3_ipsae_min", "iptm"]) == "rf3_ipsae_min"
+        assert resolve_column("ipsae", "bindcraft", ["Average_i_pTM"]) is None
+        assert resolve_column("ipsae", "rfd", ["rmsd", "boltz_iptm"]) is None
+
+    def test_resolve_binder_plddt_per_method(self):
+        assert resolve_column("binder_plddt", "bindcraft", ["Average_Binder_pLDDT"]) == "Average_Binder_pLDDT"
+        assert resolve_column("binder_plddt", "rfd", ["plddt", "plddt_binder"]) == "plddt_binder"
+        assert resolve_column("binder_plddt", "rfd", ["plddt"]) == "plddt"
+        assert resolve_column("binder_plddt", "boltzgen", ["design_ptm"]) is None
 
     def test_resolve_rfd_iptm_none_when_boltz_iptm_absent(self):
         assert resolve_column("iptm", "rfd", ["rmsd", "pae_interaction"]) is None

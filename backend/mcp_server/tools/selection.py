@@ -90,6 +90,7 @@ def _rank(
     limit: int,
     columns: Optional[List[str]],
     target_contact_groups: Optional[List[Dict[str, Any]]] = None,
+    ranking_mode: str = "worst_rank",
 ) -> Dict[str, Any]:
     from ...filtering.engine import apply_hard_filters, filter_cascade_counts, rank_designs
     from ...filtering.service import _pick_tiebreak_column
@@ -112,7 +113,12 @@ def _rank(
         cascade.append(entry)
 
     filtered = apply_hard_filters(df, specs)
-    ranked = rank_designs(filtered, resolved, tiebreak_column=_pick_tiebreak_column(df))
+    ranked = rank_designs(
+        filtered,
+        resolved,
+        tiebreak_column=_pick_tiebreak_column(df),
+        mode=ranking_mode,
+    )
     passing = (
         int(ranked["pass_filters"].sum()) if "pass_filters" in ranked.columns else ranked.height
     )
@@ -196,6 +202,7 @@ def _diverse(
     save_as: Optional[str],
     columns: Optional[List[str]],
     target_contact_groups: Optional[List[Dict[str, Any]]] = None,
+    ranking_mode: str = "worst_rank",
 ) -> Dict[str, Any]:
     from ...filtering.engine import count_missing_sequences, run_filtering_pipeline
     from ...filtering.schemas import FilterSpec, FilteringRunRequest, TargetContactGroup
@@ -243,6 +250,7 @@ def _diverse(
                 TargetContactGroup(**g) for g in (target_contact_groups or [])
             ],
             metrics=resolved,
+            ranking_mode=ranking_mode,
             budget=budget,
             alpha=alpha,
         )
@@ -265,6 +273,7 @@ def _diverse(
         alpha=alpha,
         sequence_col=sequence_col,
         tiebreak_column=_pick_tiebreak_column(df),
+        ranking_mode=ranking_mode,
     )
     if diverse is None or diverse.is_empty():
         missing = count_missing_sequences(ranked, sequence_col)
@@ -469,6 +478,15 @@ def register(mcp: Any) -> None:
             Optional[List[str]], Field(description="Extra metric columns to return.")
         ] = None,
         limit: Annotated[int, Field(ge=1, le=200, description="Top N to return.")] = 25,
+        ranking_mode: Annotated[
+            Literal["worst_rank", "simple"],
+            Field(
+                description=(
+                    "worst_rank: BoltzGen worst scaled rank (weight is inverse importance). "
+                    "simple: lexicographic, metrics in list order. Default worst_rank."
+                )
+            ),
+        ] = "worst_rank",
         target_contact_groups: Annotated[
             Optional[List[Dict[str, Any]]],
             Field(description=TARGET_CONTACT_GROUPS_ARG),
@@ -482,6 +500,7 @@ def register(mcp: Any) -> None:
             limit,
             columns,
             target_contact_groups,
+            ranking_mode,
             heavy=True,
         )
 
@@ -510,6 +529,10 @@ def register(mcp: Any) -> None:
         columns: Annotated[
             Optional[List[str]], Field(description="Extra metric columns to return.")
         ] = None,
+        ranking_mode: Annotated[
+            Literal["worst_rank", "simple"],
+            Field(description="As in rank_designs. Default worst_rank."),
+        ] = "worst_rank",
         target_contact_groups: Annotated[
             Optional[List[Dict[str, Any]]],
             Field(description=TARGET_CONTACT_GROUPS_ARG),
@@ -526,6 +549,7 @@ def register(mcp: Any) -> None:
             save_as,
             columns,
             target_contact_groups,
+            ranking_mode,
             heavy=True,
         )
 

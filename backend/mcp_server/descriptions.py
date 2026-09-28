@@ -109,8 +109,11 @@ Call this when you want the best designs by a composite of several metrics, rath
 than a single sort. Scoring is rank-based rather than absolute, so metrics on
 different scales combine sensibly and results stay meaningful across runs.
 
-Each metric has a `weight` (higher = more important) and `higher_is_better`. Omit
-`higher_is_better` for a canonical metric and the known direction is used. Optional
+`ranking_mode` is `worst_rank` (default here; BoltzGen-style: each metric is ranked,
+divided by an inverse-importance `weight` — a larger weight de-emphasises it — and the
+worst scaled rank wins) or `simple` (lexicographic: metrics in list order are the
+primary, secondary, … keys, and `weight` is ignored). Omit `higher_is_better` for a
+canonical metric and the known direction is used. Optional
 `filters` are hard thresholds applied first; designs that fail are ranked but flagged,
 never silently dropped, and the per-filter cascade counts tell you which threshold did
 the damage.

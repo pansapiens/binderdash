@@ -1,36 +1,62 @@
 """Canonical metric vocabulary for the MCP surface: names, directions, presets.
 
-The REST API exposes raw per-method column names and leaves the caller to know that
-`pae_interaction` is lower-is-better while `Average_i_pTM` is higher-is-better. Getting
-that backwards produces a plausible, confidently wrong ranking, so direction lives here
-next to the name and every tool that sorts consults it.
+Direction knowledge lives in ``filtering.metrics`` (next to ``METRIC_ALIASES``) so
+REST ColumnInfo and the Filtering UI share the same source. This module re-exports
+that vocabulary and holds MCP ranking presets / catalogue helpers.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from ..filtering.metrics import METRIC_ALIASES
+from ..filtering.metrics import (
+    METRIC_ALIASES,
+    METRIC_DIRECTIONS,
+    NON_SCORE_METRICS,
+    higher_is_better,
+)
 
-# canonical metric -> (higher_is_better, one-line meaning).
-METRIC_DIRECTIONS: Dict[str, tuple] = {
-    "iptm": (True, "Interface pTM: predicted accuracy of the binder-target interface, 0-1."),
-    "ptm": (True, "pTM: predicted accuracy of the whole complex, 0-1."),
-    "rmsd": (False, "Backbone RMSD of the refolded/predicted binder against the design, Angstrom."),
-    "pae_interaction": (False, "Predicted aligned error across the interface, Angstrom."),
-    "hbonds": (True, "Hydrogen bonds across the interface."),
-    "saltbridge": (True, "Salt bridges across the interface."),
-    "delta_sasa": (True, "Interface area buried on complex formation, Angstrom^2."),
-}
 
-# Metrics that are identifiers/sequences rather than scores — rankable never.
-NON_SCORE_METRICS = {"sequence", "design_id"}
+def _preset_metric(column: str, weight: float = 1) -> Dict[str, Any]:
+    direction = higher_is_better(column)
+    if direction is None:
+        raise ValueError(f"Ranking preset metric {column!r} has no known direction")
+    return {"column": column, "weight": weight, "higher_is_better": direction}
+
 
 RANKING_PRESETS: Dict[str, Dict[str, Any]] = {
+    "iptm_plddt_rmsd": {
+        "label": "ipTM + Binder pLDDT + Binder RMSD",
+        "description": (
+            "Simple ranking: ipTM primary, binder pLDDT secondary, binder RMSD tertiary. "
+            "The Filtering tab's fresh-state default (ranking_mode=simple)."
+        ),
+        "ranking_mode": "simple",
+        "metrics": [
+            _preset_metric("iptm"),
+            _preset_metric("binder_plddt"),
+            _preset_metric("rmsd"),
+        ],
+    },
+    "ipsae_plddt_rmsd": {
+        "label": "ipSAE + Binder pLDDT + Binder RMSD",
+        "description": (
+            "Simple ranking: ipSAE primary, binder pLDDT secondary, binder RMSD tertiary. "
+            "ipSAE resolves to BoltzGen design_ipsae_min and RFdiffusion3 rf3_ipsae_min; "
+            "BindCraft and plain RFdiffusion have no equivalent."
+        ),
+        "ranking_mode": "simple",
+        "metrics": [
+            _preset_metric("ipsae"),
+            _preset_metric("binder_plddt"),
+            _preset_metric("rmsd"),
+        ],
+    },
     "iptm": {
-        "label": "iptm only (default)",
-        "description": "Rank by interface pTM alone. The Filtering tab's fresh-state default.",
-        "metrics": [{"column": "iptm", "weight": 1, "higher_is_better": True}],
+        "label": "iptm only",
+        "description": "Rank by interface pTM alone.",
+        "ranking_mode": "simple",
+        "metrics": [_preset_metric("iptm")],
     },
     # BoltzGen's own Filter task default recipe (design_to_target_iptm 1, design_ptm 1,
     # neg_min_design_to_target_pae 1, plip_hbonds_refolded 2, plip_saltbridge_refolded 2,
@@ -38,14 +64,18 @@ RANKING_PRESETS: Dict[str, Dict[str, Any]] = {
     # from other methods that have an equivalent metric.
     "boltzgen": {
         "label": "BoltzGen defaults",
-        "description": "BoltzGen's own multi-metric recipe, in cross-method canonical names.",
+        "description": (
+            "BoltzGen's own multi-metric recipe, in cross-method canonical names. "
+            "Uses ranking_mode=worst_rank (inverse-importance weights)."
+        ),
+        "ranking_mode": "worst_rank",
         "metrics": [
-            {"column": "iptm", "weight": 1, "higher_is_better": True},
-            {"column": "ptm", "weight": 1, "higher_is_better": True},
-            {"column": "pae_interaction", "weight": 1, "higher_is_better": False},
-            {"column": "hbonds", "weight": 2, "higher_is_better": True},
-            {"column": "saltbridge", "weight": 2, "higher_is_better": True},
-            {"column": "delta_sasa", "weight": 2, "higher_is_better": True},
+            _preset_metric("iptm"),
+            _preset_metric("ptm"),
+            _preset_metric("pae_interaction"),
+            _preset_metric("hbonds", weight=2),
+            _preset_metric("saltbridge", weight=2),
+            _preset_metric("delta_sasa", weight=2),
         ],
     },
 }
@@ -53,12 +83,6 @@ RANKING_PRESETS: Dict[str, Dict[str, Any]] = {
 
 def is_canonical(name: str) -> bool:
     return name in METRIC_ALIASES
-
-
-def higher_is_better(canonical: str) -> Optional[bool]:
-    """Known sort direction for a canonical metric, or ``None`` for a raw column."""
-    entry = METRIC_DIRECTIONS.get(canonical)
-    return entry[0] if entry else None
 
 
 def metric_catalogue() -> List[Dict[str, Any]]:
