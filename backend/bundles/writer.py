@@ -102,7 +102,8 @@ _DESCRIPTIONS = {
     "constructs.tsv": "Prepared constructs: tagged AA and optimised DNA per design.",
     "constructs_aa.fasta": "Tagged construct amino acid sequences.",
     "constructs_dna.fasta": "Codon-optimised construct nucleotide sequences.",
-    "constructs_twist.csv": "Vendor order format (name, sequence, original_name).",
+    "constructs_twist_aa.csv": "Twist vendor order format, amino acid sequences.",
+    "constructs_twist_dna.csv": "Twist vendor order format, codon-optimised nucleotide sequences.",
     README_ARCNAME: "This description of the bundle's contents.",
 }
 
@@ -241,17 +242,28 @@ def write_bundle(spec: BundleSpec) -> BuiltBundle:
                     inventory.add("constructs_dna.fasta", dna_digest)
                 else:
                     warnings.append(
-                        "No optimised DNA was available, so constructs_dna.fasta is absent"
+                        "No optimised DNA was available, so constructs_dna.fasta and "
+                        "constructs_twist_dna.csv are absent"
                     )
-                twist_digest, twist_skipped = M.write_constructs_twist_csv(
-                    zf, "constructs_twist.csv", prepared
+                aa_twist_digest, aa_twist_skipped = M.write_constructs_twist_csv(
+                    zf, "constructs_twist_aa.csv", prepared, "prepared_aa"
                 )
-                inventory.add("constructs_twist.csv", twist_digest)
-                if twist_skipped:
+                inventory.add("constructs_twist_aa.csv", aa_twist_digest)
+                if aa_twist_skipped:
                     warnings.append(
-                        f"{twist_skipped} construct(s) had no sequence of the ordered type "
-                        "and were omitted from constructs_twist.csv"
+                        f"{aa_twist_skipped} construct(s) had no amino acid sequence "
+                        "and were omitted from constructs_twist_aa.csv"
                     )
+                if dna_digest is not None:
+                    dna_twist_digest, dna_twist_skipped = M.write_constructs_twist_csv(
+                        zf, "constructs_twist_dna.csv", prepared, "prepared_dna"
+                    )
+                    inventory.add("constructs_twist_dna.csv", dna_twist_digest)
+                    if dna_twist_skipped:
+                        warnings.append(
+                            f"{dna_twist_skipped} construct(s) had no optimised DNA "
+                            "and were omitted from constructs_twist_dna.csv"
+                        )
                 inventory.add(
                     "prepare_sequences.json",
                     M.write_json_member(

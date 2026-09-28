@@ -271,10 +271,12 @@ class TestPrepareSequencesBundle:
             "constructs.tsv",
             "constructs_aa.fasta",
             "constructs_dna.fasta",
-            "constructs_twist.csv",
+            "constructs_twist_aa.csv",
+            "constructs_twist_dna.csv",
             "prepare_sequences.json",
             "schemas/prepare_sequences.schema.json",
         } <= names
+        assert "constructs_twist.csv" not in names
 
     def test_designs_bundle_has_no_construct_members(self, sqlite_designs_repo) -> None:
         _seed_run(n=2)
@@ -327,9 +329,15 @@ class TestVendorCsv:
             )
         )
         with _read_zip(_build(spec)) as zf:
-            lines = zf.read("constructs_twist.csv").decode().strip().splitlines()
+            names = set(zf.namelist())
+            aa_lines = zf.read("constructs_twist_aa.csv").decode().strip().splitlines()
+            dna_lines = zf.read("constructs_twist_dna.csv").decode().strip().splitlines()
             manifest = json.loads(zf.read("manifest.json"))
 
-        assert len(lines) == 2, lines  # header + the one row that has DNA
-        assert lines[1].startswith("AA,ATGGCC,")
-        assert any("constructs_twist.csv" in w for w in manifest["warnings"])
+        assert "constructs_twist.csv" not in names
+        assert len(aa_lines) == 3, aa_lines  # header + both amino-acid rows
+        assert aa_lines[1].startswith("AA,MACD,")
+        assert aa_lines[2].startswith("BB,MACD,")
+        assert len(dna_lines) == 2, dna_lines  # header + the one row that has DNA
+        assert dna_lines[1].startswith("AA,ATGGCC,")
+        assert any("constructs_twist_dna.csv" in w for w in manifest["warnings"])

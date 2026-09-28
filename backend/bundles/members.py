@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import zipfile
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from pydantic import BaseModel
 
@@ -138,18 +138,21 @@ def write_construct_fastas(
 
 
 def write_constructs_twist_csv(
-    zf: zipfile.ZipFile, arcname: str, prepared: PrepareSequencesPayload
+    zf: zipfile.ZipFile,
+    arcname: str,
+    prepared: PrepareSequencesPayload,
+    sequence_key: Literal["prepared_aa", "prepared_dna"],
 ) -> Tuple[MemberDigest, int]:
-    """The vendor upload format: name, sequence, original_name. CSV because that is what
-    the vendor accepts, not because the bundle prefers CSV anywhere else.
+    """Twist vendor upload format: name, sequence, original_name. CSV because that is
+    what the vendor accepts, not because the bundle prefers CSV anywhere else.
 
-    Returns (digest, rows skipped). A row lacking the chosen sequence type is omitted
-    rather than written with an empty sequence cell: an order file that silently carries
-    a blank sequence is worse than one that is visibly short, and the count surfaces as a
-    manifest warning.
+    ``sequence_key`` selects the amino-acid or nucleotide column, so a bundle can carry
+    both order files. Returns (digest, rows skipped). A row lacking that sequence is
+    omitted rather than written with an empty sequence cell: an order file that silently
+    carries a blank sequence is worse than one that is visibly short, and the count
+    surfaces as a manifest warning.
     """
     rows = [r.model_dump(exclude=PREPARED_ROW_EXCLUDE) for r in prepared.rows]
-    sequence_key = "prepared_dna" if any(r.get("prepared_dna") for r in rows) else "prepared_aa"
     skipped = 0
     with text_member(zf, arcname) as (fh, digest):
         writer = csv.writer(fh, lineterminator="\n")

@@ -36,15 +36,17 @@ README.txt
 ```
 
 Prepare Sequences adds `constructs.tsv`, `constructs_aa.fasta`, `constructs_dna.fasta`,
-`constructs_twist.csv` and `prepare_sequences.json`.
+`constructs_twist_aa.csv`, `constructs_twist_dna.csv` and `prepare_sequences.json`.
 
 The member list does not depend on which entry point produced the bundle. A saved set
 created before UI state was recorded still emits `binderdash_session.json`, with
 `"captured": false` and a note explaining why it is empty.
 
 Only TSV: the Designs tab still offers a CSV download separately, but carrying the same
-rows twice in two delimiters inside one archive earns nothing. `constructs_twist.csv` is
-an exception because it is a vendor upload format rather than a general table.
+rows twice in two delimiters inside one archive earns nothing. `constructs_twist_aa.csv`
+and `constructs_twist_dna.csv` are exceptions because they are Twist vendor upload formats
+(amino acid and nucleotide) rather than a general table. The nucleotide file is omitted,
+with a manifest warning, when no optimised DNA is available.
 
 ## Target contacts are never computed on download
 
