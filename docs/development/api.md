@@ -418,6 +418,7 @@ Preset tag **amino-acid sequences** are not stored as DNA on the server. The API
 | cMyc | `EQKLISEEDL` | N or C |
 | HA | `YPYDVPDYA` | N or C |
 | AviTag | `GLNDIFEAQKIEWHE` | N or C |
+| Strep-tag II | `WSHPQFEK` | N or C |
 | C-tag | `EPEA` | C only |
 | G4S linker | `GGGGS` | N or C |
 | STOP* | `*` | N or C |

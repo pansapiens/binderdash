@@ -35,6 +35,7 @@ export type PresetTagKind =
     | 'cmyc'
     | 'ha'
     | 'avi'
+    | 'strep'
     | 'ctag'
     | 'linker'
     | 'stop'
@@ -204,6 +205,15 @@ export const TAG_PRESET_DEFS: readonly TagPresetDefinition[] = [
         color: '#00838f',
         background: 'rgba(0, 131, 143, 0.12)',
         foreground: '#006064',
+        zones: ['n', 'c']
+    },
+    {
+        kind: 'strep',
+        tag_name: 'Strep-tag II',
+        sequence: 'WSHPQFEK',
+        color: '#5e35b1',
+        background: 'rgba(94, 53, 177, 0.12)',
+        foreground: '#4527a0',
         zones: ['n', 'c']
     },
     {
@@ -464,6 +474,7 @@ function segmentClass(kind: PresetTagKind): string {
     if (kind === 'cmyc') return 'seq-seg-cmyc'
     if (kind === 'ha') return 'seq-seg-ha'
     if (kind === 'avi') return 'seq-seg-avi'
+    if (kind === 'strep') return 'seq-seg-strep'
     if (kind === 'ctag') return 'seq-seg-ctag'
     if (kind === 'linker') return 'seq-seg-linker'
     if (kind === 'stop') return 'seq-seg-stop'

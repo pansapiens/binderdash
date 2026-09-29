@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Sequence prep**: **AviTag** (`GLNDIFEAQKIEWHE`) on N- and C-side palettes, and **C-tag** (`EPEA`) on the C-side only.
+- **Sequence prep**: **AviTag** (`GLNDIFEAQKIEWHE`) and **Strep-tag II** (`WSHPQFEK`) on N- and C-side palettes, and **C-tag** (`EPEA`) on the C-side only.
 - **Sequence prep**: **STOP\*** preset on the N- and C-side tag palettes (after G4S). Stops from that tag, from the Include * stop checkboxes, or elsewhere in the coding sequence are marked fixed and stay as **TAA** during DNA optimisation.
 - **Sequence prep**: **Don't modify 5' start (ATG)** checkbox (on by default) freezes a leading Met as **ATG** during DNA optimisation.
 - **Filtering**: New **Filtering** tab backed by a server-side engine: hard filters (numeric, string and empty operators over canonical cross-method metric names, plus identity columns such as `design_id`, `run_name`, `method` and `Sequence`), ranking, and diversity selection, with a live filter-cascade preview. The filter chain shows as clickable tags (per-filter remaining counts, click to enable/disable) above the Designs table and in the Filtering tab; Filtering state persists to IndexedDB. `POST /api/filtering/columns` reports `higher_is_better` per column, used to default hard-filter operators (`>` vs `<`) and the ranking "Higher is better" checkbox.

@@ -8,7 +8,7 @@ description: >
   API-key auth, fetches designs/runs/PDBs from binderdash.knottlab.cloud.edu.au,
   wants design tables sorted by metrics (iptm, pae_interaction, Average_i_pTM,
   rf3_ipsae_min, design_to_target_iptm), adds N-/C-terminal tags (His, FLAG, HA,
-  cMyc, AviTag, C-tag, G4S linker, STOP*), or optimises DNA with GC/hairpin/restriction-site/codon
+  cMyc, AviTag, Strep-tag II, C-tag, G4S linker, STOP*), or optimises DNA with GC/hairpin/restriction-site/codon
   constraints. Binderdash returns non-standard JSON (flat design dicts with
   method-dependent columns); this skill prevents agents from guessing shapes.
 ---
@@ -32,7 +32,7 @@ Binderdash is a web app + FastAPI service that aggregates the results of de novo
 - Working with Binderdash API keys, `Authorization: Bearer`, or `X-Binderdash-Api-Key` headers
 - Fetching designs, runs, or PDB/CIF structure files via the Binderdash API
 - Producing TSV/CSV/JSON design tables sorted by metrics (`iptm`, `pae_interaction`, `Average_i_pTM`, `rf3_ipsae_min`, `design_to_target_iptm`)
-- Adding **N- or C-terminal tags** (His, FLAG, HA, cMyc, AviTag, C-tag, G4S linker, STOP*) to binder sequences
+- Adding **N- or C-terminal tags** (His, FLAG, HA, cMyc, AviTag, Strep-tag II, C-tag, G4S linker, STOP*) to binder sequences
 - **DNA codon optimisation** with constraints (GC content, hairpins, restriction sites, codon usage, Twist defaults)
 - Probing Binderdash **auth status** or checking which auth providers are enabled
 - Needing the live **OpenAPI spec** at `/openapi.json` for endpoint shapes
@@ -390,6 +390,7 @@ These are the canonical preset sequences the UI offers. Replicate them verbatim 
 | cMyc      | `EQKLISEEDL`    | N, C          |
 | HA        | `YPYDVPDYA`     | N, C          |
 | AviTag    | `GLNDIFEAQKIEWHE` | N, C        |
+| Strep-tag II | `WSHPQFEK`    | N, C          |
 | C-tag     | `EPEA`          | C             |
 | G4S linker | `GGGGS`        | N, C          |
 | STOP*      | `*`            | N, C          |
