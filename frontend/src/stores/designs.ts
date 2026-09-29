@@ -357,11 +357,10 @@ export const useDesignsStore = defineStore('designs', () => {
 
     // Getters — `designs` holds only rows for the current selected runs after fetch.
     // Hard filtering (column/operator/threshold rules) now lives entirely on the
-    // backend filtering engine (see plan §7A) — a design passes when
-    // filteringStore.effectivePassingKeys is null (no active filter) or contains this
-    // design's key. The legacy client-side custom-filter system (per-row
-    // column/operator/value rules re-implemented in JS) has been removed in favour of
-    // this single source of truth; see the Filtering tab for building filters.
+    // backend filtering engine (see plan §7A). Hard filters narrow first, then
+    // best-MPNN-per-backbone when that option is on, then the diverse subset when
+    // diversity selection has been applied. The legacy client-side custom-filter
+    // system has been removed; see the Filtering tab.
     const filteredDesigns = computed(() => {
         let filtered = designs.value
 
@@ -371,9 +370,11 @@ export const useDesignsStore = defineStore('designs', () => {
         // to avoid a circular store-init dependency (filteringStore.activeRunIds reads
         // this store).
         const filteringStore = useFilteringStore()
-        const passingKeys = filteringStore.effectivePassingKeys
-        if (passingKeys) {
-            filtered = filtered.filter(design => passingKeys.has(buildDesignKey(design)))
+        // Hard filters first. Diversity selection is applied after MPNN collapse so the
+        // table matches the cascade: filters → best MPNN variant → diverse subset.
+        const hardKeys = filteringStore.passingDesignKeys
+        if (hardKeys) {
+            filtered = filtered.filter(design => hardKeys.has(buildDesignKey(design)))
         }
 
         // Filter by selected run IDs (defensive; payload is usually already scoped).
@@ -389,11 +390,20 @@ export const useDesignsStore = defineStore('designs', () => {
             filtered = []
         }
 
-        // Best-MPNN collapse lives in the Diversity Selection panel. The checkbox is
-        // disabled while that section is off, but the preference is kept so turning
-        // diversity back on restores it. Do not keep filtering the table in the meantime.
+        // Best-MPNN collapse lives in the Diversity Selection panel and runs before
+        // diversity selection. The checkbox is disabled while that section is off, but
+        // the preference is kept so turning diversity back on restores it.
         if (bestMpnnOnly.value && filteringStore.diversityEnabled) {
             filtered = _filterBestMpnnDesigns(filtered)
+        }
+
+        const diverseKeys = filteringStore.diverseDesignKeys
+        if (
+            filteringStore.diversityEnabled &&
+            !filteringStore.diversityDirty &&
+            diverseKeys
+        ) {
+            filtered = filtered.filter(design => diverseKeys.has(buildDesignKey(design)))
         }
 
         // Attach binderdash_ranking (1 = best) from Apply Ranking / Apply Diversity.
@@ -705,12 +715,11 @@ export const useDesignsStore = defineStore('designs', () => {
     }
 
     /**
-     * Designs left after "Only best MPNN variant per backbone", counted on the
-     * same pool the Designs table collapses: selected runs, after hard filters
-     * and (when applied) diversity selection. Null while that collapse is off
-     * or the run rows are not loaded yet — the cascade must not flash 0.
-     * Saved-set rows are left out so this stays comparable with the server
-     * cascade, which only counts the selected runs.
+     * Designs left after "Keep only best MPNN variant per backbone", counted on
+     * selected runs that pass the hard filters — before diversity selection.
+     * Null while that collapse is off or the run rows are not loaded yet, so
+     * the cascade does not flash 0. Saved-set rows are left out so this stays
+     * comparable with the server cascade, which only counts the selected runs.
      */
     const mpnnDedupeRemaining = computed<number | null>(() => {
         if (!bestMpnnOnly.value) return null
@@ -719,7 +728,7 @@ export const useDesignsStore = defineStore('designs', () => {
         if (loading.value) return null
         if (loadedRunIdsSignature.value !== runIdsSignature(selectedRunIds.value)) return null
 
-        const keys = filteringStore.effectivePassingKeys
+        const keys = filteringStore.passingDesignKeys
         const idSet = new Set(selectedRunIds.value.map(String))
         const pool = designs.value.filter((design) => {
             if ((design as Record<string, unknown>).__source_saved_set_id != null) return false

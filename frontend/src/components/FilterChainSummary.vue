@@ -26,7 +26,7 @@ function itemLabel(item: FilterChainItem): string {
 }
 
 function itemTooltip(item: FilterChainItem): string {
-  if (item.type === 'mpnn') return 'Click to stop removing MPNN duplicates'
+  if (item.type === 'mpnn') return 'Click to keep every MPNN variant per backbone'
   const noun =
     item.type === 'diversity'
       ? 'diversity selection'

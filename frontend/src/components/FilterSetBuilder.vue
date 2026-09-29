@@ -264,9 +264,9 @@ interface CascadeRow {
 // stores/filtering.ts) so this table and the top-of-page FilterChainSummary
 // chain never drift apart. "Final set" is always its own trailing summary row
 // — no threshold, and its remaining count mirrors whichever stage above it
-// last actually narrowed the set (MPNN duplicate removal when active, else
-// diversity selection if applied and enabled, else the last enabled filter,
-// else the unfiltered total when nothing is configured/enabled).
+// last actually narrowed the set (diversity selection if applied and enabled,
+// else MPNN duplicate removal when that step is on, else the last enabled
+// filter, else the unfiltered total when nothing is configured/enabled).
 const cascadeRows = computed<CascadeRow[]>(() => {
   const rows: CascadeRow[] = filteringStore.filterChain.map((item) => ({
     column: item.label ?? item.column,
@@ -628,6 +628,17 @@ const alphaLogSlider = computed<number>({
         </div>
       </template>
       <div class="fsb-diversity-body" :aria-disabled="!filteringStore.diversityEnabled">
+        <div class="fsb-best-mpnn-row">
+          <Checkbox
+            :modelValue="designsStore.bestMpnnOnly"
+            @update:modelValue="designsStore.toggleBestMpnnOnly"
+            :binary="true"
+            inputId="fsb-best-mpnn-only"
+            :disabled="!filteringStore.diversityEnabled"
+          />
+          <label for="fsb-best-mpnn-only">Keep only best MPNN variant per backbone</label>
+        </div>
+
         <div class="fsb-diversity-row">
           <label class="fsb-diversity-field">
             Budget (designs in final set)
@@ -673,17 +684,6 @@ const alphaLogSlider = computed<number>({
               </span>
             </div>
           </label>
-        </div>
-
-        <div class="fsb-best-mpnn-row">
-          <Checkbox
-            :modelValue="designsStore.bestMpnnOnly"
-            @update:modelValue="designsStore.toggleBestMpnnOnly"
-            :binary="true"
-            inputId="fsb-best-mpnn-only"
-            :disabled="!filteringStore.diversityEnabled"
-          />
-          <label for="fsb-best-mpnn-only">Only best MPNN variant per backbone</label>
         </div>
 
         <details class="fsb-size-buckets">
@@ -1047,7 +1047,9 @@ const alphaLogSlider = computed<number>({
   gap: 0.5rem;
   font-size: 0.85rem;
   color: #495057;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--p-content-border-color, #dee2e6);
 }
 
 .fsb-size-buckets {

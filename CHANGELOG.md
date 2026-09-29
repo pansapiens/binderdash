@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Filtering**: **Keep only best MPNN variant per backbone** runs before diversity selection, so the budget is spent on distinct backbones. The control sits above Budget, and the filter cascade lists **Remove MPNN duplicates** before Diversity Selection. **Final set** is the diverse subset when that has been applied, otherwise the count after duplicate removal.
 - **Designs**: Column visibility uses a searchable multi-select in the table header (like Prepare Sequences / Filtering), replacing the Toggle Columns button and checkbox panel.
 - **Select Runs**: Selected runs always sort to the top of the table and stay visible through column filters. The toolbar toggle is renamed **Show only selected**.
 - **Sequence prep / API**: DNA codon optimisation freezes stop residues (`*`) as **TAA** and a leading Met as **ATG** when marked fixed, excluding them from codon optimisation and user constraints. Optional request field `fixed` is a per-residue boolean mask; when omitted, every `*` is treated as fixed.
@@ -57,14 +58,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Filtering**: The filter cascade counts designs remaining after **Only best MPNN variant per backbone** when that option is collapsing the table. The new **Remove MPNN duplicates** row sits after diversity selection, and **Final set** uses that count.
 - **Sequence prep / DNA Optimization**: A sequence whose codon optimisation fails with "No solution found" is solved again, up to five attempts, before that error is reported.
 - **Designs**: Hide internal client fields (`binderRowKey`, Saved Set provenance) from the Show Columns list.
 - **Sequence prep**: N- and C-side tag palettes wrap as groups on narrow widths, so "Add to C side" and its buttons stay together on a new row instead of splitting mid-row.
 - **Prepare sequences**: DNA optimization constraint parameters (for example AvoidPattern) can be edited without the field resetting mid-keystroke.
 - **Saved Sets**: Creating a Saved Set now stores the UI state (including **Only best MPNN variant per backbone**, table columns and sort). **Reapply filters** / **Load filters** restore it; older sets without `ui_state` are unchanged.
 - **Structure viewer**: The terminus tag marker is drawn as soon as next/previous finishes loading a structure. It previously stayed blank until pLDDT was toggled, because the viewer read terminal coordinates before Mol* had finished loading the model.
-- **Filtering**: **Only best MPNN variant per backbone** no longer collapses the Designs table while diversity selection is off. The checkbox stays as set and applies again when diversity selection is turned back on.
+- **Filtering**: **Keep only best MPNN variant per backbone** no longer collapses the Designs table while diversity selection is off. The checkbox stays as set and applies again when diversity selection is turned back on.
 - **Designs**: Structure viewer next/previous follows the Designs table row order after a column sort, including multi-column sorts.
 - **Runs / ingest**: BindCraft multi-target runs (nf-binder-design) no longer report `Accepted / Total` using per-target `bindcraft_n_traj` alone — total trajectories are `bindcraft_n_traj × n_targets`. CSV trajectory counts also handle CR-only BindCraft merges correctly.
 - **Auth / Docker**: PAM logins failed in Docker even with host `/etc/passwd`, `/etc/group` and `/etc/shadow` bind-mounted. `pam_unix` shells out to the setgid-`shadow` helper `/sbin/unix_chkpwd`, which will not check a user other than its caller, so a container running as a non-root `user:` always got `PAM_AUTHINFO_UNAVAIL` — reported as an indistinguishable "Incorrect username or password". The compose services now set `group_add: ["42"]`. Documented alongside it: those single-file mounts pin an inode, so host password changes and new users need `docker compose up -d --force-recreate`, not `restart`.

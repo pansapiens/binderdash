@@ -7,6 +7,7 @@ from backend.filtering.engine import (
     apply_hard_filters,
     count_missing_sequences,
     filter_cascade_counts,
+    keep_best_mpnn_per_backbone,
     rank_designs,
     run_filtering_pipeline,
     select_diverse,
@@ -457,6 +458,72 @@ class TestRunFilteringPipeline:
         assert diverse is not None
         assert len(diverse) == 2
         assert set(diverse["design_id"].to_list()) == {"a", "c"}
+
+    def test_best_mpnn_only_collapses_before_diversity(self):
+        # a2 is a worse MPNN variant of the same backbone as a1 (higher pae_interaction).
+        # Quality-only diversity with a large budget would keep both unless the collapse
+        # runs first. a1 wins on primary score even though a2 has the higher iptm.
+        df = pl.DataFrame(
+            {
+                "design_id": ["a1", "a2", "b1", "solo"],
+                "method": ["rfd", "rfd", "rfd", "rfd"],
+                "backbone_id": ["bbA", "bbA", "bbB", None],
+                "pae_interaction": [5.0, 20.0, 8.0, 1.0],
+                "plddt_binder": [70.0, 95.0, 80.0, 50.0],
+                "iptm": [0.4, 0.99, 0.5, 0.2],
+                "sequence": ["AAAAAAAAAA", "CCCCCCCCCC", "GGGGGGGGGG", "TTTTTTTTTT"],
+            }
+        )
+        metrics = [RankingMetric(column="iptm", weight=1, higher_is_better=True)]
+        _, diverse = run_filtering_pipeline(
+            df,
+            [],
+            metrics,
+            budget=4,
+            alpha=0.0,
+            sequence_col="sequence",
+            best_mpnn_only=True,
+        )
+        assert diverse is not None
+        assert set(diverse["design_id"].to_list()) == {"a1", "b1", "solo"}
+
+    def test_best_mpnn_only_ignored_when_diversity_off(self):
+        df = pl.DataFrame(
+            {
+                "design_id": ["a1", "a2"],
+                "method": ["rfd", "rfd"],
+                "backbone_id": ["bbA", "bbA"],
+                "pae_interaction": [5.0, 20.0],
+                "sequence": ["AAAAAAAAAA", "CCCCCCCCCC"],
+            }
+        )
+        _, diverse = run_filtering_pipeline(
+            df,
+            [],
+            [],
+            budget=1,
+            alpha=0.0,
+            sequence_col="sequence",
+            apply_diversity=False,
+            best_mpnn_only=True,
+        )
+        assert diverse is not None
+        assert set(diverse["design_id"].to_list()) == {"a1", "a2"}
+
+
+class TestKeepBestMpnnPerBackbone:
+    def test_keeps_lower_pae_for_rfd(self):
+        df = pl.DataFrame(
+            {
+                "design_id": ["worse", "better"],
+                "method": ["rfd", "rfd"],
+                "backbone_id": ["bb", "bb"],
+                "pae_interaction": [30.0, 4.0],
+                "plddt_binder": [99.0, 50.0],
+            }
+        )
+        out = keep_best_mpnn_per_backbone(df)
+        assert out["design_id"].to_list() == ["better"]
 
 
 class TestMissingSequencesAreExcludedNotBlankFilled:

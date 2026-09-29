@@ -38,7 +38,7 @@ import multiprocessing
 import os
 import random
 from concurrent.futures import ProcessPoolExecutor
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import polars as pl
@@ -530,6 +530,84 @@ def count_missing_sequences(df: pl.DataFrame, sequence_col: Optional[str]) -> in
     return df.height - int(df.select(has_usable_sequence(sequence_col).sum()).item() or 0)
 
 
+# Same primary/secondary scores as frontend METHOD_BEST_SCORE. Secondary ties use the
+# primary direction, matching the Designs-table collapse.
+_MPNN_BEST_SCORE: Dict[str, Tuple[str, Tuple[str, ...], bool]] = {
+    "bindcraft": ("Average_i_pTM", ("Average_Binder_pLDDT",), True),
+    "rfd": ("pae_interaction", ("plddt_binder",), False),
+    "boltzgen": ("design_to_target_iptm", ("design_ptm",), True),
+    "rfd3": ("iptm", ("rf3_ipsae_min",), True),
+}
+
+
+def _as_float(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number:
+        return None
+    return number
+
+
+def _mpnn_variant_is_better(challenger: Dict[str, Any], current: Dict[str, Any]) -> bool:
+    """Whether ``challenger`` should replace ``current`` as the best variant of a backbone."""
+    cfg = _MPNN_BEST_SCORE.get(str(challenger.get("method") or ""))
+    if cfg is None:
+        return False
+    primary, secondary, higher = cfg
+    primary_challenger = _as_float(challenger.get(primary))
+    if primary_challenger is None:
+        return False
+    primary_current = _as_float(current.get(primary))
+    if primary_current is None:
+        return True
+    if primary_challenger != primary_current:
+        return primary_challenger > primary_current if higher else primary_challenger < primary_current
+    for field in secondary:
+        score_challenger = _as_float(challenger.get(field))
+        score_current = _as_float(current.get(field))
+        if score_challenger is None or score_current is None:
+            continue
+        if score_challenger != score_current:
+            return score_challenger > score_current if higher else score_challenger < score_current
+    return False
+
+
+def keep_best_mpnn_per_backbone(df: pl.DataFrame) -> pl.DataFrame:
+    """One design per ``backbone_id`` (best primary score). Rows with no backbone are kept.
+
+    Runs before diversity selection so the budget is spent on distinct backbones rather
+    than on MPNN variants of a backbone already chosen.
+    """
+    if df.is_empty() or "backbone_id" not in df.columns:
+        return df
+    indexed = df.with_row_index("__mpnn_idx")
+    keep_idx: List[int] = []
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    group_order: List[str] = []
+    for row in indexed.iter_rows(named=True):
+        backbone = row.get("backbone_id")
+        if backbone is None or (isinstance(backbone, str) and not backbone.strip()):
+            keep_idx.append(int(row["__mpnn_idx"]))
+            continue
+        key = str(backbone)
+        if key not in groups:
+            groups[key] = []
+            group_order.append(key)
+        groups[key].append(row)
+    for key in group_order:
+        rows = groups[key]
+        best = rows[0]
+        for challenger in rows[1:]:
+            if _mpnn_variant_is_better(challenger, best):
+                best = challenger
+        keep_idx.append(int(best["__mpnn_idx"]))
+    return indexed.filter(pl.col("__mpnn_idx").is_in(keep_idx)).drop("__mpnn_idx")
+
+
 def select_diverse(
     df: pl.DataFrame,
     sequence_col: str,
@@ -594,6 +672,7 @@ def run_filtering_pipeline(
     random_state: int = 0,
     apply_diversity: bool = True,
     ranking_mode: str = "worst_rank",
+    best_mpnn_only: bool = False,
 ) -> Tuple[pl.DataFrame, Optional[pl.DataFrame]]:
     """Run the full filter -> rank -> diversity pipeline.
 
@@ -615,6 +694,11 @@ def run_filtering_pipeline(
     ``budget`` — or empty — even when plenty of designs passed the filters. Callers
     should report that with ``count_missing_sequences`` rather than leave the
     shortfall unexplained.
+
+    When ``best_mpnn_only`` is set and diversity selection runs, candidates that share a
+    ``backbone_id`` are reduced to the best primary-score variant first (see
+    ``keep_best_mpnn_per_backbone``). Designs with no backbone are kept. The flag does
+    not change the set used when diversity selection is off.
     """
     filtered = apply_hard_filters(df, filters)
     ranked = rank_designs(
@@ -626,6 +710,8 @@ def run_filtering_pipeline(
     if not apply_diversity:
         diverse_df = candidates
     elif sequence_col and sequence_col in ranked.columns:
+        if best_mpnn_only:
+            candidates = keep_best_mpnn_per_backbone(candidates)
         diverse_df = select_diverse(
             candidates,
             sequence_col=sequence_col,

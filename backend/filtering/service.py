@@ -19,6 +19,7 @@ from .engine import (
     apply_hard_filters,
     count_missing_sequences,
     filter_cascade_counts,
+    keep_best_mpnn_per_backbone,
     rank_designs,
     run_filtering_pipeline,
 )
@@ -300,7 +301,11 @@ def compute_rank(request: FilteringRankRequest) -> FilteringRankResponse:
 
 
 def _diversity_warnings(
-    ranked: pl.DataFrame, sequence_col: Optional[str], budget: int, selected: int
+    ranked: pl.DataFrame,
+    sequence_col: Optional[str],
+    budget: int,
+    selected: int,
+    best_mpnn_only: bool = False,
 ) -> List[str]:
     """Explain a diverse set that is empty or smaller than the requested budget.
 
@@ -308,6 +313,8 @@ def _diversity_warnings(
     yet. Previously that surfaced as ``diverse_set_count: 0`` with no reason given.
     """
     candidates = ranked.filter(pl.col("pass_filters")) if "pass_filters" in ranked.columns else ranked
+    if best_mpnn_only:
+        candidates = keep_best_mpnn_per_backbone(candidates)
     if not sequence_col:
         return [
             "Diversity selection was skipped: these runs have no Sequence column. "
@@ -323,9 +330,14 @@ def _diversity_warnings(
             "for those runs to include them."
         )
     if selected < budget:
+        pool = (
+            "remained after keeping the best MPNN variant per backbone and dropping designs without a usable sequence"
+            if best_mpnn_only
+            else "passed the filters with a usable sequence"
+        )
         warnings.append(
             f"Diversity selection returned {selected} designs for a budget of {budget}; "
-            "only that many designs passed the filters with a usable sequence."
+            f"only that many designs {pool}."
         )
     return warnings
 
@@ -357,6 +369,7 @@ def compute_diversity_preview(request: FilteringDiversityRequest) -> FilteringDi
         size_buckets=request.size_buckets,
         random_state=request.random_state,
         ranking_mode=request.ranking_mode,
+        best_mpnn_only=request.best_mpnn_only,
     )
 
     diverse_keys = set()
@@ -389,7 +402,13 @@ def compute_diversity_preview(request: FilteringDiversityRequest) -> FilteringDi
         total_designs=df.height,
         passing_filters=passing_filters,
         diverse_set_count=diverse_set_count,
-        warnings=_diversity_warnings(ranked, sequence_col, request.budget, diverse_set_count),
+        warnings=_diversity_warnings(
+            ranked,
+            sequence_col,
+            request.budget,
+            diverse_set_count,
+            best_mpnn_only=request.best_mpnn_only,
+        ),
     )
 
 
@@ -416,6 +435,7 @@ def run_filtering_and_save(request: FilteringRunRequest) -> FilteringRunResponse
         random_state=request.random_state,
         apply_diversity=request.apply_diversity,
         ranking_mode=request.ranking_mode,
+        best_mpnn_only=request.best_mpnn_only,
     )
 
     diverse_keys = set()
@@ -438,7 +458,13 @@ def run_filtering_and_save(request: FilteringRunRequest) -> FilteringRunResponse
     warnings = (
         []
         if not request.apply_diversity
-        else _diversity_warnings(ranked, sequence_col, request.budget, diverse_set_count)
+        else _diversity_warnings(
+            ranked,
+            sequence_col,
+            request.budget,
+            diverse_set_count,
+            best_mpnn_only=request.best_mpnn_only,
+        )
     )
 
     saved_set_id = str(uuid.uuid4())

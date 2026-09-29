@@ -858,6 +858,8 @@ export interface FilteringRunRequestDto {
     random_state?: number
     /** When false, save every design that passed hard filters (no budget/diversity). */
     apply_diversity?: boolean
+    /** Collapse to the best MPNN variant per backbone before diversity selection. */
+    best_mpnn_only?: boolean
     /**
      * UI snapshot at save time (table layout, best-MPNN toggle, etc.). Stored in the
      * Saved Set's filter_params and restored by Reapply / Load filters / bundle download.
@@ -952,6 +954,8 @@ export interface FilteringDiversityRequestDto {
     alpha: number
     size_buckets?: SizeBucketDto[]
     random_state?: number
+    /** Collapse to the best MPNN variant per backbone before diversity selection. */
+    best_mpnn_only?: boolean
 }
 
 export interface DiverseDesignRowDto {

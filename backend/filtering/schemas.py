@@ -274,6 +274,9 @@ class FilteringRunRequest(BaseModel):
     # / lazy-greedy diversity pass). Budget and alpha are still accepted so a disabled
     # diversity recipe can round-trip without losing the user's last settings.
     apply_diversity: bool = True
+    # When true and diversity selection runs, keep one design per backbone_id (best
+    # primary score) before the lazy-greedy pass. Ignored when apply_diversity is false.
+    best_mpnn_only: bool = False
     # The UI state when the set was saved. Rides into the saved set's filter_params
     # blob, so a set downloaded later reproduces the table layout and not just the
     # filter recipe. Absent on sets created before this field existed.
@@ -389,6 +392,8 @@ class FilteringDiversityRequest(BaseModel):
     alpha: float = 0.001
     size_buckets: List[SizeBucket] = Field(default_factory=list)
     random_state: int = 0
+    # Collapse to the best MPNN variant per backbone before diversity selection.
+    best_mpnn_only: bool = False
 
 
 class DiverseDesignRow(BaseModel):
