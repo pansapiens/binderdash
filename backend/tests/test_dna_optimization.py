@@ -108,8 +108,33 @@ def test_resolve_fixed_mask_defaults_and_shift() -> None:
 def test_resolve_fixed_mask_rejects_bad_masks() -> None:
     with pytest.raises(ValueError, match="length"):
         resolve_fixed_mask("MGS", [False, False])
-    with pytest.raises(ValueError, match="only stop"):
-        resolve_fixed_mask("MGS", [True, False, False])
+    # Leading Met may be fixed; an internal non-stop may not.
+    assert resolve_fixed_mask("MGS", [True, False, False]) == [True, False, False]
+    with pytest.raises(ValueError, match="leading Met|only stop"):
+        resolve_fixed_mask("MGS", [False, True, False])
+
+
+def test_optimize_dna_leading_met_stays_atg(api_client) -> None:
+    from backend.util.dna_optimization import FIXED_START_DNA
+
+    payload = {
+        "sequences": {"d1": "MGS*"},
+        "fixed": {"d1": [True, False, False, True]},
+        "codon_table_id": "e_coli",
+        "method": "match_codon_usage",
+        "constraints": [
+            {"type": "EnforceGCContent", "enabled": True, "params": {"mini": 0.25, "maxi": 0.75}}
+        ],
+    }
+    resp = api_client.post("/api/sequences/optimize-dna", json=payload)
+    assert resp.status_code == 200, resp.text
+    res = resp.json()["results"][0]
+    assert res["error"] is None
+    dna = res["optimized_dna"]
+    assert dna is not None
+    assert dna.startswith(FIXED_START_DNA)
+    assert dna.endswith(FIXED_STOP_DNA)
+    assert len(dna) == 12
 
 
 def test_optimize_dna_terminal_stop_stays_taa(api_client) -> None:
@@ -205,7 +230,7 @@ def test_optimize_dna_fixed_length_mismatch(api_client) -> None:
 def test_optimize_dna_fixed_non_stop_residue(api_client) -> None:
     payload = {
         "sequences": {"d1": "MGS"},
-        "fixed": {"d1": [True, False, False]},
+        "fixed": {"d1": [False, True, False]},
         "codon_table_id": "e_coli",
         "method": "match_codon_usage",
         "constraints": [],
@@ -215,4 +240,4 @@ def test_optimize_dna_fixed_non_stop_residue(api_client) -> None:
     res = resp.json()["results"][0]
     assert res["optimized_dna"] is None
     assert res["error"] is not None
-    assert "stop" in res["error"].lower()
+    assert "stop" in res["error"].lower() or "met" in res["error"].lower()

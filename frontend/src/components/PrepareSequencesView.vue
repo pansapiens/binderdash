@@ -147,6 +147,10 @@
           <Checkbox v-model="seqPrep.useDoubleStop" input-id="ps-stop-double" binary />
           <label for="ps-stop-double">Use double stop **</label>
         </div>
+        <div class="ps-stop-check">
+          <Checkbox v-model="seqPrep.dontModifyStartAtg" input-id="ps-start-atg" binary />
+          <label for="ps-start-atg">Don't modify 5' start (ATG)</label>
+        </div>
       </div>
       <div class="ps-field">
         <label for="ps-chain">Chain to extract (PDB/mmCIF)</label>
@@ -629,7 +633,7 @@
               <span
                 v-for="(seg, i) in data.segments_dna || [{ text: data.prepared_dna, cssClass: 'seq-seg-dna-body' }]"
                 :key="i"
-                :class="seg.cssClass"
+                :class="[seg.cssClass, { 'seq-seg-fixed': seg.fixed }]"
                 :style="seg.style"
               >{{ seg.text }}</span>
             </template>
@@ -637,7 +641,7 @@
               <span
                 v-for="(seg, i) in aaSegmentsForView(data)"
                 :key="i"
-                :class="seg.cssClass"
+                :class="[seg.cssClass, { 'seq-seg-fixed': seg.fixed }]"
                 :style="seg.style"
               >{{ seg.text }}</span>
             </template>
@@ -1994,6 +1998,14 @@ const downloadMenuItems = [
   background: #d66868;
   color: #ffffff !important;
   font-weight: 700;
+}
+
+:deep(.seq-seg-fixed) {
+  font-weight: 700;
+  text-decoration-line: underline;
+  text-decoration-style: double;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.22em;
 }
 
 :deep(.seq-seg-nuc-remainder) {

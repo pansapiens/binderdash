@@ -9,6 +9,7 @@ import python_codon_tables as pct
 logger = logging.getLogger(__name__)
 
 FIXED_STOP_DNA = "TAA"
+FIXED_START_DNA = "ATG"
 
 
 def _naive_translate_protein(protein_seq: str, table_id: str = "e_coli_316407") -> str:
@@ -88,7 +89,7 @@ def resolve_fixed_mask(
 
     When ``fixed`` is omitted, every stop (``*``) is frozen as TAA.
     When present, it is the complete mask and must match the protein length;
-    only stop residues may be marked fixed.
+    only stop residues, or a leading Met (M), may be marked fixed.
     """
     if fixed is None:
         return [aa == "*" for aa in protein_seq]
@@ -98,11 +99,26 @@ def resolve_fixed_mask(
         )
     mask = [bool(v) for v in fixed]
     for i, (aa, is_fixed) in enumerate(zip(protein_seq, mask)):
-        if is_fixed and aa != "*":
-            raise ValueError(
-                f"Residue {i} is marked fixed but is '{aa}'; only stop (*) can be fixed"
-            )
+        if not is_fixed:
+            continue
+        if aa == "*":
+            continue
+        if aa == "M" and i == 0:
+            continue
+        raise ValueError(
+            f"Residue {i} is marked fixed but is '{aa}'; "
+            "only stop (*) or a leading Met (M) can be fixed"
+        )
     return mask
+
+
+def fixed_codon_dna(aa: str) -> str:
+    """Exact DNA written for a fixed residue."""
+    if aa == "*":
+        return FIXED_STOP_DNA
+    if aa == "M":
+        return FIXED_START_DNA
+    raise ValueError(f"No fixed codon defined for amino acid '{aa}'")
 
 
 def fixed_nt_indices(fixed_mask: Sequence[bool]) -> List[int]:
@@ -165,14 +181,15 @@ def _constraint_min_span(constraint: Any) -> int:
     return 3
 
 
-def _apply_fixed_dna(dna: str, fixed_mask: Sequence[bool]) -> str:
-    """Overwrite each fixed codon with TAA."""
+def _apply_fixed_dna(dna: str, protein: str, fixed_mask: Sequence[bool]) -> str:
+    """Overwrite each fixed codon with its frozen DNA (TAA for stop, ATG for start Met)."""
     chars = list(dna)
     for i, is_fixed in enumerate(fixed_mask):
         if not is_fixed:
             continue
         start = 3 * i
-        chars[start : start + 3] = list(FIXED_STOP_DNA)
+        codon = fixed_codon_dna(protein[i])
+        chars[start : start + 3] = list(codon)
     return "".join(chars)
 
 
@@ -245,7 +262,9 @@ def optimize_sequences(
             design_fixed = fixed.get(design_id) if design_id in fixed else None
             fixed_mask = resolve_fixed_mask(protein, design_fixed)
             initial_dna = _apply_fixed_dna(
-                _naive_translate_protein(protein, codon_table_id), fixed_mask
+                _naive_translate_protein(protein, codon_table_id),
+                protein,
+                fixed_mask,
             )
             fixed_indices = fixed_nt_indices(fixed_mask)
             intervals = free_intervals(len(initial_dna), fixed_indices)

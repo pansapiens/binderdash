@@ -46,6 +46,7 @@ const STOP_FIELDS = [
     'includeStopForNTagged',
     'includeStopForCTagged',
     'useDoubleStop',
+    'dontModifyStartAtg',
     'showPostStopPadding',
     'postStopPadding',
     'postStopPadUpToNucleotideLength',

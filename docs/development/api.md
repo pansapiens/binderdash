@@ -347,7 +347,7 @@ curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" \
 }
 ```
 
-Optional `fixed` maps each `design_id` to a per-residue boolean array the same length as that protein. Residues marked `true` must be stops (`*`) and stay frozen as **TAA**, excluded from codon optimisation and from user constraints. When a design id is omitted from `fixed` (or `fixed` is omitted entirely), every `*` in that protein is treated as fixed.
+Optional `fixed` maps each `design_id` to a per-residue boolean array the same length as that protein. Residues marked `true` must be stops (`*`, frozen as **TAA**) or a leading Met (`M`, frozen as **ATG**), and are excluded from codon optimisation and from user constraints. When a design id is omitted from `fixed` (or `fixed` is omitted entirely), every `*` in that protein is treated as fixed.
 ### Codon tables
 
 `GET /api/sequences/codon-tables` returns `{ "items": [ { "value", "label" }, ... ] }`.
@@ -417,6 +417,8 @@ Preset tag **amino-acid sequences** are not stored as DNA on the server. The API
 | FLAG | `DYKDDDDK` | N or C |
 | cMyc | `EQKLISEEDL` | N or C |
 | HA | `YPYDVPDYA` | N or C |
+| AviTag | `GLNDIFEAQKIEWHE` | N or C |
+| C-tag | `EPEA` | C only |
 | G4S linker | `GGGGS` | N or C |
 | STOP* | `*` | N or C |
 

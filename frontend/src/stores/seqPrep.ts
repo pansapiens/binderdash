@@ -28,10 +28,22 @@ import {
 
 export type TagZone = 'n' | 'c'
 
-export type PresetTagKind = 'hisN' | 'hisC' | 'flag' | 'cmyc' | 'ha' | 'linker' | 'stop' | 'custom'
+export type PresetTagKind =
+    | 'hisN'
+    | 'hisC'
+    | 'flag'
+    | 'cmyc'
+    | 'ha'
+    | 'avi'
+    | 'ctag'
+    | 'linker'
+    | 'stop'
+    | 'custom'
 
 /** Frozen stop codon used for every `*` in prepare-sequences DNA (preview and optimisation). */
 export const FIXED_STOP_DNA = 'TAA'
+/** Frozen start codon when the coding sequence begins with Met / ATG. */
+export const FIXED_START_DNA = 'ATG'
 
 /**
  * UI-level constraint types shown in the DNA Optimization panel. Most map
@@ -184,6 +196,24 @@ export const TAG_PRESET_DEFS: readonly TagPresetDefinition[] = [
         background: 'rgba(123, 31, 162, 0.1)',
         foreground: '#6a1b9a',
         zones: ['n', 'c']
+    },
+    {
+        kind: 'avi',
+        tag_name: 'AviTag',
+        sequence: 'GLNDIFEAQKIEWHE',
+        color: '#00838f',
+        background: 'rgba(0, 131, 143, 0.12)',
+        foreground: '#006064',
+        zones: ['n', 'c']
+    },
+    {
+        kind: 'ctag',
+        tag_name: 'C-tag',
+        sequence: 'EPEA',
+        color: '#6d4c41',
+        background: 'rgba(109, 76, 65, 0.12)',
+        foreground: '#4e342e',
+        zones: ['c']
     },
     {
         kind: 'linker',
@@ -433,6 +463,8 @@ function segmentClass(kind: PresetTagKind): string {
     if (kind === 'flag') return 'seq-seg-flag'
     if (kind === 'cmyc') return 'seq-seg-cmyc'
     if (kind === 'ha') return 'seq-seg-ha'
+    if (kind === 'avi') return 'seq-seg-avi'
+    if (kind === 'ctag') return 'seq-seg-ctag'
     if (kind === 'linker') return 'seq-seg-linker'
     if (kind === 'stop') return 'seq-seg-stop'
     return 'seq-seg-custom'
@@ -777,6 +809,104 @@ export function expandFixedFromSegments(segments: PreparedSegment[]): {
     return { aa, fixed }
 }
 
+/**
+ * When enabled and the coding AA starts with Met, split that residue into its own
+ * fixed segment so DNA optimisation keeps the 5' codon as ATG.
+ * Always returns a new array so callers can safely replace the source list in place.
+ */
+export function applyFixedStartMethionine(
+    segments: PreparedSegment[],
+    enabled: boolean
+): PreparedSegment[] {
+    if (!enabled || segments.length === 0) return segments.slice()
+    const first = segments[0]
+    if (!first.text || first.text[0] !== 'M') return segments.slice()
+    if (first.text === 'M') {
+        if (first.fixed) return segments.slice()
+        return [{ ...first, fixed: true }, ...segments.slice(1)]
+    }
+    const restText = first.text.slice(1)
+    const out: PreparedSegment[] = [
+        {
+            text: 'M',
+            cssClass: first.cssClass,
+            style: first.style ? { ...first.style } : undefined,
+            fixed: true
+        }
+    ]
+    if (restText) {
+        out.push({
+            text: restText,
+            cssClass: first.cssClass,
+            style: first.style ? { ...first.style } : undefined,
+            fixed: first.fixed
+        })
+    }
+    out.push(...segments.slice(1))
+    return out
+}
+
+/**
+ * When enabled and the coding DNA starts with ATG, carve that codon into a fixed segment.
+ * Keeps the original lead segment chrome (N-terminal / tag colours) so AA and NT views match.
+ */
+export function applyFixedStartAtgDna(
+    mainDna: string,
+    mainSegChunks: PreparedSegment[][],
+    enabled: boolean
+): { mainDna: string; mainSegChunks: PreparedSegment[][] } {
+    if (!enabled || mainDna.length < 3) {
+        return { mainDna, mainSegChunks }
+    }
+    if (mainDna.slice(0, 3).toUpperCase() !== FIXED_START_DNA) {
+        return { mainDna, mainSegChunks }
+    }
+    const dna = FIXED_START_DNA + mainDna.slice(3)
+    const flat: PreparedSegment[] = []
+    for (const chunk of mainSegChunks) {
+        flat.push(...chunk)
+    }
+    const joined = flat.map(s => s.text).join('')
+    if (joined.length < 3 || joined.slice(0, 3).toUpperCase() !== FIXED_START_DNA) {
+        return { mainDna: dna, mainSegChunks }
+    }
+    const lead = flat[0]
+    const leadCssClass = lead?.cssClass || 'seq-seg-dna-body'
+    const leadStyle = lead?.style ? { ...lead.style } : undefined
+    // Drop the first 3 nt from existing segments, then prepend a fixed ATG segment.
+    let skip = 3
+    const rest: PreparedSegment[] = []
+    for (const seg of flat) {
+        if (skip <= 0) {
+            rest.push(seg)
+            continue
+        }
+        if (seg.text.length <= skip) {
+            skip -= seg.text.length
+            continue
+        }
+        rest.push({
+            ...seg,
+            text: seg.text.slice(skip)
+        })
+        skip = 0
+    }
+    return {
+        mainDna: dna,
+        mainSegChunks: [
+            [
+                {
+                    text: FIXED_START_DNA,
+                    cssClass: leadCssClass,
+                    style: leadStyle,
+                    fixed: true
+                }
+            ],
+            rest
+        ]
+    }
+}
+
 export const useSeqPrepStore = defineStore('seqPrep', () => {
     const nTags = ref<PlacedTag[]>([])
     const cTags = ref<PlacedTag[]>([])
@@ -785,6 +915,8 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
     const includeStopForNTagged = ref(true)
     const includeStopForCTagged = ref(true)
     const useDoubleStop = ref(false)
+    /** When true, a leading Met / ATG in the coding construct stays fixed during DNA opt. */
+    const dontModifyStartAtg = ref(true)
 
     const goodOnly = ref(false)
     const extractChain = ref('B')
@@ -1337,6 +1469,13 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                 aaExportPartsDisplay
             )
 
+            const freezeStart = dontModifyStartAtg.value
+            const segmentsAaFixed = applyFixedStartMethionine(segmentsAa, freezeStart)
+            const segmentsAaDisplayFixed = applyFixedStartMethionine(
+                segmentsAaDisplay,
+                freezeStart
+            )
+
             const needMainDnaForPad =
                 dnaMode.value || (usePostStopPadTarget && padRaw.length > 0)
             let mainDna = ''
@@ -1348,7 +1487,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                     // Re-apply feature colouring: build the original segment layout (same
                     // nucleotide lengths since optimisation preserves translation) and reslice
                     // the optimised sequence across those boundaries.
-                    const { mainSegChunks: origChunks } = buildMainDnaForRow(
+                    const built = buildMainDnaForRow(
                         table,
                         nFix,
                         cFix,
@@ -1357,8 +1496,13 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                         includeNTags,
                         includeCTags
                     )
+                    const marked = applyFixedStartAtgDna(
+                        built.mainDna,
+                        built.mainSegChunks,
+                        freezeStart
+                    )
                     let offset = 0
-                    mainSegChunks = origChunks.map(chunk =>
+                    mainSegChunks = marked.mainSegChunks.map(chunk =>
                         chunk.map(seg => {
                             const slice = optDna.slice(offset, offset + seg.text.length)
                             offset += seg.text.length
@@ -1375,6 +1519,11 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                         includeNTags,
                         includeCTags
                     ))
+                    ;({ mainDna, mainSegChunks } = applyFixedStartAtgDna(
+                        mainDna,
+                        mainSegChunks,
+                        freezeStart
+                    ))
                 }
             }
 
@@ -1390,7 +1539,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                     undefined,
                     table
                 )
-                segmentsAa.push(...segments)
+                segmentsAaFixed.push(...segments)
                 aaExportParts.push(exportText)
             }
 
@@ -1467,8 +1616,8 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
                 prepared_aa,
                 prepared_aa_display,
                 prepared_dna,
-                segments_aa: segmentsAa,
-                segments_aa_display: segmentsAaDisplay,
+                segments_aa: segmentsAaFixed,
+                segments_aa_display: segmentsAaDisplayFixed,
                 segments_dna,
                 extinction_coeff_reduced: ext.reduced,
                 extinction_coeff_oxidized: ext.oxidized,
@@ -1671,6 +1820,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             includeStopForNTagged,
             includeStopForCTagged,
             useDoubleStop,
+            dontModifyStartAtg,
             postStopPadding,
             postStopPadUpToNucleotideLength,
             onlyUseNTerminalTagWhenPaddingRequired,
@@ -1781,6 +1931,7 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
         includeStopForNTagged,
         includeStopForCTagged,
         useDoubleStop,
+        dontModifyStartAtg,
         goodOnly,
         extractChain,
         dnaMode,
