@@ -577,8 +577,11 @@ const alphaLogSlider = computed<number>({
           :disabled="!filteringStore.hasSelectedRuns"
           @click="handleApplyRanking"
         />
-        <span v-if="filteringStore.rankedDesigns" class="fsb-apply-status">
+        <span v-if="filteringStore.rankedDesigns && !filteringStore.rankingDirty" class="fsb-apply-status">
           Ranked {{ filteringStore.rankedDesigns.size }} designs
+        </span>
+        <span v-else-if="filteringStore.rankingDirty" class="fsb-apply-status fsb-apply-status--dirty">
+          Ranking settings changed — Apply Ranking, or Apply Diversity Filter, which re-ranks first.
         </span>
       </div>
       <Message v-if="filteringStore.rankError" severity="error" :closable="false" class="fsb-preview-error">
@@ -597,9 +600,11 @@ const alphaLogSlider = computed<number>({
         (e.g. "BoltzGen" on a non-BoltzGen run).
       </Message>
       <p class="fsb-hint">
-        Ranking is not applied automatically — click "Apply Ranking" after configuring
-        metrics. This adds a <code>binderdash_ranking</code> column (1 = best) to the
-        Designs table, shows it, and sorts by it, without narrowing which rows are shown.
+        Click "Apply Ranking" after configuring metrics. This adds a
+        <code>binderdash_ranking</code> column (1 = best) to the Designs table, shows it,
+        and sorts by it, without narrowing which rows are shown. "Apply Diversity Filter"
+        re-ranks with these metrics before it selects, so a change here also marks an
+        applied diverse set unapplied until you apply it again.
       </p>
     </Panel>
 
@@ -752,10 +757,6 @@ const alphaLogSlider = computed<number>({
     </Panel>
 
     <Panel v-if="filteringStore.hasSelectedRuns" header="5. Filter cascade" class="fsb-panel">
-      <p class="fsb-hint">
-        Updates automatically as hard filters change (debounced) — no need to
-        re-trigger manually.
-      </p>
       <span v-if="filteringStore.previewLoading" class="fsb-apply-status">
         <i class="pi pi-spin pi-spinner" /> Updating preview…
       </span>

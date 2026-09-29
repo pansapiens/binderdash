@@ -185,7 +185,7 @@ export async function applySessionState(state: SessionStateDto): Promise<Restore
             metrics: recipe.metrics ?? [],
             ranking_mode: recipe.ranking_mode,
             budget: recipe.budget ?? 24,
-            alpha: recipe.alpha ?? 0.001,
+            alpha: recipe.alpha ?? 0,
             size_buckets: recipe.size_buckets ?? [],
             // loadRecipe reads the diversity toggle off the recipe and then schedules a
             // filter run, so this has to go in rather than be corrected afterwards -

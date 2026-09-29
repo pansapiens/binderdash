@@ -263,11 +263,10 @@ class FilteringRunRequest(BaseModel):
     # Omitted by older clients, which always used boltzgen worst-case rank.
     ranking_mode: RankingMode = "worst_rank"
     budget: int = 24
-    # BoltzGen's own default is 0.01 for its "peptide-anything" protocol but 0.001 for
-    # everything else (see its --alpha docs) — 0.001 ("protein") is the safer default
-    # here since most Binderdash runs are protein binder design, not peptide. Matches
-    # the frontend's own default (see stores/filtering.ts).
-    alpha: float = 0.001
+    # Quality only: the subset is the top of the ranking, up to the budget. BoltzGen's
+    # own defaults (0.001 protein, 0.01 peptide) stay as UI slider marks, not this
+    # omitted-field default. Matches the frontend (see stores/filtering.ts).
+    alpha: float = 0.0
     size_buckets: List[SizeBucket] = Field(default_factory=list)
     random_state: int = 0
     # When False, the saved set is every design that passed the hard filters (no budget
@@ -389,7 +388,7 @@ class FilteringDiversityRequest(BaseModel):
     metrics: List[RankingMetric] = Field(default_factory=list)
     ranking_mode: RankingMode = "worst_rank"
     budget: int = 24
-    alpha: float = 0.001
+    alpha: float = 0.0
     size_buckets: List[SizeBucket] = Field(default_factory=list)
     random_state: int = 0
     # Collapse to the best MPNN variant per backbone before diversity selection.

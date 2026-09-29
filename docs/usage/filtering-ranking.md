@@ -153,12 +153,12 @@ Similarity is pairwise sequence identity from a Biopython global alignment, divi
 
 The section is off by default. While it is off, **Create Saved Set** keeps every design that passed the filters, and budget is ignored. Turning it on does not run the selection. **Apply Diversity Filter** does; pairwise alignment is slow, so it is a deliberate click. After a successful apply the Designs table shows only the diverse subset and is sorted by **Ranking**.
 
-Changing budget, α, or the size buckets after an apply marks the panel **Unapplied** and puts the table back to the hard-filter set until you apply again. Turning the section off does the same, and keeps the last diverse subset cached so turning it back on (with unchanged settings) restores it without another alignment pass. The same on/off state is the Diversity row in the [filter cascade](#5-filter-cascade).
+Changing budget, α, the size buckets, or the ranking metrics and mode after an apply marks the panel **Unapplied** and puts the table back to the hard-filter set until you apply again. **Apply Diversity Filter** re-ranks with the current metrics before it selects, and updates the Ranking column. Turning the section off does the same, and keeps the last diverse subset cached so turning it back on (with unchanged settings) restores it without another alignment pass. The same on/off state is the Diversity row in the [filter cascade](#5-filter-cascade).
 
 | Control | Default | Effect |
 | --- | --- | --- |
 | Budget | 24 | Maximum number of designs in the subset. If fewer designs pass with a usable sequence, the subset is smaller and the result says why. |
-| α | 0.001 | 0 is quality only, 1 is diversity only. The slider is logarithmic from 0.0001 to 1 because the useful range sits near zero. The number field accepts an exact value, including 0. BoltzGen uses 0.001 for proteins and 0.01 for its peptide-anything protocol. |
+| α | 0 | 0 is quality only, 1 is diversity only. The slider is logarithmic from 0.0001 to 1 because the useful range sits near zero. The number field accepts an exact value, including 0. BoltzGen uses 0.001 for proteins and 0.01 for its peptide-anything protocol; those stay as slider marks. |
 | Size buckets | none | Optional caps. A bucket `{min, max, num_designs}` allows at most `num_designs` selections whose sequence length is in `[min, max)`. |
 
 Designs with a missing or blank sequence are left out of the pool. A blank sequence would look maximally dissimilar to everything, so including it would prefer the designs the selector knows least about. If the runs have no `Sequence` column at all, selection is skipped until sequences are extracted (`POST /api/sequences/extract`).

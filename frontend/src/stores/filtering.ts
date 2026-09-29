@@ -55,6 +55,12 @@ export interface RankedDesignInfo {
     quality_score: number | null
 }
 
+/** Enabled ranking metrics plus mode — what the rank and diversity endpoints receive. */
+interface RankingRecipe {
+    mode: RankingMode
+    metrics: Array<Pick<RankingMetricDto, 'column' | 'weight' | 'higher_is_better'>>
+}
+
 export interface FilterChainItem {
     index: number
     type: 'filter' | 'diversity' | 'target_contact' | 'mpnn'
@@ -99,10 +105,9 @@ export const useFilteringStore = defineStore('filtering', () => {
     const rankingMode = ref<RankingMode>(DEFAULT_RANKING_MODE)
     const rankingMetrics = ref<RankingMetricDto[]>(DEFAULT_RANKING_METRICS.map((m) => ({ ...m })))
     const budget = ref<number>(24)
-    // BoltzGen's own default is 0.01 for its "peptide-anything" protocol but 0.001 for
-    // everything else (see `--alpha` docs) — 0.001 ("protein") is the safer default here
-    // since most Binderdash runs are protein binder design, not peptide.
-    const alpha = ref<number>(0.001)
+    // Quality only. BoltzGen's own defaults (0.001 protein, 0.01 peptide) stay as
+    // slider marks, not the starting value.
+    const alpha = ref<number>(0)
     const sizeBuckets = ref<SizeBucketDto[]>([])
 
     // Live-filter result: null = no active filter (show everything); otherwise the set
@@ -133,14 +138,19 @@ export const useFilteringStore = defineStore('filtering', () => {
     // Master on/off for diversity selection — shared by section 4's toggle and the
     // cascade tag. Default off: creating a Saved Set takes every design that passed
     // the hard filters (no budget). Turning it on without applying (or after editing
-    // budget/α/buckets) is the "dirty" state the panel paints with a red border.
+    // budget/α/buckets, the MPNN checkbox, or the ranking recipe) is the "dirty"
+    // state the panel paints with a red border.
     const diversityEnabled = ref(false)
     const diversityAppliedSnapshot = ref<{
         budget: number
         alpha: number
         sizeBuckets: SizeBucketDto[]
         bestMpnnOnly: boolean
+        ranking: RankingRecipe
     } | null>(null)
+    // Last ranking recipe written into rankedDesigns (Apply Ranking, or Apply
+    // Diversity Filter, which re-ranks before it selects).
+    const rankingAppliedSnapshot = ref<RankingRecipe | null>(null)
 
     // Preview (filter cascade) — unchanged behaviour, now against designsStore.selectedRunIds
     const previewResult = ref<FilteringPreviewResponseDto | null>(null)
@@ -177,6 +187,15 @@ export const useFilteringStore = defineStore('filtering', () => {
             .filter((m) => m.enabled !== false)
             .map(({ column, weight, higher_is_better }) => ({ column, weight, higher_is_better }))
     )
+
+    const rankingRecipe = (): RankingRecipe => ({
+        mode: rankingMode.value,
+        metrics: activeRankingMetrics.value.map((m) => ({
+            column: m.column,
+            weight: m.weight,
+            higher_is_better: m.higher_is_better
+        }))
+    })
 
     // Enabled-only view of the contact groups, with the UI-only `enabled` flag stripped
     // and empty groups dropped — the shape the backend expects.
@@ -246,9 +265,18 @@ export const useFilteringStore = defineStore('filtering', () => {
             snap.budget !== budget.value ||
             snap.alpha !== alpha.value ||
             JSON.stringify(snap.sizeBuckets) !== JSON.stringify(sizeBuckets.value) ||
-            snap.bestMpnnOnly !== useDesignsStore().bestMpnnOnly
+            snap.bestMpnnOnly !== useDesignsStore().bestMpnnOnly ||
+            JSON.stringify(snap.ranking) !== JSON.stringify(rankingRecipe())
         )
     })
+
+    /** True when the Ranking column was applied and the metrics or mode have since changed. */
+    const rankingDirty = computed(
+        () =>
+            rankedDesigns.value != null &&
+            rankingAppliedSnapshot.value != null &&
+            JSON.stringify(rankingAppliedSnapshot.value) !== JSON.stringify(rankingRecipe())
+    )
 
     // Total designs before any hard filter — same DataFrame the cascade counts below
     // derive from (previewResult always covers the full active run scope, even with
@@ -257,8 +285,9 @@ export const useFilteringStore = defineStore('filtering', () => {
 
     // The key set that actually narrows the Designs table: diversity selection's result
     // when it has been run, is still enabled, and settings match the last apply; else
-    // the hard-filter-only set. Toggling diversity off (or editing budget/α/buckets)
-    // reverts here without discarding the cached diverse subset until the next apply.
+    // the hard-filter-only set. Toggling diversity off (or editing budget/α/buckets,
+    // the MPNN checkbox, or the ranking recipe) reverts here without discarding the
+    // cached diverse subset until the next apply.
     const effectivePassingKeys = computed<Set<string> | null>(() =>
         diversityEnabled.value && !diversityDirty.value && diverseDesignKeys.value
             ? diverseDesignKeys.value
@@ -476,6 +505,7 @@ export const useFilteringStore = defineStore('filtering', () => {
                 })
             }
             rankedDesigns.value = map
+            rankingAppliedSnapshot.value = rankingRecipe()
             if (map.size > 0) useDesignsStore().presentBinderdashRanking()
         } catch (err) {
             rankError.value = err instanceof Error ? err.message : 'Failed to apply ranking'
@@ -513,6 +543,8 @@ export const useFilteringStore = defineStore('filtering', () => {
                 if (d.in_diverse_set) diverseKeys.add(key)
             }
             rankedDesigns.value = rankMap
+            const appliedRanking = rankingRecipe()
+            rankingAppliedSnapshot.value = appliedRanking
             if (rankMap.size > 0) useDesignsStore().presentBinderdashRanking()
             // Kept separate from passingDesignKeys (hard-filter-only) — see
             // effectivePassingKeys — so the step can be toggled off without discarding
@@ -523,7 +555,8 @@ export const useFilteringStore = defineStore('filtering', () => {
                 budget: budget.value,
                 alpha: alpha.value,
                 sizeBuckets: sizeBuckets.value.map((b) => ({ ...b })),
-                bestMpnnOnly: useDesignsStore().bestMpnnOnly
+                bestMpnnOnly: useDesignsStore().bestMpnnOnly,
+                ranking: appliedRanking
             }
             lastDiversityResult.value = {
                 passing_filters: res.passing_filters,
@@ -747,6 +780,7 @@ export const useFilteringStore = defineStore('filtering', () => {
         lastDiversityResult.value = null
         diverseDesignKeys.value = null
         diversityAppliedSnapshot.value = null
+        rankingAppliedSnapshot.value = null
         diversityEnabled.value = false
     }
 
@@ -966,7 +1000,7 @@ export const useFilteringStore = defineStore('filtering', () => {
         rankingMode.value = DEFAULT_RANKING_MODE
         rankingMetrics.value = DEFAULT_RANKING_METRICS.map((m) => ({ ...m }))
         budget.value = 24
-        alpha.value = 0.001
+        alpha.value = 0
         sizeBuckets.value = []
         previewResult.value = null
         previewError.value = null
@@ -1007,7 +1041,7 @@ export const useFilteringStore = defineStore('filtering', () => {
                 ? recipe.ranking_mode
                 : 'worst_rank'
         budget.value = recipe.budget ?? 24
-        alpha.value = recipe.alpha ?? 0.001
+        alpha.value = recipe.alpha ?? 0
         sizeBuckets.value = recipe.size_buckets ? [...recipe.size_buckets] : []
         clearAppliedFilters()
         // Old recipes predate apply_diversity; they always ran diversity, so default on.
@@ -1146,6 +1180,7 @@ export const useFilteringStore = defineStore('filtering', () => {
         diverseDesignKeys,
         diversityEnabled,
         diversityDirty,
+        rankingDirty,
         previewResult,
         previewLoading,
         previewError,

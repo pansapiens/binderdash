@@ -517,8 +517,12 @@ def register(mcp: Any) -> None:
         budget: Annotated[int, Field(ge=1, le=200, description="Panel size to select.")] = 24,
         alpha: Annotated[
             float,
-            Field(ge=0.0, le=1.0, description="Diversity weight; higher favours dissimilarity."),
-        ] = 0.001,
+            Field(
+                ge=0.0,
+                le=1.0,
+                description="Diversity weight. 0 is quality only; 1 is diversity only.",
+            ),
+        ] = 0.0,
         auto_extract_sequences: Annotated[
             bool, Field(description="Extract missing sequences from structures first (slow).")
         ] = False,
