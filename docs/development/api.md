@@ -402,7 +402,7 @@ The Prepare Sequences UI uses a Twist-oriented default set (`DEFAULT_TWIST_CONST
 }
 ```
 
-Failures are per design. If many rows fail, relax `UniquifyAllKmers` or windowed `EnforceGCContent` first.
+Failures are per design. DnaChisel's constraint search is stochastic, so a design that fails with "No solution found" is optimised again from the same starting sequence, up to five attempts, before that error is returned. Other errors are returned on the first failure. If many rows still fail, relax `UniquifyAllKmers` or windowed `EnforceGCContent` first.
 
 ## Sequence tags (client-side assembly)
 

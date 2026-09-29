@@ -227,6 +227,75 @@ def test_optimize_dna_fixed_length_mismatch(api_client) -> None:
     assert "length" in res["error"]
 
 
+def test_no_solution_is_retried_before_reporting(monkeypatch: pytest.MonkeyPatch) -> None:
+    import dnachisel as dc
+
+    from backend.util import dna_optimization as opt
+
+    calls = {"n": 0}
+    real = dc.DnaOptimizationProblem.resolve_constraints
+
+    def fail_first_design(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] <= opt.OPTIMIZATION_ATTEMPTS:
+            raise dc.NoSolutionError("nope", problem=self)
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(dc.DnaOptimizationProblem, "resolve_constraints", fail_first_design)
+    results = opt.optimize_sequences(
+        {"failing": "MGS", "ok": "MYQ"},
+        "e_coli",
+        [],
+    )
+    assert calls["n"] == opt.OPTIMIZATION_ATTEMPTS + 1
+    assert results["failing"]["optimized_dna"] is None
+    assert results["failing"]["error"] == (
+        "Constraints could not be resolved (No solution found)."
+    )
+    assert results["ok"]["error"] is None
+    assert results["ok"]["optimized_dna"] is not None
+
+
+def test_no_solution_retry_can_succeed(monkeypatch: pytest.MonkeyPatch) -> None:
+    import dnachisel as dc
+
+    from backend.util import dna_optimization as opt
+
+    calls = {"n": 0}
+    real = dc.DnaOptimizationProblem.resolve_constraints
+
+    def fail_until_last(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] < opt.OPTIMIZATION_ATTEMPTS:
+            raise dc.NoSolutionError("nope", problem=self)
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(dc.DnaOptimizationProblem, "resolve_constraints", fail_until_last)
+    results = opt.optimize_sequences({"d1": "MGS"}, "e_coli", [])
+    assert calls["n"] == opt.OPTIMIZATION_ATTEMPTS
+    assert results["d1"]["error"] is None
+    assert results["d1"]["optimized_dna"] is not None
+    assert len(results["d1"]["optimized_dna"]) == 9
+
+
+def test_non_solver_errors_are_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    import dnachisel as dc
+
+    from backend.util import dna_optimization as opt
+
+    calls = {"n": 0}
+
+    def boom(self, *args, **kwargs):
+        calls["n"] += 1
+        raise RuntimeError("solver blew up")
+
+    monkeypatch.setattr(dc.DnaOptimizationProblem, "resolve_constraints", boom)
+    results = opt.optimize_sequences({"d1": "MGS"}, "e_coli", [])
+    assert calls["n"] == 1
+    assert results["d1"]["optimized_dna"] is None
+    assert results["d1"]["error"] == "solver blew up"
+
+
 def test_optimize_dna_fixed_non_stop_residue(api_client) -> None:
     payload = {
         "sequences": {"d1": "MGS"},

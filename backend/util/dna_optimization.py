@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 
 FIXED_STOP_DNA = "TAA"
 FIXED_START_DNA = "ATG"
+# DnaChisel's random search can miss a sequence that satisfies the constraints.
+# Re-run a design that fails with NoSolutionError this many times before reporting it.
+OPTIMIZATION_ATTEMPTS = 5
+_NO_SOLUTION_MESSAGE = "Constraints could not be resolved (No solution found)."
 
 
 def _naive_translate_protein(protein_seq: str, table_id: str = "e_coli_316407") -> str:
@@ -225,6 +229,53 @@ def _codon_optimize_objectives(
     return objectives
 
 
+def _solve_once(
+    initial_dna: str,
+    seq_constraints: List[Any],
+    objectives: List[Any],
+) -> str:
+    problem = dc.DnaOptimizationProblem(
+        sequence=initial_dna,
+        constraints=seq_constraints,
+        objectives=objectives,
+    )
+    captured = io.StringIO()
+    with redirect_stdout(captured):
+        problem.resolve_constraints()
+        problem.optimize()
+    return problem.sequence
+
+
+def _optimize_with_retries(
+    design_id: str,
+    initial_dna: str,
+    seq_constraints: List[Any],
+    objectives: List[Any],
+) -> Dict[str, Optional[str]]:
+    """Solve one design, retrying stochastic "no solution" failures."""
+    for attempt in range(1, OPTIMIZATION_ATTEMPTS + 1):
+        try:
+            return {
+                "optimized_dna": _solve_once(initial_dna, seq_constraints, objectives),
+                "error": None,
+            }
+        except dc.NoSolutionError as e:
+            if attempt < OPTIMIZATION_ATTEMPTS:
+                logger.warning(
+                    f"No solution found for {design_id} "
+                    f"(attempt {attempt}/{OPTIMIZATION_ATTEMPTS}); retrying: {e}"
+                )
+                continue
+            logger.error(
+                f"No solution found for {design_id} after {OPTIMIZATION_ATTEMPTS} attempts: {e}"
+            )
+            return {"optimized_dna": None, "error": _NO_SOLUTION_MESSAGE}
+        except Exception as e:
+            logger.exception(f"Exception during optimization of {design_id}")
+            return {"optimized_dna": None, "error": str(e)}
+    return {"optimized_dna": None, "error": _NO_SOLUTION_MESSAGE}
+
+
 def optimize_sequences(
     sequences: Dict[str, str],
     codon_table_id: str,
@@ -240,6 +291,10 @@ def optimize_sequences(
     stops and are frozen as TAA, excluded from codon optimisation and user
     constraints. When a design_id is absent from ``fixed``, every ``*`` in that
     protein is treated as fixed.
+
+    A design that fails with ``NoSolutionError`` is solved again from the same
+    starting sequence, up to ``OPTIMIZATION_ATTEMPTS`` times, before that error
+    is returned. Other errors are returned on the first failure.
     """
     results: Dict[str, Dict[str, Optional[str]]] = {}
     fixed = fixed or {}
@@ -294,32 +349,16 @@ def optimize_sequences(
             if not objectives:
                 results[design_id] = {"optimized_dna": initial_dna, "error": None}
                 continue
-
-            problem = dc.DnaOptimizationProblem(
-                sequence=initial_dna,
-                constraints=seq_constraints,
-                objectives=objectives,
-            )
-
-            f_capture = io.StringIO()
-            with redirect_stdout(f_capture):
-                problem.resolve_constraints()
-                problem.optimize()
-
-            results[design_id] = {
-                "optimized_dna": problem.sequence,
-                "error": None,
-            }
         except ValueError as e:
             results[design_id] = {"optimized_dna": None, "error": str(e)}
-        except dc.NoSolutionError as e:
-            logger.error(f"No solution found for {design_id}: {e}")
-            results[design_id] = {
-                "optimized_dna": None,
-                "error": "Constraints could not be resolved (No solution found).",
-            }
+            continue
         except Exception as e:
-            logger.exception(f"Exception during optimization of {design_id}")
+            logger.exception(f"Exception preparing optimization of {design_id}")
             results[design_id] = {"optimized_dna": None, "error": str(e)}
+            continue
+
+        results[design_id] = _optimize_with_retries(
+            design_id, initial_dna, seq_constraints, objectives
+        )
 
     return results

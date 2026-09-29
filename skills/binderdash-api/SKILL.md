@@ -372,7 +372,7 @@ Use this as a sensible starting point; add restriction-site exclusions for whate
 }
 ```
 
-Each design is independent - failures are per-row, not request-level. If many designs fail with `"No solution found"`, relax the most restrictive constraint (typically `UniquifyAllKmers` `k`, or the windowed `EnforceGCContent`).
+Each design is independent - failures are per-row, not request-level. A `"No solution found"` failure has already been retried internally (up to five attempts) before it is returned. If many designs still fail with that error, relax the most restrictive constraint (typically `UniquifyAllKmers` `k`, or the windowed `EnforceGCContent`).
 
 ## DNA sequence tags (assembled client-side)
 
