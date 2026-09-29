@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Select Runs**: Selected runs always sort to the top of the table and stay visible through column filters. The toolbar toggle is renamed **Show only selected**.
 - **Sequence prep / API**: DNA codon optimisation freezes stop residues (`*`) as **TAA** and excludes them from codon optimisation and user constraints. Optional request field `fixed` is a per-residue boolean mask; when omitted, every `*` is treated as fixed.
 - **Designs**: The Designs tab's client-side custom-filter panel is replaced by the Filtering tab; the table shows the active filter chain above it.
 - **Tag placement**: Residue SASA now uses biotite's kernel with **ProtOr radii (Tsai et al. 1999) over heavy atoms**, shared with target contacts in `backend/util/sasa.py`, replacing `Bio.PDB.SASA` with per-element radii and explicit hydrogens. It is much faster, and areas no longer depend on whether the folding method wrote hydrogens. `%SASA` shifts by a few percentage points per residue with rankings essentially unchanged; previously cached tag metrics are only recomputed with **Ignore cache, force recalculate**.

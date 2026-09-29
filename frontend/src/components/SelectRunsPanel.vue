@@ -15,7 +15,7 @@
             input-id="sr-show-selected"
             :aria-label="'Show only selected runs in the table'"
           />
-          <label for="sr-show-selected" class="show-selected-label">Show selected</label>
+          <label for="sr-show-selected" class="show-selected-label">Show only selected</label>
         </div>
       </template>
       <template #end>
@@ -56,10 +56,15 @@
       v-model:filters="filters"
       :value="dataForTable"
       data-key="run_id"
+      lazy
+      :total-records="filteredSortedRuns.length"
+      v-model:first="tableFirst"
+      :rows="tableRows"
+      :sort-field="sortField ?? undefined"
+      :sort-order="sortOrder ?? undefined"
       filter-display="row"
       stripedRows
       paginator
-      :rows="10"
       :rowsPerPageOptions="[5, 10, 20, 50]"
       paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
       currentPageReportTemplate="Showing {first} to {last} of {totalRecords} runs"
@@ -69,6 +74,8 @@
       :reorderableColumns="true"
       :rowHover="true"
       :loading="runsStore.loading"
+      @page="onPage"
+      @sort="onSort"
     >
       <template #empty>
         <div class="empty-msg">
@@ -80,13 +87,7 @@
           </template>
           <template v-else-if="showSelectedOnly && tableSelection.length === 0">
             <h3>No runs selected</h3>
-            <p>Select runs in the table, or turn off <strong>Show selected</strong>.</p>
-          </template>
-          <template
-            v-else-if="showSelectedOnly && tableSelection.length > 0 && dataForTable.length === 0"
-          >
-            <h3>No selected runs in view</h3>
-            <p>Change the column filters, or turn off <strong>Show selected</strong>.</p>
+            <p>Select runs in the table, or turn off <strong>Show only selected</strong>.</p>
           </template>
           <template v-else>
             <h3>No results</h3>
@@ -384,6 +385,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import DataTable from 'primevue/datatable'
+import type { DataTablePageEvent, DataTableSortEvent } from 'primevue/datatable'
 import Column from 'primevue/column'
 import InputText from 'primevue/inputtext'
 import InputGroup from 'primevue/inputgroup'
@@ -421,6 +423,11 @@ const deleteDialogVisible = ref(false)
 const pendingDeleteRuns = ref<Run[]>([])
 const pendingReingest = ref<IngestPreviewReingestItem[]>([])
 
+const tableFirst = ref(0)
+const tableRows = ref(10)
+const sortField = ref<string | null>(null)
+const sortOrder = ref<number | null>(null)
+
 const filters = ref({
   project_id: { value: null as string[] | null, matchMode: 'in' as const },
   method: { value: null as string[] | null, matchMode: 'in' as const },
@@ -449,15 +456,100 @@ const methodOptions = computed(() => {
   return [...set].sort().map((value) => ({ label: value, value }))
 })
 
-const dataForTable = computed((): Run[] => {
-  if (!showSelectedOnly.value) {
-    return runsStore.runs
+const tableSelection = ref<Run[]>([])
+
+const selectedRunIds = computed(() => new Set(tableSelection.value.map((r) => r.run_id)))
+
+function resolveRunField(run: Run, field: string): unknown {
+  return field.split('.').reduce<unknown>((obj, key) => {
+    if (obj == null || typeof obj !== 'object') return undefined
+    return (obj as Record<string, unknown>)[key]
+  }, run)
+}
+
+function runMatchesColumnFilters(run: Run): boolean {
+  const nameFilter = filters.value['metadata.name'].value
+  if (nameFilter != null && String(nameFilter).trim() !== '') {
+    const name = String(run.metadata?.name ?? '').toLowerCase()
+    if (!name.includes(String(nameFilter).toLowerCase())) return false
   }
-  const selectedIds = new Set(tableSelection.value.map((r) => r.run_id))
-  return runsStore.runs.filter((r) => selectedIds.has(r.run_id))
+  const projects = filters.value.project_id.value
+  if (projects != null && projects.length > 0 && !projects.includes(run.project_id)) {
+    return false
+  }
+  const methods = filters.value.method.value
+  if (methods != null && methods.length > 0 && !methods.includes(run.method)) {
+    return false
+  }
+  return true
+}
+
+function compareFieldValues(a: unknown, b: unknown, order: number): number {
+  if (a == null && b == null) return 0
+  if (a == null) return 1
+  if (b == null) return -1
+  if (typeof a === 'number' && typeof b === 'number') {
+    if (Number.isNaN(a) && Number.isNaN(b)) return 0
+    if (Number.isNaN(a)) return 1
+    if (Number.isNaN(b)) return -1
+    return (a - b) * order
+  }
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' }) * order
+}
+
+/** Selected runs stay visible despite column filters and sort to the top. */
+const filteredSortedRuns = computed((): Run[] => {
+  const selected = selectedRunIds.value
+  let runs = runsStore.runs
+  if (showSelectedOnly.value) {
+    runs = runs.filter((r) => selected.has(r.run_id))
+  } else {
+    runs = runs.filter((r) => selected.has(r.run_id) || runMatchesColumnFilters(r))
+  }
+
+  const field = sortField.value
+  const order = sortOrder.value
+  return [...runs].sort((a, b) => {
+    const aSel = selected.has(a.run_id) ? 0 : 1
+    const bSel = selected.has(b.run_id) ? 0 : 1
+    if (aSel !== bSel) return aSel - bSel
+    if (!field || order == null || order === 0) return 0
+    return compareFieldValues(resolveRunField(a, field), resolveRunField(b, field), order)
+  })
 })
 
-const tableSelection = ref<Run[]>([])
+const dataForTable = computed((): Run[] => {
+  const start = tableFirst.value
+  return filteredSortedRuns.value.slice(start, start + tableRows.value)
+})
+
+function onPage(event: DataTablePageEvent) {
+  tableFirst.value = event.first
+  tableRows.value = event.rows
+}
+
+function onSort(event: DataTableSortEvent) {
+  sortField.value = typeof event.sortField === 'string' ? event.sortField : null
+  sortOrder.value = event.sortOrder ?? null
+}
+
+watch(
+  [filters, showSelectedOnly, () => runsStore.runs.length],
+  () => {
+    tableFirst.value = 0
+  },
+  { deep: true }
+)
+
+watch(filteredSortedRuns, (runs) => {
+  if (runs.length === 0) {
+    tableFirst.value = 0
+    return
+  }
+  if (tableFirst.value >= runs.length) {
+    tableFirst.value = Math.max(0, Math.floor((runs.length - 1) / tableRows.value) * tableRows.value)
+  }
+})
 
 const sameIdSet = (a: string[], b: string[]): boolean => {
   if (a.length !== b.length) return false
