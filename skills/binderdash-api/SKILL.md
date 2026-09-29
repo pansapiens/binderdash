@@ -8,7 +8,7 @@ description: >
   API-key auth, fetches designs/runs/PDBs from binderdash.knottlab.cloud.edu.au,
   wants design tables sorted by metrics (iptm, pae_interaction, Average_i_pTM,
   rf3_ipsae_min, design_to_target_iptm), adds N-/C-terminal tags (His, FLAG, HA,
-  cMyc, G4S linker), or optimises DNA with GC/hairpin/restriction-site/codon
+  cMyc, G4S linker, STOP*), or optimises DNA with GC/hairpin/restriction-site/codon
   constraints. Binderdash returns non-standard JSON (flat design dicts with
   method-dependent columns); this skill prevents agents from guessing shapes.
 ---
@@ -32,7 +32,7 @@ Binderdash is a web app + FastAPI service that aggregates the results of de novo
 - Working with Binderdash API keys, `Authorization: Bearer`, or `X-Binderdash-Api-Key` headers
 - Fetching designs, runs, or PDB/CIF structure files via the Binderdash API
 - Producing TSV/CSV/JSON design tables sorted by metrics (`iptm`, `pae_interaction`, `Average_i_pTM`, `rf3_ipsae_min`, `design_to_target_iptm`)
-- Adding **N- or C-terminal tags** (His, FLAG, HA, cMyc, G4S linker) to binder sequences
+- Adding **N- or C-terminal tags** (His, FLAG, HA, cMyc, G4S linker, STOP*) to binder sequences
 - **DNA codon optimisation** with constraints (GC content, hairpins, restriction sites, codon usage, Twist defaults)
 - Probing Binderdash **auth status** or checking which auth providers are enabled
 - Needing the live **OpenAPI spec** at `/openapi.json` for endpoint shapes
@@ -312,10 +312,12 @@ Body: {
   "sequences":      { "design_id_1": "MAEK...", "design_id_2": "MGSS..." },
   "codon_table_id": "e_coli_316407",
   "method":         "match_codon_usage",
-  "constraints":    [ { "type": "...", "enabled": true, "params": {...} }, ... ]
+  "constraints":    [ { "type": "...", "enabled": true, "params": {...} }, ... ],
+  "fixed":          { "design_id_1": [false, false, ..., true] }
 }
 ```
 
+Optional `fixed` is a per-residue boolean mask keyed by `design_id` (same length as that protein). Residues marked `true` must be stops (`*`) and stay frozen as **TAA**, excluded from codon optimisation and user constraints. When a design id is omitted from `fixed`, every `*` in that protein is treated as fixed. The Prepare Sequences UI always sends this mask from segment `fixed` flags.
 #### `method` (codon optimisation objective)
 
 This is passed straight to DnaChisel's `CodonOptimize`. Common values:
@@ -388,6 +390,7 @@ These are the canonical preset sequences the UI offers. Replicate them verbatim 
 | cMyc      | `EQKLISEEDL`    | N, C          |
 | HA        | `YPYDVPDYA`     | N, C          |
 | G4S linker | `GGGGS`        | N, C          |
+| STOP*      | `*`            | N, C          |
 
 A "custom" tag is whatever the user types (mixed AA / lowercase nucleotide allowed - see UI rules in `seqPrep.ts` if needed).
 
@@ -419,7 +422,7 @@ if include_stop:        prepared_aa += "*"
    ```
 
 3. Locally compose the construct: `prepared_aa = core + "GSHHHHHH" + ("*" if include_stop else "")`.
-4. Send `prepared_aa` (and any other designs in the batch) to `POST /api/sequences/optimize-dna` to back-translate + codon-optimise to DNA. If you want explicit stops in the DNA, leave the `*` in the AA string - `EnforceTranslation` plus the codon table's stop list will handle it.
+4. Send `prepared_aa` (and any other designs in the batch) to `POST /api/sequences/optimize-dna` to back-translate + codon-optimise to DNA. Leave the `*` in the AA string (or place a STOP* tag) when you want a terminal stop — those residues are frozen as **TAA** and are not rewritten by codon optimisation. Optionally send a matching `fixed` boolean array per design.
 
 For multiple tags on the same terminus, just concatenate them in order, e.g. `core + "GGGGS" + "GSHHHHHH"` for a flexible-linker-then-His-tag.
 

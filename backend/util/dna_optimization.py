@@ -1,81 +1,78 @@
 import io
-import sys
 import logging
-from typing import Any, Dict, List, Optional
 from contextlib import redirect_stdout
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import dnachisel as dc
-# Assuming Bio.Data.CodonTable.standard_dna_table is what we want for simple naive translation initially
-# actually dnachisel uses Bio for CodonOptimize, but we can just map the protein sequentially for initialization.
-# Or use python_codon_tables? Dnachisel depends on python_codon_tables.
 import python_codon_tables as pct
 
 logger = logging.getLogger(__name__)
+
+FIXED_STOP_DNA = "TAA"
 
 
 def _naive_translate_protein(protein_seq: str, table_id: str = "e_coli_316407") -> str:
     """Translates protein to DNA naively by picking the most frequent codon.
     DnaChisel needs a starting DNA seq to optimize."""
-    # Resolve the proper dnachisel species taxonomy ID if possible, or just use the table
-    # We will pick the most frequent codon per amino acid for the naive start.
     try:
         table = pct.get_codons_table(table_id, replace_U_by_T=True)
     except Exception:
-        # fallback to standard e coli if not found
         table = pct.get_codons_table("e_coli_316407", replace_U_by_T=True)
-        
-    best_codons = {}
+
+    best_codons: Dict[str, str] = {}
     for aa, codons in table.items():
         if aa == "*":
             continue
         if isinstance(codons, dict):
-            # Sort codons by frequency descending, then alphabetically
             ordered = sorted(codons.items(), key=lambda x: (-x[1], x[0]))
             if ordered:
                 best_codons[aa.upper()] = ordered[0][0].upper()
-    
-    # Just in case some AAs are missing
-    best_codons.setdefault('X', 'NNN')
-    
-    dna_parts = []
+
+    best_codons.setdefault("X", "NNN")
+
+    dna_parts: List[str] = []
     for aa in protein_seq.upper():
-        if aa == '*':
-            # find best stop codon
-            stop_ordered = sorted(table.get('*', {}).items(), key=lambda x: (-x[1], x[0]))
-            dna_parts.append(stop_ordered[0][0].upper() if stop_ordered else 'TAA')
+        if aa == "*":
+            stop_ordered = sorted(table.get("*", {}).items(), key=lambda x: (-x[1], x[0]))
+            dna_parts.append(stop_ordered[0][0].upper() if stop_ordered else FIXED_STOP_DNA)
         else:
-            dna_parts.append(best_codons.get(aa, 'NNN'))
+            dna_parts.append(best_codons.get(aa, "NNN"))
     return "".join(dna_parts)
+
 
 def build_dnachisel_constraint(
     constraint_type: str, params: Dict[str, Any], codon_table_id: str = "e_coli_316407"
 ) -> Optional[Any]:
     try:
+        # Strip caller-supplied location; free-interval locations are applied later.
+        clean = {k: v for k, v in params.items() if k != "location"}
         if constraint_type == "EnforceGCContent":
-            return dc.EnforceGCContent(**params)
+            return dc.EnforceGCContent(**clean)
         elif constraint_type == "AvoidHairpins":
-            p = {k: v for k, v in params.items() if k != "location"}
-            return dc.AvoidHairpins(**p)
+            return dc.AvoidHairpins(**clean)
         elif constraint_type == "AvoidPattern":
-            pattern = params.get("pattern")
+            pattern = clean.get("pattern")
             if isinstance(pattern, dict) and pattern.get("type") == "RepeatedKmerPattern":
                 rep_params = pattern.get("params", {})
-                # API uses k_size/n_repeats, not k/n
                 k_size = rep_params.get("k_size") or rep_params.get("k")
                 n_repeats = rep_params.get("n_repeats") or rep_params.get("n")
                 if k_size is None or n_repeats is None:
-                    logger.warning(f"RepeatedKmerPattern missing k_size or n_repeats in {rep_params}")
+                    logger.warning(
+                        f"RepeatedKmerPattern missing k_size or n_repeats in {rep_params}"
+                    )
                     return None
                 from dnachisel.SequencePattern import RepeatedKmerPattern
-                return dc.AvoidPattern(RepeatedKmerPattern(k_size=int(k_size), n_repeats=int(n_repeats)))
+
+                return dc.AvoidPattern(
+                    RepeatedKmerPattern(k_size=int(k_size), n_repeats=int(n_repeats))
+                )
             else:
                 return dc.AvoidPattern(pattern)
         elif constraint_type == "AvoidRareCodons":
-            # species is required; inject from the optimization context
-            merged = {"species": codon_table_id, **params}
+            merged = {"species": codon_table_id, **clean}
             return dc.AvoidRareCodons(**merged)
         elif constraint_type == "UniquifyAllKmers":
-            return dc.UniquifyAllKmers(**params)
+            return dc.UniquifyAllKmers(**clean)
         else:
             logger.warning(f"Unknown constraint type: {constraint_type}")
             return None
@@ -84,23 +81,153 @@ def build_dnachisel_constraint(
         return None
 
 
+def resolve_fixed_mask(
+    protein_seq: str, fixed: Optional[Sequence[bool]]
+) -> List[bool]:
+    """Return a per-residue fixed mask.
+
+    When ``fixed`` is omitted, every stop (``*``) is frozen as TAA.
+    When present, it is the complete mask and must match the protein length;
+    only stop residues may be marked fixed.
+    """
+    if fixed is None:
+        return [aa == "*" for aa in protein_seq]
+    if len(fixed) != len(protein_seq):
+        raise ValueError(
+            f"fixed mask length {len(fixed)} does not match protein length {len(protein_seq)}"
+        )
+    mask = [bool(v) for v in fixed]
+    for i, (aa, is_fixed) in enumerate(zip(protein_seq, mask)):
+        if is_fixed and aa != "*":
+            raise ValueError(
+                f"Residue {i} is marked fixed but is '{aa}'; only stop (*) can be fixed"
+            )
+    return mask
+
+
+def fixed_nt_indices(fixed_mask: Sequence[bool]) -> List[int]:
+    """Expand per-residue fixed flags to nucleotide indexes (codon = 3 nt)."""
+    indices: List[int] = []
+    for i, is_fixed in enumerate(fixed_mask):
+        if is_fixed:
+            base = 3 * i
+            indices.extend([base, base + 1, base + 2])
+    return indices
+
+
+def free_intervals(seq_len: int, fixed_indices: Sequence[int]) -> List[Tuple[int, int]]:
+    """Inclusive-start, exclusive-end nucleotide intervals that are not fixed."""
+    fixed_set = set(fixed_indices)
+    intervals: List[Tuple[int, int]] = []
+    start: Optional[int] = None
+    for i in range(seq_len):
+        if i in fixed_set:
+            if start is not None:
+                intervals.append((start, i))
+                start = None
+        elif start is None:
+            start = i
+    if start is not None:
+        intervals.append((start, seq_len))
+    return intervals
+
+
+def _constraint_min_span(constraint: Any) -> int:
+    """Minimum interval length for a constraint to be meaningful."""
+    window = getattr(constraint, "window", None)
+    if window is not None:
+        try:
+            return max(1, int(window))
+        except (TypeError, ValueError):
+            pass
+    hairpin_window = getattr(constraint, "hairpin_window", None)
+    if hairpin_window is not None:
+        try:
+            return max(1, int(hairpin_window))
+        except (TypeError, ValueError):
+            pass
+    k = getattr(constraint, "k", None)
+    if k is not None:
+        try:
+            return max(1, int(k))
+        except (TypeError, ValueError):
+            pass
+    pattern = getattr(constraint, "pattern", None)
+    if pattern is not None:
+        size = getattr(pattern, "size", None)
+        if size is not None:
+            try:
+                return max(1, int(size))
+            except (TypeError, ValueError):
+                pass
+        if isinstance(pattern, str):
+            return max(1, len(pattern))
+    return 3
+
+
+def _apply_fixed_dna(dna: str, fixed_mask: Sequence[bool]) -> str:
+    """Overwrite each fixed codon with TAA."""
+    chars = list(dna)
+    for i, is_fixed in enumerate(fixed_mask):
+        if not is_fixed:
+            continue
+        start = 3 * i
+        chars[start : start + 3] = list(FIXED_STOP_DNA)
+    return "".join(chars)
+
+
+def _localize_constraints(
+    base_constraints: List[Any], intervals: List[Tuple[int, int]]
+) -> List[Any]:
+    localized: List[Any] = []
+    for constraint in base_constraints:
+        min_span = _constraint_min_span(constraint)
+        for start, end in intervals:
+            if end - start < min_span:
+                continue
+            localized.append(
+                constraint.copy_with_changes(location=dc.Location(start, end))
+            )
+    return localized
+
+
+def _codon_optimize_objectives(
+    codon_table_id: str, method: str, intervals: List[Tuple[int, int]]
+) -> List[Any]:
+    objectives: List[Any] = []
+    for start, end in intervals:
+        if (end - start) < 3 or (end - start) % 3 != 0:
+            continue
+        objectives.append(
+            dc.CodonOptimize(
+                species=codon_table_id,
+                method=method,
+                location=dc.Location(start, end),
+            )
+        )
+    return objectives
+
+
 def optimize_sequences(
-    sequences: Dict[str, str], 
-    codon_table_id: str, 
-    constraints: List[Dict[str, Any]], 
-    method: str = "match_codon_usage"
+    sequences: Dict[str, str],
+    codon_table_id: str,
+    constraints: List[Dict[str, Any]],
+    method: str = "match_codon_usage",
+    fixed: Optional[Dict[str, List[bool]]] = None,
 ) -> Dict[str, Dict[str, Optional[str]]]:
     """
     Optimizes a batch of protein sequences.
     Returns: { design_id: {"optimized_dna": str | None, "error": str | None} }
+
+    ``fixed`` maps design_id -> per-residue booleans. Residues marked true must be
+    stops and are frozen as TAA, excluded from codon optimisation and user
+    constraints. When a design_id is absent from ``fixed``, every ``*`` in that
+    protein is treated as fixed.
     """
-    results = {}
-    
-    # Extract taxonomy ID from python-codon-tables ID (e.g. 'e_coli_316407' -> '316407')
-    # If it's a tax id, get numeric part. Wait, dnachisel CodonOptimize accepts tax id or species name.
-    # DnaChisel passes this straight to python_codon_tables internally! So we can just pass codon_table_id.
-    
-    parsed_constraints = []
+    results: Dict[str, Dict[str, Optional[str]]] = {}
+    fixed = fixed or {}
+
+    parsed_constraints: List[Any] = []
     for c in constraints:
         if not c.get("enabled", True):
             continue
@@ -112,35 +239,66 @@ def optimize_sequences(
         if not protein_seq:
             results[design_id] = {"optimized_dna": None, "error": "Empty sequence"}
             continue
-            
+
         try:
-            initial_dna = _naive_translate_protein(protein_seq, codon_table_id)
-            
-            # Combine parsed constraints with mandatory constraints
-            seq_constraints = [
-                *parsed_constraints,
-                dc.EnforceTranslation()
-            ]
-            
+            protein = protein_seq.upper()
+            design_fixed = fixed.get(design_id) if design_id in fixed else None
+            fixed_mask = resolve_fixed_mask(protein, design_fixed)
+            initial_dna = _apply_fixed_dna(
+                _naive_translate_protein(protein, codon_table_id), fixed_mask
+            )
+            fixed_indices = fixed_nt_indices(fixed_mask)
+            intervals = free_intervals(len(initial_dna), fixed_indices)
+
+            if not intervals:
+                results[design_id] = {"optimized_dna": initial_dna, "error": None}
+                continue
+
+            if fixed_indices:
+                seq_constraints = [
+                    *_localize_constraints(parsed_constraints, intervals),
+                    dc.AvoidChanges(indices=fixed_indices),
+                    dc.EnforceTranslation(),
+                ]
+                objectives = _codon_optimize_objectives(
+                    codon_table_id, method, intervals
+                )
+            else:
+                seq_constraints = [
+                    *parsed_constraints,
+                    dc.EnforceTranslation(),
+                ]
+                objectives = [
+                    dc.CodonOptimize(species=codon_table_id, method=method)
+                ]
+
+            if not objectives:
+                results[design_id] = {"optimized_dna": initial_dna, "error": None}
+                continue
+
             problem = dc.DnaOptimizationProblem(
                 sequence=initial_dna,
                 constraints=seq_constraints,
-                objectives=[dc.CodonOptimize(species=codon_table_id, method=method)]
+                objectives=objectives,
             )
-            
-            # Redirect stdout to avoid log pollution from DnaChisel
+
             f_capture = io.StringIO()
             with redirect_stdout(f_capture):
                 problem.resolve_constraints()
                 problem.optimize()
-            
+
             results[design_id] = {
                 "optimized_dna": problem.sequence,
-                "error": None
+                "error": None,
             }
+        except ValueError as e:
+            results[design_id] = {"optimized_dna": None, "error": str(e)}
         except dc.NoSolutionError as e:
             logger.error(f"No solution found for {design_id}: {e}")
-            results[design_id] = {"optimized_dna": None, "error": "Constraints could not be resolved (No solution found)."}
+            results[design_id] = {
+                "optimized_dna": None,
+                "error": "Constraints could not be resolved (No solution found).",
+            }
         except Exception as e:
             logger.exception(f"Exception during optimization of {design_id}")
             results[design_id] = {"optimized_dna": None, "error": str(e)}

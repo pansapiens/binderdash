@@ -28,7 +28,10 @@ import {
 
 export type TagZone = 'n' | 'c'
 
-export type PresetTagKind = 'hisN' | 'hisC' | 'flag' | 'cmyc' | 'ha' | 'linker' | 'custom'
+export type PresetTagKind = 'hisN' | 'hisC' | 'flag' | 'cmyc' | 'ha' | 'linker' | 'stop' | 'custom'
+
+/** Frozen stop codon used for every `*` in prepare-sequences DNA (preview and optimisation). */
+export const FIXED_STOP_DNA = 'TAA'
 
 /**
  * UI-level constraint types shown in the DNA Optimization panel. Most map
@@ -93,6 +96,8 @@ export interface PreparedSegment {
     text: string
     cssClass: string
     style?: Record<string, string>
+    /** When true, every residue in this segment stays fixed during DNA optimisation. */
+    fixed?: boolean
 }
 
 export interface PreparedRow {
@@ -188,6 +193,15 @@ export const TAG_PRESET_DEFS: readonly TagPresetDefinition[] = [
         background: 'rgba(48, 48, 48, 0.1)',
         foreground: '#aaaaaa',
         zones: ['n', 'c']
+    },
+    {
+        kind: 'stop',
+        tag_name: 'STOP*',
+        sequence: '*',
+        color: '#b23a3a',
+        background: 'rgba(178, 58, 58, 0.15)',
+        foreground: '#8b1e1e',
+        zones: ['n', 'c']
     }
 ]
 
@@ -205,7 +219,7 @@ function appendTerminalStopAa(
     const count = doubleStop ? 2 : 1
     for (const segList of segmentLists) {
         for (let i = 0; i < count; i += 1) {
-            segList.push({ text: '*', cssClass: 'seq-seg-stop' })
+            segList.push({ text: '*', cssClass: 'seq-seg-stop', fixed: true })
         }
     }
     const stopAa = doubleStop ? '**' : '*'
@@ -217,14 +231,13 @@ function appendTerminalStopAa(
 function appendTerminalStopDna(
     mainDnaChunks: string[],
     mainSegChunks: PreparedSegment[][],
-    table: CodonTable,
+    _table: CodonTable,
     doubleStop: boolean
 ): void {
-    const stop = table.stop
     const count = doubleStop ? 2 : 1
     for (let i = 0; i < count; i += 1) {
-        mainDnaChunks.push(stop)
-        mainSegChunks.push([{ text: stop, cssClass: 'seq-seg-stop' }])
+        mainDnaChunks.push(FIXED_STOP_DNA)
+        mainSegChunks.push([{ text: FIXED_STOP_DNA, cssClass: 'seq-seg-stop', fixed: true }])
     }
 }
 
@@ -421,6 +434,7 @@ function segmentClass(kind: PresetTagKind): string {
     if (kind === 'cmyc') return 'seq-seg-cmyc'
     if (kind === 'ha') return 'seq-seg-ha'
     if (kind === 'linker') return 'seq-seg-linker'
+    if (kind === 'stop') return 'seq-seg-stop'
     return 'seq-seg-custom'
 }
 
@@ -571,7 +585,7 @@ function mixedToAaSegments(
             for (const ch of run.text) {
                 if (ch === '*') {
                     flushBuf()
-                    segments.push({ text: '*', cssClass: 'seq-seg-stop' })
+                    segments.push({ text: '*', cssClass: 'seq-seg-stop', fixed: true })
                     exportText += '*'
                 } else {
                     buf += ch
@@ -589,7 +603,8 @@ function mixedToAaSegments(
             segments.push({
                 text: ch,
                 cssClass: ch === '*' ? 'seq-seg-stop' : cssClass,
-                style: ch === '*' ? undefined : style ? { ...style } : undefined
+                style: ch === '*' ? undefined : style ? { ...style } : undefined,
+                fixed: ch === '*' ? true : undefined
             })
             exportText += ch
         }
@@ -624,9 +639,8 @@ function literalAaToDnaSegments(
         if (/\s/.test(ch)) continue
         if (ch === '*') {
             flushBody()
-            const stop = codonTable.stop
-            dna += stop
-            segments.push({ text: stop, cssClass: 'seq-seg-stop' })
+            dna += FIXED_STOP_DNA
+            segments.push({ text: FIXED_STOP_DNA, cssClass: 'seq-seg-stop', fixed: true })
         } else {
             const u = ch.toUpperCase()
             if (u >= 'A' && u <= 'Z') {
@@ -686,7 +700,7 @@ function mixedToDnaSegments(
             if (codonTable.reverse[up] === '*') {
                 flushBody()
                 dna += up
-                segments.push({ text: up, cssClass: 'seq-seg-stop' })
+                segments.push({ text: up, cssClass: 'seq-seg-stop', fixed: true })
             } else {
                 dna += up
                 bodyBuf += up
@@ -712,7 +726,7 @@ function mergeDnaSegments(segments: PreparedSegment[], bodyClass: string): Prepa
         }
     }
     for (const s of segments) {
-        if (s.cssClass === 'seq-seg-stop') {
+        if (s.cssClass === 'seq-seg-stop' || s.fixed) {
             flush()
             out.push(s)
         } else {
@@ -724,6 +738,43 @@ function mergeDnaSegments(segments: PreparedSegment[], bodyClass: string): Prepa
     }
     flush()
     return out
+}
+
+/** Split binder-core AA so each `*` is its own fixed stop segment. */
+export function splitCoreAaSegments(core: string): PreparedSegment[] {
+    const segments: PreparedSegment[] = []
+    let buf = ''
+    const flush = () => {
+        if (!buf) return
+        segments.push({ text: buf, cssClass: 'seq-seg-core' })
+        buf = ''
+    }
+    for (const ch of core) {
+        if (ch === '*') {
+            flush()
+            segments.push({ text: '*', cssClass: 'seq-seg-stop', fixed: true })
+        } else {
+            buf += ch
+        }
+    }
+    flush()
+    return segments
+}
+
+/** Expand segment `fixed` flags to a per-residue mask matching the concatenated AA. */
+export function expandFixedFromSegments(segments: PreparedSegment[]): {
+    aa: string
+    fixed: boolean[]
+} {
+    let aa = ''
+    const fixed: boolean[] = []
+    for (const seg of segments) {
+        for (const ch of seg.text) {
+            aa += ch
+            fixed.push(!!seg.fixed)
+        }
+    }
+    return { aa, fixed }
 }
 
 export const useSeqPrepStore = defineStore('seqPrep', () => {
@@ -1016,6 +1067,11 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
     ) {
         for (const t of tags) {
             if (!t.sequence) continue
+            if (t.kind === 'stop') {
+                segmentsAa.push({ text: '*', cssClass: 'seq-seg-stop', fixed: true })
+                aaExportParts.push('*')
+                continue
+            }
             if (t.kind === 'custom') {
                 const { segments, exportText } = mixedToAaSegments(
                     t.sequence,
@@ -1044,6 +1100,11 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
     ) {
         for (const t of tags) {
             if (!t.sequence) continue
+            if (t.kind === 'stop') {
+                dnaParts.push(FIXED_STOP_DNA)
+                segParts.push([{ text: FIXED_STOP_DNA, cssClass: 'seq-seg-stop', fixed: true }])
+                continue
+            }
             const tagCssClass = segmentClass(t.kind)
             const tagStyle = segmentStyleForPresetKind(t.kind)
             if (t.kind === 'custom') {
@@ -1178,10 +1239,13 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
             appendTagsAa(nTags.value, segmentsAa, aaExportParts, table)
             appendTagsAa(nTags.value, segmentsAaDisplay, aaExportPartsDisplay, table)
         }
-        segmentsAa.push({ text: core, cssClass: 'seq-seg-core' })
-        segmentsAaDisplay.push({ text: core, cssClass: 'seq-seg-core' })
-        aaExportParts.push(core)
-        aaExportPartsDisplay.push(core)
+        {
+            const coreSegs = splitCoreAaSegments(core)
+            segmentsAa.push(...coreSegs)
+            segmentsAaDisplay.push(...coreSegs)
+            aaExportParts.push(core)
+            aaExportPartsDisplay.push(core)
+        }
         if (tagCol === 'C' && includeCTags) {
             appendTagsAa(cTags.value, segmentsAa, aaExportParts, table)
             appendTagsAa(cTags.value, segmentsAaDisplay, aaExportPartsDisplay, table)
@@ -1622,26 +1686,54 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
 
     async function runOptimization() {
         const seqs: Record<string, string> = {}
+        const fixedByDesign: Record<string, boolean[]> = {}
         for (const row of preparedRows.value) {
-            if (row.prepared_aa_display) {
-                seqs[row.design_id] = row.prepared_aa_display
-            }
+            if (!row.segments_aa_display.length && !row.prepared_aa_display) continue
+            const { aa, fixed } = expandFixedFromSegments(row.segments_aa_display)
+            const codingAa = aa || row.prepared_aa_display
+            if (!codingAa) continue
+            seqs[row.design_id] = codingAa
+            fixedByDesign[row.design_id] = fixed.length === codingAa.length
+                ? fixed
+                : codingAa.split('').map(ch => ch === '*')
         }
         if (Object.keys(seqs).length === 0) {
             optimizationGlobalError.value = 'No sequences in scope to optimise.'
             return
         }
 
+        const snapshotAa = { ...seqs }
+        const snapshotFixed = Object.fromEntries(
+            Object.entries(fixedByDesign).map(([id, mask]) => [id, [...mask]])
+        )
+
         optimizing.value = true
         optimizationGlobalError.value = null
         try {
             const req = {
                 sequences: seqs,
+                fixed: fixedByDesign,
                 codon_table_id: selectedCodonTable.value || FALLBACK_ECOLLI_CODON_TABLE.label,
                 method: optimizationMethod.value,
                 constraints: optimizationConstraints.value.map(serializeConstraintForBackend)
             }
             const res = await sequencesApi.optimizeDna(req)
+
+            const stillMatches = Object.keys(snapshotAa).every(id => {
+                const row = preparedRows.value.find(r => r.design_id === id)
+                if (!row) return false
+                const { aa, fixed } = expandFixedFromSegments(row.segments_aa_display)
+                const codingAa = aa || row.prepared_aa_display
+                if (codingAa !== snapshotAa[id]) return false
+                const snap = snapshotFixed[id] || []
+                if (fixed.length !== snap.length) return false
+                return fixed.every((v, i) => v === snap[i])
+            })
+            if (!stillMatches) {
+                // Coding sequence / fixed mask changed while the request was in flight.
+                return
+            }
+
             const optMap: Record<string, string> = {}
             const errMap: Record<string, string> = {}
             for (const r of res.results) {

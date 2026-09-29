@@ -276,6 +276,9 @@ class DnaOptimizeRequest(BaseModel):
     codon_table_id: str
     method: str = "match_codon_usage"
     constraints: List[DnaOptConstraintSpec] = []
+    # Per-residue fixed mask keyed by design_id. Stops marked true stay as TAA.
+    # When a design_id is omitted, every * in that protein is treated as fixed.
+    fixed: Optional[Dict[str, List[bool]]] = None
 
 
 class DnaOptResultRow(BaseModel):

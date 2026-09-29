@@ -342,10 +342,12 @@ curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" \
   "method": "match_codon_usage",
   "constraints": [
     { "type": "EnforceGCContent", "enabled": true, "params": { "mini": 0.25, "maxi": 0.64 } }
-  ]
+  ],
+  "fixed": { "design_id_1": [false, false, false, true] }
 }
 ```
 
+Optional `fixed` maps each `design_id` to a per-residue boolean array the same length as that protein. Residues marked `true` must be stops (`*`) and stay frozen as **TAA**, excluded from codon optimisation and from user constraints. When a design id is omitted from `fixed` (or `fixed` is omitted entirely), every `*` in that protein is treated as fixed.
 ### Codon tables
 
 `GET /api/sequences/codon-tables` returns `{ "items": [ { "value", "label" }, ... ] }`.
@@ -416,6 +418,7 @@ Preset tag **amino-acid sequences** are not stored as DNA on the server. The API
 | cMyc | `EQKLISEEDL` | N or C |
 | HA | `YPYDVPDYA` | N or C |
 | G4S linker | `GGGGS` | N or C |
+| STOP* | `*` | N or C |
 
 ### Assembly order
 
@@ -430,7 +433,7 @@ Workflow for a C-terminal His tag:
 1. Ensure `Sequence` is set (`POST /api/designs/sequences` if missing).
 2. `PATCH /api/designs/tag` with `"tag": "C"`.
 3. Build `prepared_aa = core + "GSHHHHHH" + ("*" if including stop)`.
-4. `POST /api/sequences/optimize-dna` with `sequences: { design_id: prepared_aa }`.
+4. `POST /api/sequences/optimize-dna` with `sequences: { design_id: prepared_aa }`. Stops (`*`) are frozen as TAA; pass an optional `fixed` boolean array per design to mark which residues stay fixed.
 
 Use `POST /api/designs/tag-placement` to let the server choose N vs C from structure SASA and contacts.
 

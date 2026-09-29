@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sequence prep**: **STOP\*** preset on the N- and C-side tag palettes (after G4S). Stops from that tag, from the Include * stop checkboxes, or elsewhere in the coding sequence are marked fixed and stay as **TAA** during DNA optimisation.
 - **Filtering**: New **Filtering** tab backed by a server-side engine: hard filters (numeric, string and empty operators over canonical cross-method metric names, plus identity columns such as `design_id`, `run_name`, `method` and `Sequence`), ranking, and diversity selection, with a live filter-cascade preview. The filter chain shows as clickable tags (per-filter remaining counts, click to enable/disable) above the Designs table and in the Filtering tab; Filtering state persists to IndexedDB. `POST /api/filtering/columns` reports `higher_is_better` per column, used to default hard-filter operators (`>` vs `<`) and the ranking "Higher is better" checkbox.
 - **Filtering**: Ranking has two modes. **Simple ranking** (the UI default) sorts by the metric list in order — first enabled metric is primary, later ones break ties — with **ipTM + Binder pLDDT + Binder RMSD**, **ipSAE + Binder pLDDT + Binder RMSD** and **iptm only** presets. **Weighted-Worst-Rank-Across-Metrics (Boltzgen-style)** is BoltzGen's worst-scaled-rank recipe, with a **BoltzGen defaults** preset. `ranking_mode` is accepted by the rank, diversity and saved-set endpoints (worst-rank when omitted). Ranking metrics that resolve to no data for the current runs are flagged.
 - **Filtering**: **Apply Ranking** adds a **Ranking** column (`binderdash_ranking`, 1 = best) as the first data column of the Designs table, shows it, and sorts by it ascending; applying again moves it back to the front and re-sorts. The name is separate from any pipeline `quality_score` or `final_rank`.
@@ -37,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sequence prep / API**: DNA codon optimisation freezes stop residues (`*`) as **TAA** and excludes them from codon optimisation and user constraints. Optional request field `fixed` is a per-residue boolean mask; when omitted, every `*` is treated as fixed.
 - **Designs**: The Designs tab's client-side custom-filter panel is replaced by the Filtering tab; the table shows the active filter chain above it.
 - **Tag placement**: Residue SASA now uses biotite's kernel with **ProtOr radii (Tsai et al. 1999) over heavy atoms**, shared with target contacts in `backend/util/sasa.py`, replacing `Bio.PDB.SASA` with per-element radii and explicit hydrogens. It is much faster, and areas no longer depend on whether the folding method wrote hydrogens. `%SASA` shifts by a few percentage points per residue with rankings essentially unchanged; previously cached tag metrics are only recomputed with **Ignore cache, force recalculate**.
 - **Plots**: Plots tab uses the filtered Designs table rows directly — run selection controls removed from Plots; select runs on **Select Runs** and filter on **Designs** first.
