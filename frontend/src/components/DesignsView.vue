@@ -39,10 +39,43 @@
           @row-click="onRowClick"
         >
           <template #header>
-            <div class="designs-table-toolbar flex justify-content-end align-items-center">
-              <div class="flex gap-2 align-items-center">
+            <div class="designs-table-toolbar">
+              <div class="designs-export-panel flex flex-column gap-2">
+                <div class="designs-download-upload-row flex align-items-center">
+                  <SplitButton 
+                    :model="exportMenuItems"
+                    label="Download Design Bundle (zip)"
+                    icon="pi pi-box"
+                    severity="secondary"
+                    dropdownIcon="pi pi-chevron-down"
+                    :loading="bundleDownloading"
+                    @click="onDownloadBundle"
+                    size="small"
+                  />
+                  <SplitButton
+                    :model="mergeUploadMenuItems"
+                    label="Upload extra data (TSV)"
+                    icon="pi pi-upload"
+                    severity="secondary"
+                    dropdownIcon="pi pi-chevron-down"
+                    size="small"
+                    :disabled="designsStore.selectedRunIds.length === 0"
+                    @click="openMergeTableDialog('tsv')"
+                  />
+                </div>
+                <div class="flex align-items-center gap-1">
+                  <Checkbox 
+                    :modelValue="exportIncludeAllColumns"
+                    @update:modelValue="val => exportIncludeAllColumns = !!val"
+                    :binary="true"
+                    inputId="include-all-cols"
+                  />
+                  <label for="include-all-cols" class="text-sm">Include all columns</label>
+                </div>
+              </div>
+              <div class="designs-toolbar-row">
                 <div class="designs-column-selector flex align-items-center">
-                  <label for="designs-column-multiselect" class="text-sm font-medium">Show Columns </label>
+                  <label for="designs-column-multiselect" class="text-sm font-medium">Show Columns:</label>
                   <MultiSelect
                     id="designs-column-multiselect"
                     v-model="visibleColumnFields"
@@ -61,60 +94,26 @@
                     v-tooltip.bottom="'Choose which columns appear in the table'"
                   />
                 </div>
-                <div class="flex align-items-start gap-3">
-                  <div class="flex flex-column gap-2">
-                    <div class="designs-download-upload-row flex align-items-center">
-                      <SplitButton 
-                        :model="exportMenuItems"
-                        label="Download Design Bundle (zip)"
-                        icon="pi pi-box"
-                        severity="secondary"
-                        dropdownIcon="pi pi-chevron-down"
-                        :loading="bundleDownloading"
-                        @click="onDownloadBundle"
-                        size="small"
-                      />
-                      <SplitButton
-                        :model="mergeUploadMenuItems"
-                        label="Upload extra data (TSV)"
-                        icon="pi pi-upload"
-                        severity="secondary"
-                        dropdownIcon="pi pi-chevron-down"
-                        size="small"
-                        :disabled="designsStore.selectedRunIds.length === 0"
-                        @click="openMergeTableDialog('tsv')"
-                      />
-                    </div>
-                    <div class="flex align-items-center gap-1">
-                      <Checkbox 
-                        :modelValue="exportIncludeAllColumns"
-                        @update:modelValue="val => exportIncludeAllColumns = !!val"
-                        :binary="true"
-                        inputId="include-all-cols"
-                      />
-                      <label for="include-all-cols" class="text-sm">Include all columns</label>
-                    </div>
-                  </div>
-                  <div class="select-top-controls">
-                    <label for="select-top-count" class="text-sm font-medium">Select top:</label>
-                    <InputNumber 
-                      v-model="selectTopCount"
-                      :min="1"
-                      :max="Math.max(1, designsStore.filteredDesigns.length)"
-                      placeholder="N"
-                      size="small"
-                      inputId="select-top-count"
-                      class="select-top-input"
-                      @input="(event) => selectTopCount = Number(event.value)"
-                    />
-                    <Button 
-                      label="Select"
-                      severity="secondary"
-                      @click="selectTopRows"
-                      size="small"
-                      :disabled="!selectTopCount || selectTopCount < 1"
-                    />
-                  </div>
+                <div class="designs-toolbar-divider" aria-hidden="true" />
+                <div class="select-top-controls">
+                  <label for="select-top-count" class="text-sm font-medium">Select top:</label>
+                  <InputNumber 
+                    v-model="selectTopCount"
+                    :min="1"
+                    :max="Math.max(1, designsStore.filteredDesigns.length)"
+                    placeholder="N"
+                    size="small"
+                    inputId="select-top-count"
+                    class="select-top-input"
+                    @input="(event) => selectTopCount = Number(event.value)"
+                  />
+                  <Button 
+                    label="Select"
+                    severity="secondary"
+                    @click="selectTopRows"
+                    size="small"
+                    :disabled="!selectTopCount || selectTopCount < 1"
+                  />
                 </div>
               </div>
             </div>
@@ -3054,17 +3053,50 @@ defineExpose({
 }
 
 .designs-table-toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  box-sizing: border-box;
   padding-bottom: 0.75rem;
+  gap: 0;
 }
 
 .designs-column-selector {
   gap: 0.75rem;
-  margin-bottom: 0.75rem;
+  min-width: 0;
+}
+
+.designs-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  margin-top: 0.75rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.designs-toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 1.75rem;
+  background: #ced4da;
+  flex-shrink: 0;
 }
 
 .designs-column-multiselect {
   min-width: 14rem;
   max-width: min(100%, 28rem);
+}
+
+.designs-export-panel {
+  border: 1px solid #ced4da;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .designs-download-upload-row {
@@ -3609,6 +3641,7 @@ defineExpose({
   align-items: center;
   gap: 0.5rem;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .viewer-controls :deep(.p-button.strikethrough-disabled .p-button-label) {

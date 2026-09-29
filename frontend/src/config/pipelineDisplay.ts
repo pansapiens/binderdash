@@ -278,6 +278,9 @@ const DESIGN_BUILD_COLUMN_EXTRA_KEYS = [
     'params',
     'min_interaction_pae',
     'design_ptm',
+    // Client-only fields attached in the designs store — never show as table columns.
+    'binderRowKey',
+    '__source_saved_set_id',
 ] as const
 
 /** Designs-table field written by Filtering → Apply Ranking. 1 = best.
