@@ -250,6 +250,34 @@ class TestFilteringRun:
         assert body["top_set_count"] == 3
         assert body["diverse_set_count"] == 3
 
+    def test_run_persists_ui_state_including_best_mpnn(self, api_client, sqlite_designs_repo) -> None:
+        _seed_run()
+        resp = api_client.post(
+            "/api/filtering/run",
+            json={
+                "name": "With UI state",
+                "run_ids": ["run-filt-1"],
+                "filters": [],
+                "metrics": [{"column": "Average_i_pTM", "weight": 1.0, "higher_is_better": True}],
+                "budget": 4,
+                "alpha": 0.1,
+                "apply_diversity": True,
+                "ui_state": {
+                    "run_ids": ["run-filt-1"],
+                    "visible_columns": ["design_id", "Average_i_pTM"],
+                    "sort": [{"field": "Average_i_pTM", "order": -1}],
+                    "best_mpnn_only": True,
+                },
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        saved = api_client.get(f"/api/saved-sets/{resp.json()['saved_set_id']}")
+        assert saved.status_code == 200, saved.text
+        ui_state = saved.json()["filter_params"]["ui_state"]
+        assert ui_state["best_mpnn_only"] is True
+        assert ui_state["visible_columns"] == ["design_id", "Average_i_pTM"]
+        assert ui_state["sort"] == [{"field": "Average_i_pTM", "order": -1}]
+
     def test_run_without_diversity_keeps_all_passing(self, api_client, sqlite_designs_repo) -> None:
         _seed_run()
         resp = api_client.post(

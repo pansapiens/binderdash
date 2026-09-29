@@ -856,6 +856,11 @@ export interface FilteringRunRequestDto {
     random_state?: number
     /** When false, save every design that passed hard filters (no budget/diversity). */
     apply_diversity?: boolean
+    /**
+     * UI snapshot at save time (table layout, best-MPNN toggle, etc.). Stored in the
+     * Saved Set's filter_params and restored by Reapply / Load filters / bundle download.
+     */
+    ui_state?: Record<string, unknown> | null
 }
 
 export interface FilteringRunResponseDto {

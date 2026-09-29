@@ -175,7 +175,7 @@ While diversity is on but not yet applied, the cascade says so and the final cou
 
 ## 6. Create Saved Set
 
-**Create Saved Set** runs the same filter → rank → diversity pipeline and stores an immutable snapshot: the source run ids, the recipe, a result summary, and the designs that made the cut (with `final_rank`, `quality_score`, and whether each was in the diverse subset).
+**Create Saved Set** runs the same filter → rank → diversity pipeline and stores an immutable snapshot: the source run ids, the recipe, a result summary, the designs that made the cut (with `final_rank`, `quality_score`, and whether each was in the diverse subset), and the UI state at save time (table columns, sort, and **Only best MPNN variant per backbone**). **Reapply filters** / **Load filters** restore that UI state along with the recipe.
 
 With diversity on, the set is the diverse subset (at most Budget, and only designs that passed every filter and have a sequence). With diversity off, the set is every design that passed the filters. The confirmation line reports designs selected, how many passed the filters, and the total input.
 

@@ -891,6 +891,8 @@ export const useFilteringStore = defineStore('filtering', () => {
         creatingSavedSet.value = true
         createSavedSetError.value = null
         try {
+            // Dynamic import avoids a module cycle: sessionState imports this store.
+            const { buildSessionState } = await import('../session/sessionState')
             const res = await filteringApi.run({
                 name,
                 run_ids: activeRunIds.value,
@@ -904,7 +906,10 @@ export const useFilteringStore = defineStore('filtering', () => {
                 // Honour the same on/off as section 4 / the cascade tag — when off,
                 // every design that passed the hard filters becomes the saved set
                 // (no budget / lazy-greedy pass).
-                apply_diversity: diversityEnabled.value
+                apply_diversity: diversityEnabled.value,
+                // Table layout + best-MPNN preference ride along so a later download /
+                // Reapply reproduces more than just the filter recipe.
+                ui_state: buildSessionState()
             })
             lastCreatedSavedSet.value = res
             await fetchSavedSets()
@@ -983,6 +988,30 @@ export const useFilteringStore = defineStore('filtering', () => {
         // Old recipes predate apply_diversity; they always ran diversity, so default on.
         // clearAppliedFilters resets the toggle to the fresh-UI default (off).
         diversityEnabled.value = recipe.apply_diversity !== false
+
+        // ui_state is optional (sets created before it, or session restore which applies
+        // best_mpnn_only itself). When present — Reapply / Load filters from a Saved Set —
+        // restore the Designs-table preferences that rode along at save time.
+        const ui = recipe.ui_state
+        if (ui && typeof ui === 'object') {
+            const designsStore = useDesignsStore()
+            if (typeof ui.best_mpnn_only === 'boolean') {
+                designsStore.bestMpnnOnly = ui.best_mpnn_only
+            }
+            if (Array.isArray(ui.sort) && ui.sort.length > 0) {
+                designsStore.tableMultiSortMeta = ui.sort
+                    .filter((s: any) => s && s.field)
+                    .map((s: any) => ({
+                        field: String(s.field),
+                        order: s.order === -1 ? -1 : 1
+                    }))
+                designsStore.tableFirst = 0
+            }
+            if (Array.isArray(ui.visible_columns) && ui.visible_columns.length > 0) {
+                designsStore.visibleColumns = ui.visible_columns.map(String)
+            }
+        }
+
         scheduleApply()
     }
 
