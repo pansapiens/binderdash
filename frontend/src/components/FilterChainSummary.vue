@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Tag from 'primevue/tag'
 import Button from 'primevue/button'
-import { useAppStore, useFilteringStore } from '../stores'
+import { useAppStore, useDesignsStore, useFilteringStore } from '../stores'
 import { formatFilterLabel, formatDiversityLabel } from '../utils/filterLabel'
 import type { FilterChainItem } from '../stores/filtering'
 
@@ -14,15 +14,19 @@ withDefaults(
 )
 
 const filteringStore = useFilteringStore()
+const designsStore = useDesignsStore()
 const appStore = useAppStore()
 
 function itemLabel(item: FilterChainItem): string {
   const base =
-    item.type === 'diversity' ? formatDiversityLabel(filteringStore.budget, filteringStore.alpha) : formatFilterLabel(item)
+    item.type === 'diversity'
+      ? formatDiversityLabel(filteringStore.budget, filteringStore.alpha)
+      : formatFilterLabel(item)
   return item.remaining != null ? `${base} (${item.remaining})` : base
 }
 
 function itemTooltip(item: FilterChainItem): string {
+  if (item.type === 'mpnn') return 'Click to stop removing MPNN duplicates'
   const noun =
     item.type === 'diversity'
       ? 'diversity selection'
@@ -33,7 +37,9 @@ function itemTooltip(item: FilterChainItem): string {
 }
 
 function toggleItem(item: FilterChainItem) {
-  if (item.type === 'diversity') {
+  if (item.type === 'mpnn') {
+    designsStore.toggleBestMpnnOnly()
+  } else if (item.type === 'diversity') {
     filteringStore.setDiversityEnabled(!item.enabled)
   } else if (item.type === 'target_contact') {
     filteringStore.toggleTargetContactFilterEnabled(item.groupIndex ?? 0, item.index)
@@ -56,10 +62,11 @@ function toggleItem(item: FilterChainItem) {
         <i class="pi pi-angle-right filter-chain-summary__arrow" aria-hidden="true" />
         <Tag
           :value="itemLabel(item)"
-          :severity="item.enabled ? (item.type === 'diversity' ? 'warning' : 'info') : 'secondary'"
+          :severity="item.enabled ? (item.type === 'diversity' || item.type === 'mpnn' ? 'warning' : 'info') : 'secondary'"
           :class="[
             'filter-chain-summary__tag',
             item.type === 'diversity' ? 'filter-chain-summary__tag--diversity' : null,
+            item.type === 'mpnn' ? 'filter-chain-summary__tag--mpnn' : null,
             { 'filter-chain-summary__tag--disabled': !item.enabled }
           ]"
           v-tooltip.bottom="itemTooltip(item)"
@@ -123,6 +130,10 @@ function toggleItem(item: FilterChainItem) {
 }
 
 .filter-chain-summary__tag--diversity {
+  font-style: italic;
+}
+
+.filter-chain-summary__tag--mpnn {
   font-style: italic;
 }
 </style>

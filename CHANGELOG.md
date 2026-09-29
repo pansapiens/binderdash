@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Filtering**: The filter cascade counts designs remaining after **Only best MPNN variant per backbone** when that option is collapsing the table. The new **Remove MPNN duplicates** row sits after diversity selection, and **Final set** uses that count.
 - **Sequence prep / DNA Optimization**: A sequence whose codon optimisation fails with "No solution found" is solved again, up to five attempts, before that error is reported.
 - **Designs**: Hide internal client fields (`binderRowKey`, Saved Set provenance) from the Show Columns list.
 - **Sequence prep**: N- and C-side tag palettes wrap as groups on narrow widths, so "Add to C side" and its buttons stay together on a new row instead of splitting mid-row.

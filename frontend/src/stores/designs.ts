@@ -704,6 +704,32 @@ export const useDesignsStore = defineStore('designs', () => {
         return filteredDesigns
     }
 
+    /**
+     * Designs left after "Only best MPNN variant per backbone", counted on the
+     * same pool the Designs table collapses: selected runs, after hard filters
+     * and (when applied) diversity selection. Null while that collapse is off
+     * or the run rows are not loaded yet — the cascade must not flash 0.
+     * Saved-set rows are left out so this stays comparable with the server
+     * cascade, which only counts the selected runs.
+     */
+    const mpnnDedupeRemaining = computed<number | null>(() => {
+        if (!bestMpnnOnly.value) return null
+        const filteringStore = useFilteringStore()
+        if (!filteringStore.diversityEnabled) return null
+        if (loading.value) return null
+        if (loadedRunIdsSignature.value !== runIdsSignature(selectedRunIds.value)) return null
+
+        const keys = filteringStore.effectivePassingKeys
+        const idSet = new Set(selectedRunIds.value.map(String))
+        const pool = designs.value.filter((design) => {
+            if ((design as Record<string, unknown>).__source_saved_set_id != null) return false
+            if (!idSet.has(String(design.run_id))) return false
+            if (keys && !keys.has(buildDesignKey(design))) return false
+            return true
+        })
+        return _filterBestMpnnDesigns(pool).length
+    })
+
     const designsWithPdbOrdered = (): Design[] =>
         orderedFilteredDesigns.value.filter(d => hasStructureFile(d))
 
@@ -1294,6 +1320,7 @@ export const useDesignsStore = defineStore('designs', () => {
 
         // Getters
         filteredDesigns,
+        mpnnDedupeRemaining,
         orderedFilteredDesigns,
         totalDesigns,
         currentStructure,

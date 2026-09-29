@@ -57,7 +57,7 @@ export interface RankedDesignInfo {
 
 export interface FilterChainItem {
     index: number
-    type: 'filter' | 'diversity' | 'target_contact'
+    type: 'filter' | 'diversity' | 'target_contact' | 'mpnn'
     /** For target-contact rows: which group the row belongs to. */
     groupIndex?: number
     /** Pre-rendered stage description; target-contact rows have no meaningful column. */
@@ -270,8 +270,10 @@ export const useFilteringStore = defineStore('filtering', () => {
     // activeFilters (enabled-only, same relative order), so it's zipped positionally
     // against just the enabled rows here. Guarded by a length check so a stale
     // (pre-debounce) preview doesn't get paired with the wrong filter while an edit is
-    // in flight. If diversity selection has been run, it's appended as a final,
-    // separately-toggleable stage (see diversityEnabled).
+    // in flight. If diversity selection has been run, it's appended as a
+    // separately-toggleable stage (see diversityEnabled). "Only best MPNN
+    // variant per backbone" collapses after that (client-side, and only while
+    // diversity selection is on) — see designsStore.mpnnDedupeRemaining.
     const filterChain = computed<FilterChainItem[]>(() => {
         const stages = previewResult.value?.per_filter_counts ?? []
         // The backend appends target-contact stages after the plain hard filters (see
@@ -346,6 +348,26 @@ export const useFilteringStore = defineStore('filtering', () => {
                 // final-row logic that walks backward for the last non-null remaining
                 // skips it when off or dirty.
                 remaining: applied ? lastDiversityResult.value!.diverse_set_count : null
+            })
+        }
+
+        // After diversity selection: the Designs table collapses MPNN variants
+        // only once the passing/diverse set is chosen (see filteredDesigns).
+        // Shown whenever that collapse is on, including before diversity has
+        // been applied — then it counts the hard-filter set, which is what
+        // the table is actually showing.
+        const designsStore = useDesignsStore()
+        if (designsStore.bestMpnnOnly && diversityEnabled.value) {
+            items.push({
+                index: -2,
+                type: 'mpnn',
+                column: 'Remove MPNN duplicates',
+                label: 'Remove MPNN duplicates',
+                operator: '',
+                threshold: null,
+                text_value: null,
+                enabled: true,
+                remaining: designsStore.mpnnDedupeRemaining
             })
         }
         return items

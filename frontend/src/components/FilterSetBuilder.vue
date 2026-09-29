@@ -255,15 +255,18 @@ interface CascadeRow {
   enabled: boolean
   isFinal: boolean
   isDiversity: boolean
+  isMpnn: boolean
 }
 
 // Every configured filter is listed (including disabled ones), plus diversity
-// selection once it's been run — both sourced from filteringStore's shared
-// filterChain (see stores/filtering.ts) so this table and the top-of-page
-// FilterChainSummary chain never drift apart. "Final set" is always its own trailing
-// summary row — no threshold, and its remaining count mirrors whichever stage above it
-// last actually narrowed the set (diversity selection if applied and enabled, else the
-// last enabled filter, else the unfiltered total when nothing is configured/enabled).
+// selection once it's been run, plus MPNN duplicate removal when that collapse
+// is on — all sourced from filteringStore's shared filterChain (see
+// stores/filtering.ts) so this table and the top-of-page FilterChainSummary
+// chain never drift apart. "Final set" is always its own trailing summary row
+// — no threshold, and its remaining count mirrors whichever stage above it
+// last actually narrowed the set (MPNN duplicate removal when active, else
+// diversity selection if applied and enabled, else the last enabled filter,
+// else the unfiltered total when nothing is configured/enabled).
 const cascadeRows = computed<CascadeRow[]>(() => {
   const rows: CascadeRow[] = filteringStore.filterChain.map((item) => ({
     column: item.label ?? item.column,
@@ -272,7 +275,8 @@ const cascadeRows = computed<CascadeRow[]>(() => {
     remaining: item.remaining,
     enabled: item.enabled,
     isFinal: false,
-    isDiversity: item.type === 'diversity'
+    isDiversity: item.type === 'diversity',
+    isMpnn: item.type === 'mpnn'
   }))
 
   let finalRemaining = filteringStore.initialDesignCount ?? 0
@@ -289,7 +293,8 @@ const cascadeRows = computed<CascadeRow[]>(() => {
     remaining: finalRemaining,
     enabled: true,
     isFinal: true,
-    isDiversity: false
+    isDiversity: false,
+    isMpnn: false
   })
 
   return rows
@@ -299,7 +304,8 @@ function cascadeRowClass(data: CascadeRow) {
   return {
     'fsb-cascade-row--final': data.isFinal,
     'fsb-cascade-row--disabled': !data.enabled,
-    'fsb-cascade-row--diversity': data.isDiversity
+    'fsb-cascade-row--diversity': data.isDiversity,
+    'fsb-cascade-row--mpnn': data.isMpnn
   }
 }
 
@@ -1105,6 +1111,11 @@ const alphaLogSlider = computed<number>({
 }
 
 :deep(.fsb-cascade-row--diversity:not(.fsb-cascade-row--disabled)) {
+  background-color: #fff8e6 !important;
+  font-style: italic;
+}
+
+:deep(.fsb-cascade-row--mpnn) {
   background-color: #fff8e6 !important;
   font-style: italic;
 }

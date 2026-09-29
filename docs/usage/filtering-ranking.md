@@ -163,15 +163,15 @@ Changing budget, α, or the size buckets after an apply marks the panel **Unappl
 
 Designs with a missing or blank sequence are left out of the pool. A blank sequence would look maximally dissimilar to everything, so including it would prefer the designs the selector knows least about. If the runs have no `Sequence` column at all, selection is skipped until sequences are extracted (`POST /api/sequences/extract`).
 
-**Only best MPNN variant per backbone** is a Designs-table view option in this panel. While diversity selection is on, designs that share a `backbone_id` collapse in the browser to the one with the best primary score, and designs with no `backbone_id` are kept. Turning diversity selection off leaves the checkbox as it was but stops the collapse. It does not change the diverse subset or the Saved Set.
+**Only best MPNN variant per backbone** is a Designs-table view option in this panel. While diversity selection is on, designs that share a `backbone_id` collapse in the browser to the one with the best primary score, and designs with no `backbone_id` are kept. That collapse runs after diversity selection when a diverse subset is applied, and after the hard filters when diversity is on but not yet applied. Turning diversity selection off leaves the checkbox as it was but stops the collapse. It does not change the diverse subset or the Saved Set. The [filter cascade](#5-filter-cascade) lists it as **Remove MPNN duplicates** with the number of designs left after the collapse.
 
 ## 5. Filter cascade
 
 The cascade is the sequential count of designs remaining after each enabled stage. It refreshes on the same debounce as hard filters and target contacts.
 
-Rows appear in order: each hard filter, then each target-contact condition, then Diversity Selection when that section is on or has a cached result, then a **Final set** row. Disabled filters stay in the list with no remaining count. The final count is the last stage that actually narrowed the set: the diverse subset when diversity is on and applied, otherwise the last enabled filter, otherwise the unfiltered total.
+Rows appear in order: each hard filter, then each target-contact condition, then Diversity Selection when that section is on or has a cached result, then **Remove MPNN duplicates** when **Only best MPNN variant per backbone** is collapsing the table, then a **Final set** row. Disabled filters stay in the list with no remaining count. The final count is the last stage that actually narrowed the set: the count after MPNN duplicate removal when that option is active, otherwise the diverse subset when diversity is on and applied, otherwise the last enabled filter, otherwise the unfiltered total.
 
-While diversity is on but not yet applied, the cascade says so and the final count stays at the hard-filter total. While it is off, the final set is every design that passes the hard filters and target contacts.
+While diversity is on but not yet applied, the cascade says so. If MPNN duplicate removal is also on, the final count is the hard-filter set after that collapse; otherwise it stays at the hard-filter total. While diversity is off, MPNN duplicate removal does not run and the final set is every design that passes the hard filters and target contacts.
 
 ## 6. Create Saved Set
 
