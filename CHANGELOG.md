@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Prepare sequences**: DNA optimization constraint parameters (for example AvoidPattern) can be edited without the field resetting mid-keystroke.
 - **Saved Sets**: Creating a Saved Set now stores the UI state (including **Only best MPNN variant per backbone**, table columns and sort). **Reapply filters** / **Load filters** restore it; older sets without `ui_state` are unchanged.
 - **Structure viewer**: The terminus tag marker is drawn as soon as next/previous finishes loading a structure. It previously stayed blank until pLDDT was toggled, because the viewer read terminal coordinates before Mol* had finished loading the model.
 - **Filtering**: **Only best MPNN variant per backbone** no longer collapses the Designs table while diversity selection is off. The checkbox stays as set and applies again when diversity selection is turned back on.

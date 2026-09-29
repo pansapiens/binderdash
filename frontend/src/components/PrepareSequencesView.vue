@@ -434,17 +434,17 @@
             </template>
           </Column>
           <Column field="type" header="Constraint Type" style="width: 14rem">
-            <template #body="{ data }">
+            <template #body="{ data, index }">
               <Select
                 :model-value="data.type"
                 :options="constraintTypeOptions"
                 class="w-full"
-                @update:model-value="(v: string) => onConstraintTypeChange(data, v)"
+                @update:model-value="(v: string) => onConstraintTypeChange(data, v, index)"
               />
             </template>
           </Column>
           <Column field="params" header="Parameters">
-            <template #body="{ data }">
+            <template #body="{ data, index }">
               <Select
                 v-if="data.type === 'ExcludeRestrictionSite'"
                 :model-value="data.params?.enzyme"
@@ -466,16 +466,16 @@
               </Select>
               <InputText
                 v-else
-                :value="JSON.stringify(data.params)"
-                @change="updateConstraintParams(data, ($event.target as HTMLInputElement).value)"
+                :model-value="constraintParamsText(index, data)"
                 class="w-full"
                 placeholder='{"mini": 0.25}'
+                @update:model-value="(v: string) => onConstraintParamsInput(index, data, v)"
               />
             </template>
           </Column>
           <Column headerStyle="width: 4rem">
             <template #body="{ index }">
-               <Button icon="pi pi-trash" severity="danger" text @click="seqPrep.removeConstraint(index)" />
+               <Button icon="pi pi-trash" severity="danger" text @click="onRemoveConstraint(index)" />
             </template>
           </Column>
         </DataTable>
@@ -903,12 +903,50 @@ const optimizationPanelPt = {
   }
 }
 
-const updateConstraintParams = (data: any, val: string) => {
+// Display text is kept separately from `params`. The field used to bind
+// `:value="JSON.stringify(params)"` and only commit on blur, so any parent
+// re-render (these constraints are deep-watched) wrote the last saved JSON
+// back over in-progress edits.
+const constraintParamsDrafts = ref<string[]>([])
+
+function constraintParamsText(index: number, data: { params?: unknown }): string {
+  const draft = constraintParamsDrafts.value[index]
+  if (draft !== undefined) return draft
+  return JSON.stringify(data.params ?? {})
+}
+
+function setConstraintParamsDraft(index: number, text: string) {
+  const next = constraintParamsDrafts.value.slice()
+  next[index] = text
+  constraintParamsDrafts.value = next
+}
+
+function onConstraintParamsInput(index: number, data: { params?: unknown }, value: string) {
+  setConstraintParamsDraft(index, value)
   try {
-    data.params = JSON.parse(val)
-  } catch (e) {
-    // Ignore invalid JSON format on change
+    const parsed = JSON.parse(value)
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      data.params = parsed
+    }
+  } catch {
+    // Incomplete JSON while typing; the draft stays until it parses.
   }
+}
+
+watch(
+  () => seqPrep.optimizationConstraints,
+  (rows) => {
+    constraintParamsDrafts.value = rows.map((row: { params?: unknown }) =>
+      JSON.stringify(row.params ?? {})
+    )
+  }
+)
+
+function onRemoveConstraint(index: number) {
+  seqPrep.removeConstraint(index)
+  const next = constraintParamsDrafts.value.slice()
+  next.splice(index, 1)
+  constraintParamsDrafts.value = next
 }
 
 const constraintTypeOptions = [...OPTIMIZATION_CONSTRAINT_TYPES]
@@ -934,7 +972,7 @@ const restrictionEnzymeOptions = computed<RestrictionEnzymeOptionGroup[]>(() => 
 })
 
 /** Reset params to a sensible default whenever the constraint type changes. */
-function onConstraintTypeChange(data: any, newType: string) {
+function onConstraintTypeChange(data: any, newType: string, index: number) {
   if (data.type === newType) return
   data.type = newType
   switch (newType) {
@@ -959,6 +997,7 @@ function onConstraintTypeChange(data: any, newType: string) {
     default:
       data.params = {}
   }
+  setConstraintParamsDraft(index, JSON.stringify(data.params ?? {}))
 }
 
 const chainOptions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
