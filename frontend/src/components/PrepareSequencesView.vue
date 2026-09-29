@@ -76,30 +76,34 @@
       </div>
 
       <div class="ps-palette">
-        <span class="ps-palette-label">Add to N side:</span>
-        <Button
-          v-for="p in seqPrep.presetOptionsN"
-          :key="'n-' + p.kind"
-          size="small"
-          severity="secondary"
-          outlined
-          :label="p.tag_name"
-          class="ps-preset-btn"
-          :style="tagPresetChromeStyle(p.kind)"
-          @click="seqPrep.addPreset('n', p)"
-        />
-        <span class="ps-palette-label ps-ml">Add to C side:</span>
-        <Button
-          v-for="p in seqPrep.presetOptionsC"
-          :key="'c-' + p.kind"
-          size="small"
-          severity="secondary"
-          outlined
-          :label="p.tag_name"
-          class="ps-preset-btn"
-          :style="tagPresetChromeStyle(p.kind)"
-          @click="seqPrep.addPreset('c', p)"
-        />
+        <div class="ps-palette-group">
+          <span class="ps-palette-label">Add to N side:</span>
+          <Button
+            v-for="p in seqPrep.presetOptionsN"
+            :key="'n-' + p.kind"
+            size="small"
+            severity="secondary"
+            outlined
+            :label="p.tag_name"
+            class="ps-preset-btn"
+            :style="tagPresetChromeStyle(p.kind)"
+            @click="seqPrep.addPreset('n', p)"
+          />
+        </div>
+        <div class="ps-palette-group">
+          <span class="ps-palette-label">Add to C side:</span>
+          <Button
+            v-for="p in seqPrep.presetOptionsC"
+            :key="'c-' + p.kind"
+            size="small"
+            severity="secondary"
+            outlined
+            :label="p.tag_name"
+            class="ps-preset-btn"
+            :style="tagPresetChromeStyle(p.kind)"
+            @click="seqPrep.addPreset('c', p)"
+          />
+        </div>
       </div>
       <div class="ps-custom-row">
         <InputText
@@ -1750,17 +1754,20 @@ const downloadMenuItems = [
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.5rem 0.75rem;
   margin-bottom: 0.75rem;
+}
+
+.ps-palette-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .ps-palette-label {
   font-size: 0.85rem;
   font-weight: 500;
-}
-
-.ps-ml {
-  margin-left: 0.75rem;
 }
 
 .ps-preset-btn {
