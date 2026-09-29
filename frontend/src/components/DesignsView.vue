@@ -13,33 +13,6 @@
     />
 
           <div class="designs-content">
-        <!-- Column Selector Panel moved to top -->
-        <div v-if="showColumnSelector" class="column-selector-panel">
-          <div class="column-selector-header">
-            <h3>Toggle Columns</h3>
-            <Button 
-              icon="pi pi-times" 
-              @click="toggleColumnSelector"
-              rounded
-              variant="outlined"
-              severity="danger"
-              aria-label="Close column selector"
-              class="close-button"
-            />
-          </div>
-          <div class="column-toggles">
-            <div v-for="col in designsStore.columnsForSelectedRuns" :key="col.field" class="column-toggle">
-              <Checkbox 
-                :modelValue="isColumnVisible(col.field)"
-                @update:modelValue="toggleColumn(col.field)"
-                :binary="true"
-                :inputId="'col-' + col.field"
-              />
-              <label :for="'col-' + col.field" class="ml-2">{{ col.header }}</label>
-            </div>
-          </div>
-        </div>
-
         <div class="designs-table-section">
           <DataTable
           ref="designsTableRef"
@@ -66,19 +39,28 @@
           @row-click="onRowClick"
         >
           <template #header>
-            <div class="flex justify-content-end align-items-center">
+            <div class="designs-table-toolbar flex justify-content-end align-items-center">
               <div class="flex gap-2 align-items-center">
-                <Button 
-                  icon="pi pi-table" 
-                  v-tooltip.bottom="'Choose which columns appear in the table'"
-                  aria-label="Toggle columns"
-                  @click="toggleColumnSelector"
-                  text
-                  rounded
-                  severity="secondary"
-                  variant="outlined"
-                  :class="{ 'p-button-outlined': showColumnSelector }"
-                />
+                <div class="designs-column-selector flex align-items-center">
+                  <label for="designs-column-multiselect" class="text-sm font-medium">Show Columns </label>
+                  <MultiSelect
+                    id="designs-column-multiselect"
+                    v-model="visibleColumnFields"
+                    :options="columnSelectOptions"
+                    option-label="header"
+                    option-value="field"
+                    placeholder="Select columns"
+                    filter
+                    filter-placeholder="Search columns…"
+                    display="chip"
+                    :max-selected-labels="3"
+                    selected-items-label="{0} columns shown"
+                    :show-toggle-all="true"
+                    :disabled="columnSelectOptions.length === 0"
+                    class="designs-column-multiselect"
+                    v-tooltip.bottom="'Choose which columns appear in the table'"
+                  />
+                </div>
                 <div class="flex align-items-start gap-3">
                   <div class="flex flex-column gap-2">
                     <div class="designs-download-upload-row flex align-items-center">
@@ -1035,6 +1017,7 @@ import InputNumber from 'primevue/inputnumber'
 import InputSwitch from 'primevue/inputswitch'
 import Dropdown from 'primevue/dropdown'
 import SplitButton from 'primevue/splitbutton'
+import MultiSelect from 'primevue/multiselect'
 import ProgressBar from 'primevue/progressbar'
 import { useToast } from 'primevue/usetoast'
 import Toast from 'primevue/toast'
@@ -1074,7 +1057,6 @@ watch(
 )
 
 // Local UI state (not shared across components)
-const showColumnSelector = ref(false)
 const showAdvancedOptions = ref(false)
 const showTagPlacementOptions = ref(false)
 const showContactMapOptions = ref(false)
@@ -1957,10 +1939,19 @@ const runMergeTableUpload = async (preview: boolean) => {
 const runMergeTablePreview = () => runMergeTableUpload(true)
 const runMergeTableApply = () => runMergeTableUpload(false)
 
-// Computed properties using store
-const isColumnVisible = (field: string): boolean => {
-  return designsStore.visibleColumns.includes(field)
-}
+const columnSelectOptions = computed(() => designsStore.columnsForSelectedRuns)
+
+/** Preserve existing column order when toggling via MultiSelect. */
+const visibleColumnFields = computed<string[]>({
+  get: () => designsStore.visibleColumns,
+  set: (fields) => {
+    const next = new Set(fields)
+    const kept = designsStore.visibleColumns.filter((f) => next.has(f))
+    const keptSet = new Set(kept)
+    const added = fields.filter((f) => !keptSet.has(f))
+    designsStore.visibleColumns = [...kept, ...added]
+  }
+})
 
 // Methods
 
@@ -2128,14 +2119,6 @@ const toggleReferenceStructureVisibility = async () => {
   if (!molstarViewerRef.value || !referenceViewerUrl.value) return
   await molstarViewerRef.value.toggleReferenceStructureVisibility()
   referenceStructureVisible.value = molstarViewerRef.value.referenceStructureVisible
-}
-
-const toggleColumnSelector = () => {
-  showColumnSelector.value = !showColumnSelector.value
-}
-
-const toggleColumn = (field: string): void => {
-  designsStore.toggleColumn(field)
 }
 
 const onTableHeaderSelectAllChange = (value: boolean) => {
@@ -3070,40 +3053,19 @@ defineExpose({
   overflow: hidden;
 }
 
-.column-selector-panel {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  padding: 1.5rem;
-  border: 1px solid #e9ecef;
-  margin-bottom: 1.5rem;
+.designs-table-toolbar {
+  padding-bottom: 0.75rem;
 }
 
-.column-selector-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
+.designs-column-selector {
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
 }
 
-.column-selector-header h3 {
-  margin: 0;
-  color: #495057;
+.designs-column-multiselect {
+  min-width: 14rem;
+  max-width: min(100%, 28rem);
 }
-
-/*
-.close-button {
-  padding: 0.5rem;
-  min-width: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.close-button .p-button-icon {
-  margin-left: 0.125rem;
-}
-*/
 
 .designs-download-upload-row {
   column-gap: 0;
@@ -3344,22 +3306,6 @@ defineExpose({
   color: #495057;
   padding-top: 0.5rem;
   border-top: 1px solid #e9ecef;
-}
-
-/* Removed duplicate rule - using .column-selector-header h3 above */
-
-.column-toggles {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 0.5rem;
-}
-
-.column-toggle {
-  display: flex;
-  align-items: center;
-  padding: 0.5rem;
-  border-radius: 4px;
-  background: #f8f9fa;
 }
 
 .structure-viewer-section {

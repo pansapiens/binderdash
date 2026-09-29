@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Designs**: Column visibility uses a searchable multi-select in the table header (like Prepare Sequences / Filtering), replacing the Toggle Columns button and checkbox panel.
 - **Select Runs**: Selected runs always sort to the top of the table and stay visible through column filters. The toolbar toggle is renamed **Show only selected**.
 - **Sequence prep / API**: DNA codon optimisation freezes stop residues (`*`) as **TAA** and a leading Met as **ATG** when marked fixed, excluding them from codon optimisation and user constraints. Optional request field `fixed` is a per-residue boolean mask; when omitted, every `*` is treated as fixed.
 - **Designs**: The Designs tab's client-side custom-filter panel is replaced by the Filtering tab; the table shows the active filter chain above it.
