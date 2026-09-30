@@ -219,6 +219,7 @@
       header="Short name"
       v-model:collapsed="shortNamePanelCollapsed"
       class="ps-short-name-panel card-like mb-4"
+      :class="{ 'ps-short-name-panel--warn': shortNameUniquenessWarning }"
     >
       <p class="ps-short-name-lead">
         Strategies to shorten <code>design_id</code> to ≤32 characters for synthesis orders.
@@ -373,9 +374,17 @@
           :disabled="seqPrep.preparedRows.length === 0"
           @click="onClearShortNames"
         />
-        <span v-if="seqPrep.shortNameDedupeCount > 0" class="ps-sn-dedupe">
-          Auto-deduped: {{ seqPrep.shortNameDedupeCount }} name(s) needed a suffix
-        </span>
+        <Message
+          v-if="seqPrep.shortNameDedupeCount > 0"
+          severity="warn"
+          class="ps-sn-dedupe"
+          :closable="false"
+        >
+          <div class="ps-warnings-banner-inner">
+            <i class="pi pi-exclamation-triangle ps-warn-banner-icon" aria-hidden="true" />
+            <span>Auto-deduped: {{ seqPrep.shortNameDedupeCount }} name(s) needed a suffix</span>
+          </div>
+        </Message>
       </div>
       <div v-if="shortNamePreviewLines.length > 0" class="ps-sn-preview">
         <strong>Preview:</strong>
@@ -868,7 +877,9 @@ import {
   tagPresetChromeStyle,
   useSeqPrepStore,
   OPTIMIZATION_CONSTRAINT_TYPES,
-  type PreparedRow
+  type PreparedRow,
+  WARNING_LONG_NAME_NOT_UNIQUE,
+  WARNING_SHORT_NAME_NOT_UNIQUE
 } from '../stores/seqPrep'
 import type { ShortNameStrategy } from '../stores/shortName'
 import { useDesignsStore } from '../stores/designs'
@@ -1049,8 +1060,22 @@ const tableFilters = ref({
 const warningsAcknowledged = ref(false)
 const tagColumnAcknowledged = ref(false)
 
+const NAME_UNIQUENESS_WARNINGS = new Set([
+  WARNING_LONG_NAME_NOT_UNIQUE,
+  WARNING_SHORT_NAME_NOT_UNIQUE
+])
+
+const shortNameUniquenessWarning = computed(() =>
+  seqPrep.preparedRows.some((r) => r.warnings.some((w) => NAME_UNIQUENESS_WARNINGS.has(w)))
+)
+
 const preparedRowsFingerprint = computed(() =>
-  seqPrep.preparedRows.map((r) => `${r.row_key}:${r.prepared_aa}:${r.tag}`).join('|')
+  seqPrep.preparedRows
+    .map((r) => {
+      const nameWarnings = r.warnings.filter((w) => NAME_UNIQUENESS_WARNINGS.has(w)).join(',')
+      return `${r.row_key}:${r.prepared_aa}:${r.tag}:${nameWarnings}`
+    })
+    .join('|')
 )
 
 watch(preparedRowsFingerprint, () => {
@@ -1607,17 +1632,25 @@ const downloadMenuItems = [
   align-items: center;
 }
 
+.ps-short-name-panel.ps-short-name-panel--warn.card-like {
+  border-color: #dc2626;
+}
+
 .ps-short-name-footer {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 0.75rem;
   margin-top: 0.75rem;
 }
 
 .ps-sn-dedupe {
-  font-size: 0.85rem;
-  color: var(--p-orange-500, #c2410c);
+  width: 100%;
+  margin: 0;
+}
+
+.ps-sn-dedupe .ps-warn-banner-icon {
+  font-size: 1.15rem;
 }
 
 .ps-sn-preview {

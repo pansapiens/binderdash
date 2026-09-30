@@ -26,6 +26,11 @@ import {
     type ShortNameStrategy
 } from './shortName'
 
+/** design_id shared by more than one row in the current prepare set. */
+export const WARNING_LONG_NAME_NOT_UNIQUE = 'Long name not unique'
+/** Short name matched another row before the auto `_N` suffix. */
+export const WARNING_SHORT_NAME_NOT_UNIQUE = 'Short name not unique'
+
 export type TagZone = 'n' | 'c'
 
 export type PresetTagKind =
@@ -1655,12 +1660,23 @@ export const useSeqPrepStore = defineStore('seqPrep', () => {
 
     const preparedRows = computed((): PreparedRow[] => {
         const rows = preparedRowsInternal.value
-        const { map } = shortNameComputation.value
+        const { map, nonUniqueRowKeys } = shortNameComputation.value
+        const designIdCounts = new Map<string, number>()
+        for (const r of rows) {
+            designIdCounts.set(r.design_id, (designIdCounts.get(r.design_id) ?? 0) + 1)
+        }
         return rows.map(r => {
             const sn =
                 map.get(r.row_key) ??
                 (sanitizeShortNameSegment(r.design_id) || r.design_id)
-            return { ...r, short_name: sn }
+            const warnings = [...r.warnings]
+            if ((designIdCounts.get(r.design_id) ?? 0) > 1) {
+                warnings.push(WARNING_LONG_NAME_NOT_UNIQUE)
+            }
+            if (nonUniqueRowKeys.has(r.row_key)) {
+                warnings.push(WARNING_SHORT_NAME_NOT_UNIQUE)
+            }
+            return { ...r, short_name: sn, warnings }
         })
     })
 

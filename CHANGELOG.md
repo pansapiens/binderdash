@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sequence prep**: Warnings when a design ID is repeated (**Long name not unique**) or a short name collides before the `_N` suffix (**Short name not unique**). Both show in the warnings column and the “less than ideal” banner, and turn the Short name panel border red. The auto-dedupe note is a warning under **Clear short names**.
 - **Sequence prep**: **AviTag** (`GLNDIFEAQKIEWHE`) and **Strep-tag II** (`WSHPQFEK`) on N- and C-side palettes, and **C-tag** (`EPEA`) on the C-side only.
 - **Sequence prep**: **STOP\*** preset on the N- and C-side tag palettes (after G4S). Stops from that tag, from the Include * stop checkboxes, or elsewhere in the coding sequence are marked fixed and stay as **TAA** during DNA optimisation.
 - **Sequence prep**: **Don't modify 5' start (ATG)** checkbox (on by default) freezes a leading Met as **ATG** during DNA optimisation.

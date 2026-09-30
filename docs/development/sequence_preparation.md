@@ -47,6 +47,8 @@ These use **`hashBase52(original_aa || design_id, hashLen)`** with **`hashLen`**
 
 So for the same sequence and same `hashLen`, two rows with the same `design_id` / `original_aa` would yield the **same** hash segment; deduplication of final short names is handled elsewhere (`uniqueify` in the same module).
 
+A repeated `design_id` in the current set warns **Long name not unique**. A repeated pre-suffix short name warns **Short name not unique** on every row in that group (including the one that kept the unsuffixed name). Both appear in the warnings column and the “less than ideal” banner, and turn the Short name panel border red. Rows that received an `_N` suffix also show the auto-dedupe warning inside that panel.
+
 ### 4. Summary table
 
 | Concept | UI / field | Clamped length | `hashBase52` input |

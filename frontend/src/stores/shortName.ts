@@ -274,14 +274,19 @@ function rawNameForRow(
     return id
 }
 
+/** Candidate `uniqueify` accepts or rejects before appending `_N`. */
+function normalizedShortNameBase(baseRaw: string, maxLen: number): string {
+    const base = sanitizeShortNameSegment(baseRaw).slice(0, maxLen)
+    return (base || 'x').slice(0, maxLen)
+}
+
 function uniqueify(
     baseRaw: string,
     maxLen: number,
     used: Set<string>
 ): { name: string; deduped: boolean } {
-    const base = sanitizeShortNameSegment(baseRaw).slice(0, maxLen)
-    let candidate = base || 'x'
-    candidate = candidate.slice(0, maxLen)
+    const candidate0 = normalizedShortNameBase(baseRaw, maxLen)
+    let candidate = candidate0
     if (!used.has(candidate)) {
         used.add(candidate)
         return { name: candidate, deduped: false }
@@ -314,6 +319,8 @@ function uniqueify(
 export interface ComputeShortNamesResult {
     map: Map<string, string>
     dedupeCount: number
+    /** Rows whose pre-suffix short name is shared with at least one other row. */
+    nonUniqueRowKeys: Set<string>
 }
 
 export function computeShortNames(
@@ -327,15 +334,26 @@ export function computeShortNames(
         strategy.kind === 'pattern' ? computePatternSetUid(rows, strategy.uidLength || 5) : undefined
     const used = new Set<string>()
     const map = new Map<string, string>()
+    const nonUniqueRowKeys = new Set<string>()
+    const raws = rows.map((row, i) =>
+        rawNameForRow(row, i, strategy, rows, cap, smartStemAffixStrip, patternSetUid)
+    )
+    const bases = raws.map(raw => normalizedShortNameBase(raw, cap))
+    const baseCounts = new Map<string, number>()
+    for (const base of bases) {
+        baseCounts.set(base, (baseCounts.get(base) ?? 0) + 1)
+    }
     let dedupeCount = 0
     for (let i = 0; i < rows.length; i += 1) {
         const row = rows[i]!
-        const raw = rawNameForRow(row, i, strategy, rows, cap, smartStemAffixStrip, patternSetUid)
-        const { name, deduped } = uniqueify(raw, cap, used)
+        const { name, deduped } = uniqueify(raws[i]!, cap, used)
         if (deduped) dedupeCount += 1
+        if (deduped || (baseCounts.get(bases[i]!) ?? 0) > 1) {
+            nonUniqueRowKeys.add(row.row_key)
+        }
         map.set(row.row_key, name)
     }
-    return { map, dedupeCount }
+    return { map, dedupeCount, nonUniqueRowKeys }
 }
 
 export function validateShortNameRegex(strategy: ShortNameStrategy): string | null {
