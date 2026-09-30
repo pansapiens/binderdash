@@ -143,3 +143,4 @@ Pre-tag checklist:
 2. `CHANGELOG.md` finalised for the release
 3. `pytest` (backend), `pnpm run build` (frontend), `pnpm test` (Playwright)
 4. Rebuild frontend before desktop/PyInstaller builds (`cd frontend && pnpm run build`)
+5. Build and smoke-test the desktop app **before pushing the `v*` tag** (the tag publishes the release artifacts). Minimum: Linux AppImage via `bash desktop/packaging/build-linux-appimage.sh`, then launch it and confirm the backend starts — `http://127.0.0.1:8765/health` returns 200 and the window opens, rather than the startup-error dialog. macOS and Windows zips are built by CI on the tag; check those when a change is platform-specific.

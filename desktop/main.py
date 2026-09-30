@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import socket
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -39,10 +41,17 @@ def _pick_port(preferred: int = DEFAULT_PORT) -> int:
     raise RuntimeError("Could not bind a localhost port for Binderdash")
 
 
-def _wait_for_health(port: int, timeout: float = HEALTH_TIMEOUT_S) -> bool:
+_server_errors: list[BaseException] = []
+
+
+def _wait_for_health(
+    port: int, thread: threading.Thread, timeout: float = HEALTH_TIMEOUT_S
+) -> bool:
     url = f"http://127.0.0.1:{port}/health"
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if not thread.is_alive():
+            return False
         try:
             with urllib.request.urlopen(url, timeout=1) as resp:
                 if resp.status == 200:
@@ -65,18 +74,34 @@ def _start_uvicorn(port: int) -> threading.Thread:
     server = uvicorn.Server(config)
 
     def run() -> None:
-        server.run()
+        try:
+            server.run()
+        except Exception as exc:
+            _server_errors.append(exc)
+            logger.exception("Binderdash backend failed to start")
 
     thread = threading.Thread(target=run, name="binderdash-uvicorn", daemon=True)
     thread.start()
     return thread
 
 
+def _startup_failure_message(port: int, log_file: Path) -> str:
+    url = f"http://127.0.0.1:{port}/health"
+    if _server_errors:
+        detail = "".join(traceback.format_exception(_server_errors[-1])).rstrip()
+        return f"Binderdash backend failed to start on {url}\nSee log: {log_file}\n\n{detail}"
+    return (
+        f"Binderdash backend did not start within {HEALTH_TIMEOUT_S}s on {url}\n"
+        f"See log: {log_file}"
+    )
+
+
 def _show_startup_error(message: str) -> None:
     try:
         import webview
 
-        webview.create_window("Binderdash — startup error", html=f"<pre>{message}</pre>")
+        escaped = html.escape(message)
+        webview.create_window("Binderdash — startup error", html=f"<pre>{escaped}</pre>")
         webview.start()
     except Exception:
         print(message, file=sys.stderr)
@@ -135,14 +160,10 @@ def main() -> int:
         user_data_dir(),
     )
 
-    _start_uvicorn(port)
+    server_thread = _start_uvicorn(port)
 
-    if not _wait_for_health(port):
-        msg = (
-            f"Binderdash backend did not start within {HEALTH_TIMEOUT_S}s on "
-            f"http://127.0.0.1:{port}/health\n"
-            f"See log: {log_file}"
-        )
+    if not _wait_for_health(port, server_thread):
+        msg = _startup_failure_message(port, log_file)
         logger.error(msg)
         _show_startup_error(msg)
         return 1

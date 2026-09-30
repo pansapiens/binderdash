@@ -1,10 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for Binderdash desktop. Run from repository root."""
 
+import importlib.util
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 block_cipher = None
 _spec_path = Path(SPECPATH).resolve()
@@ -130,6 +131,30 @@ if sys.platform == "linux":
         },
     }
 
+# Importing biotite.structure pulls Cython extensions (sequence align) and the
+# Rust extension biotite.rust. Modulegraph misses both: rust submodules are not
+# files, and the align extensions are imported from a .pyx init. A frozen app
+# then dies while importing backend.main and never binds /health.
+# collect_dynamic_libs skips extension modules, so list the Rust .so directly.
+# ProtOr radii need the bundled Chemical Component Dictionary.
+_biotite_root = Path(importlib.util.find_spec("biotite").origin).resolve().parent
+_rust_bins = [
+    (str(so), "biotite")
+    for pattern in ("rust*.so", "rust*.pyd")
+    for so in _biotite_root.glob(pattern)
+]
+if not _rust_bins:
+    raise SystemExit(
+        "biotite.rust extension was not found. "
+        "The desktop app imports it at startup and cannot start without it."
+    )
+binaries += _rust_bins
+datas += collect_data_files(
+    "biotite",
+    includes=["**/*.bcif", "**/*.json", "**/*.mat", "**/*.txt", "**/*.kerasify"],
+)
+hiddenimports += collect_submodules("biotite")
+
 a = Analysis(
     [str(desktop_dir / "main.py")],
     pathex=pathex,
@@ -139,7 +164,10 @@ a = Analysis(
     hookspath=[str(desktop_dir / "hooks")],
     hooksconfig=hooksconfig,
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "pytest"],
+    # fastmcp is an optional extra. If it happens to be installed in the build
+    # environment, bundling it pulls the mcp SDK, which fails at import in a
+    # frozen app. Desktop builds leave the endpoint unmounted.
+    excludes=["tkinter", "matplotlib", "pytest", "fastmcp", "mcp"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

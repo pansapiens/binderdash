@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Desktop**: The frozen app starts again. PyInstaller was not bundling biotite (its Rust extension and the Cython sequence-align modules `biotite.structure` imports), so the backend died while importing and `/health` never answered. `fastmcp` is excluded from the desktop bundle even when it is installed in the build environment. A backend crash during startup is written to `binderdash.log` and shown in the error window.
+
 ## [0.4.0] - 2026-09-30
 
 ### Added
