@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Sequence prep**: The Short name and DNA Optimization Constraints panel toggles stay open or closed after one click. A click on the +/− button was also handled by the header, so the panel opened and immediately closed.
 - **Sequence prep / DNA Optimization**: A sequence whose codon optimisation fails with "No solution found" is solved again, up to five attempts, before that error is reported.
 - **Designs**: Hide internal client fields (`binderRowKey`, Saved Set provenance) from the Show Columns list.
 - **Sequence prep**: N- and C-side tag palettes wrap as groups on narrow widths, so "Add to C side" and its buttons stay together on a new row instead of splitting mid-row.

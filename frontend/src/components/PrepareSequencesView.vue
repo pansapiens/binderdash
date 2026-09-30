@@ -215,12 +215,10 @@
       </div>
     </div>
 
-    <Panel
+    <TogglePanel
       header="Short name"
-      :toggleable="true"
       v-model:collapsed="shortNamePanelCollapsed"
       class="ps-short-name-panel card-like mb-4"
-      :pt="shortNamePanelPt"
     >
       <p class="ps-short-name-lead">
         Strategies to shorten <code>design_id</code> to ≤32 characters for synthesis orders.
@@ -385,7 +383,7 @@
           <li v-for="(line, i) in shortNamePreviewLines" :key="i">{{ line }}</li>
         </ul>
       </div>
-    </Panel>
+    </TogglePanel>
 
     <div class="ps-optimization-toolbar card-like mt-3">
       <div class="ps-opt-header">
@@ -414,12 +412,10 @@
       </div>
     </div>
 
-    <Panel
+    <TogglePanel
       header="DNA Optimization Constraints"
-      :toggleable="true"
       v-model:collapsed="optimizationPanelCollapsed"
       class="ps-optimization-panel card-like mb-4"
-      :pt="optimizationPanelPt"
     >
       <div class="ps-opt-content">
         <Message v-if="seqPrep.optimizationGlobalError" severity="error" :closable="false" class="ps-opt-msg mb-4">{{ seqPrep.optimizationGlobalError }}</Message>
@@ -498,7 +494,7 @@
           />
         </div>
       </div>
-    </Panel>
+    </TogglePanel>
 
     <div class="ps-actions">
       <Button
@@ -849,7 +845,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, type Ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
@@ -865,7 +861,7 @@ import Select from 'primevue/select'
 import MultiSelect from 'primevue/multiselect'
 import Chip from 'primevue/chip'
 import Message from 'primevue/message'
-import Panel from 'primevue/panel'
+import TogglePanel from './TogglePanel.vue'
 import {
   preparedExportBasename,
   tagPresetChipCssVars,
@@ -889,27 +885,6 @@ const toast = useToast()
 
 const shortNamePanelCollapsed = ref(true)
 const optimizationPanelCollapsed = ref(true)
-
-function togglePanelFromHeaderClick(e: MouseEvent, collapsed: Ref<boolean>) {
-  const t = e.target as HTMLElement | null
-  if (!t || typeof t.closest !== 'function') return
-  if (t.closest('.p-panel-header-actions')) return
-  collapsed.value = !collapsed.value
-}
-
-const shortNamePanelPt = {
-  header: {
-    class: 'ps-panel-header-click-toggle',
-    onClick: (e: MouseEvent) => togglePanelFromHeaderClick(e, shortNamePanelCollapsed)
-  }
-}
-
-const optimizationPanelPt = {
-  header: {
-    class: 'ps-panel-header-click-toggle',
-    onClick: (e: MouseEvent) => togglePanelFromHeaderClick(e, optimizationPanelCollapsed)
-  }
-}
 
 // Display text is kept separately from `params`. The field used to bind
 // `:value="JSON.stringify(params)"` and only commit on blur, so any parent
@@ -1613,11 +1588,6 @@ const downloadMenuItems = [
   margin: 0 0 0.75rem 0;
   font-size: 0.9rem;
   line-height: 1.45;
-}
-
-.prepare-sequences-view :deep(.ps-panel-header.ps-panel-header-click-toggle) {
-  cursor: pointer;
-  user-select: none;
 }
 
 .ps-short-name-grid {
