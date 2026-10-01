@@ -210,8 +210,8 @@
 </thead>
 <tbody>
 <tr>
-<td>Production</td>
-<td><code>https://binderdash.knottlab.cloud.edu.au</code></td>
+<td>Your deployment</td>
+<td><code>https://binderdash.example.com</code></td>
 </tr>
 <tr>
 <td>Docker dev (<code>docker-compose.dev.yml</code>)</td>
@@ -311,7 +311,7 @@ python -m backend.cli key create you@example.org --name bootstrap
 <li><code>X-Binderdash-Api-Key: &lt;token&gt;</code></li>
 </ul>
 <pre><code class="language-bash">export BINDERDASH_TOKEN='&lt;token from `key create`&gt;'
-export BASE='https://binderdash.knottlab.cloud.edu.au'
+export BASE='https://binderdash.example.com'
 
 curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; &quot;$BASE/api/runs&quot;
 </code></pre>
