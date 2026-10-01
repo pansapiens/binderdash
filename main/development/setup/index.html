@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        <link rel="canonical" href="https://pansapiens.github.io/binderdash/latest/development/setup/">
+        <link rel="shortcut icon" href="../../img/favicon.ico">
+        <title>Development setup - Binderdash</title>
+        <link href="../../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../../css/brands.min.css" rel="stylesheet">
+        <link href="../../css/solid.min.css" rel="stylesheet">
+        <link href="../../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../../css/base.css" rel="stylesheet">
+        <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
+        <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <link href="../../css/version-select.css" rel="stylesheet">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+        <script>hljs.highlightAll();</script> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="../..">Binderdash</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item">
+                                <a href="../.." class="nav-link">Home</a>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Getting started</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../setup/desktop/" class="dropdown-item">Desktop app</a>
+</li>
+                                    
+<li>
+    <a href="../../setup/docker/" class="dropdown-item">Docker deployment</a>
+</li>
+                                    
+<li>
+    <a href="../../setup/authentication/" class="dropdown-item">Authentication</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Usage</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../usage/filtering-ranking/" class="dropdown-item">Filtering and ranking</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Development</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="./" class="dropdown-item active" aria-current="page">Development setup</a>
+</li>
+                                    
+<li>
+    <a href="../api/" class="dropdown-item">REST API</a>
+</li>
+                                    
+<li>
+    <a href="../mcp/" class="dropdown-item">MCP server</a>
+</li>
+                                    
+<li>
+    <a href="../pipeline-methods/" class="dropdown-item">Pipeline method types</a>
+</li>
+                                    
+<li>
+    <a href="../sequence_preparation/" class="dropdown-item">Sequence preparation</a>
+</li>
+                                    
+<li>
+    <a href="../storage/" class="dropdown-item">Storage architecture</a>
+</li>
+                                    
+<li>
+    <a href="../download-bundles/" class="dropdown-item">Download bundles</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item">
+                                <a href="https://github.com/pansapiens/binderdash/blob/main/CHANGELOG.md" class="nav-link">Release history</a>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#mkdocs_search_modal">
+                                <i class="fa fa-search"></i> Search
+                            </a>
+                        </li>
+                            <li class="nav-item">
+                                <a rel="prev" href="../../usage/filtering-ranking/" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../api/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="https://github.com/pansapiens/binderdash/edit/main/docs/development/setup.md" class="nav-link"><i class="fa-brands fa-github"></i> Edit on GitHub</a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#development-setup" class="nav-link">Development setup</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#prerequisites" class="nav-link">Prerequisites</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#repository-layout" class="nav-link">Repository layout</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#environment-configuration" class="nav-link">Environment configuration</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#backend" class="nav-link">Backend</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#frontend" class="nav-link">Frontend</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#docker-development-mode" class="nav-link">Docker development mode</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#tests" class="nav-link">Tests</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#documentation" class="nav-link">Documentation</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#contributing" class="nav-link">Contributing</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="development-setup">Development setup<a class="headerlink" href="#development-setup" title="Permanent link">&para;</a></h1>
+<p>Binderdash is a single-page app with two parts:</p>
+<ul>
+<li><strong>Frontend</strong>: Vite + Vue 3 (Composition API) + PrimeVue, with the Mol* structure viewer and Vega-Lite plots.</li>
+<li><strong>Backend</strong>: FastAPI (async), serving the REST API and the built frontend as static files.</li>
+</ul>
+<p><code>AGENTS.md</code> in the repository root holds the authoritative code-style, environment-variable and release rules.</p>
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Python 3.11+ (tested with 3.12)</li>
+<li><a href="https://github.com/astral-sh/uv">uv</a> (Python package manager and runner)</li>
+<li>Node.js 18+ and <a href="https://pnpm.io/">pnpm</a></li>
+<li>Docker (optional, for the containerised workflow)</li>
+</ul>
+<h2 id="repository-layout">Repository layout<a class="headerlink" href="#repository-layout" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>backend/</code></td>
+<td>FastAPI app; the frontend build is written to <code>backend/static/</code></td>
+</tr>
+<tr>
+<td><code>backend/config/</code></td>
+<td>Per-pipeline detection and display rules (see <a href="../pipeline-methods/">Adding a pipeline method type</a>)</td>
+</tr>
+<tr>
+<td><code>frontend/</code></td>
+<td>Vite + Vue SPA source</td>
+</tr>
+<tr>
+<td><code>desktop/</code></td>
+<td>pywebview + PyInstaller desktop packaging (see <code>desktop/README.md</code>)</td>
+</tr>
+<tr>
+<td><code>docs/</code></td>
+<td>This documentation (MkDocs)</td>
+</tr>
+<tr>
+<td><code>tests/</code></td>
+<td>Playwright end-to-end tests (backend unit tests are in <code>backend/tests/</code>)</td>
+</tr>
+<tr>
+<td><code>example_runs/</code></td>
+<td>Example run data (optional, not in git)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="environment-configuration">Environment configuration<a class="headerlink" href="#environment-configuration" title="Permanent link">&para;</a></h2>
+<p>Configuration is read from a <code>.env</code> file at the repository root. Copy <code>.env.example</code> as a starting point; it documents every supported variable. For local development the defaults (authentication disabled, SQLite under <code>data/</code>, runs from <code>./example_runs</code>) are usually enough.</p>
+<p>To create a local user account instead, set <code>DISABLE_AUTHENTICATION="false"</code> and add a bcrypt hash to <code>LOCAL_USERS</code>:</p>
+<pre><code class="language-bash">python backend/scripts/encrypt_password.py myusername  # prompts for the password
+</code></pre>
+<p>See <a href="../../setup/authentication/">Authentication</a> for the other sign-in providers.</p>
+<h2 id="backend">Backend<a class="headerlink" href="#backend" title="Permanent link">&para;</a></h2>
+<p>Create a virtual environment and install dependencies:</p>
+<pre><code class="language-bash">uv venv -p python3.12 .venv &amp;&amp; source .venv/bin/activate
+uv pip install -r backend/requirements.txt
+</code></pre>
+<p>If a conda environment is active, deactivate it first so it does not shadow the venv.</p>
+<p>Start the API server with auto-reload:</p>
+<pre><code class="language-bash">uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+</code></pre>
+<p>The server listens on <a href="http://localhost:8000">http://localhost:8000</a>.</p>
+<h3 id="changing-backend-dependencies">Changing backend dependencies<a class="headerlink" href="#changing-backend-dependencies" title="Permanent link">&para;</a></h3>
+<p>Edit <code>backend/pyproject.toml</code>, then recompile the pinned requirements:</p>
+<pre><code class="language-bash">uv pip compile backend/pyproject.toml -o backend/requirements.txt
+uv pip install -r backend/requirements.txt
+</code></pre>
+<h2 id="frontend">Frontend<a class="headerlink" href="#frontend" title="Permanent link">&para;</a></h2>
+<p>There are two ways to work on the UI.</p>
+<p><strong>Rebuild into the backend</strong> (recommended when the backend is running). Changes are rebuilt into <code>backend/static/</code>, so the FastAPI server at :8000 always serves the latest UI:</p>
+<pre><code class="language-bash">cd frontend
+pnpm install
+pnpm run watch:build
+</code></pre>
+<p><strong>Vite dev server</strong> with hot reload on <a href="http://localhost:5173">http://localhost:5173</a>, proxying API calls to the backend:</p>
+<pre><code class="language-bash">cd frontend
+pnpm install
+pnpm run dev
+</code></pre>
+<p>For a one-off production build, run <code>pnpm run build</code> in <code>frontend/</code>.</p>
+<h2 id="docker-development-mode">Docker development mode<a class="headerlink" href="#docker-development-mode" title="Permanent link">&para;</a></h2>
+<p><code>docker-compose.dev.yml</code> runs the backend with auto-reload and a separate container that rebuilds the frontend when Vue/TypeScript files change. The project directory is mounted from your filesystem.</p>
+<pre><code class="language-bash">docker compose -f docker-compose.dev.yml up --build
+# App: http://localhost:8001
+
+docker compose -f docker-compose.dev.yml logs -f binderdash        # backend logs
+docker compose -f docker-compose.dev.yml logs -f frontend-watcher  # frontend build logs
+
+docker compose -f docker-compose.dev.yml down
+</code></pre>
+<p>Troubleshooting commands:</p>
+<pre><code class="language-bash">docker compose -f docker-compose.dev.yml ps
+docker compose -f docker-compose.dev.yml exec binderdash ls -la /app/backend/
+docker compose -f docker-compose.dev.yml exec frontend-watcher ls -la /app/frontend/
+</code></pre>
+<p>Production deployment is covered in <a href="../../setup/docker/">Docker deployment</a>.</p>
+<h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
+<p>Backend unit tests (pytest):</p>
+<pre><code class="language-bash">cd backend
+pytest                                           # all tests
+pytest tests/test_dna_optimization.py -k name -x  # a single test
+</code></pre>
+<p>End-to-end tests (Playwright), which start the servers defined in <code>playwright.config.js</code>:</p>
+<pre><code class="language-bash">pnpm test
+</code></pre>
+<p>See <code>tests/README.md</code> for details of the end-to-end workflow tests.</p>
+<h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
+<p>The docs are built with <a href="https://www.mkdocs.org/">MkDocs</a> and versioned with <a href="https://github.com/jimporter/mike">mike</a>. To preview locally:</p>
+<pre><code class="language-bash">pip install -r requirements-docs.txt
+mkdocs serve
+</code></pre>
+<p>The <code>docs</code> GitHub Actions workflow publishes to GitHub Pages on every push:</p>
+<table>
+<thead>
+<tr>
+<th>Push to</th>
+<th>Published as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>main</code></td>
+<td><code>main</code>, aliased to <code>latest</code> (the default version)</td>
+</tr>
+<tr>
+<td><code>develop</code></td>
+<td><code>develop</code></td>
+</tr>
+<tr>
+<td>a <code>vX.Y.Z</code> tag</td>
+<td><code>X.Y.Z</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="readme-hero-image">README hero image<a class="headerlink" href="#readme-hero-image" title="Permanent link">&para;</a></h3>
+<p><code>docs/images/binderdash-hero.png</code> is composed from screenshots of a running instance. The scripts that produce it are in <code>docs/images/hero/</code>; see the header comment in <code>capture.js</code> for the steps.</p>
+<h2 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Python: type hints, standard import order, log to stderr.</li>
+<li>Vue: Composition API, with <code>.vue</code> sections ordered <code>&lt;template&gt;</code>, <code>&lt;script&gt;</code>, <code>&lt;style&gt;</code>.</li>
+<li>Add an entry to <code>CHANGELOG.md</code> for notable features and fixes.</li>
+<li>Releases: see the Releasing section of <code>AGENTS.md</code>. The app version in <code>backend/pyproject.toml</code> must match the <code>vX.Y.Z</code> tag.</li>
+</ul></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../../js/base.js"></script>
+        <script src="../../search/main.js"></script>
+        <script src="../../js/version-select.js"></script>
+
+        <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="searchModalLabel">Search</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>From here you can search these documents. Enter your search terms below.</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" placeholder="Search..." id="mkdocs-search-query" title="Type search term here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No results found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div><div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>

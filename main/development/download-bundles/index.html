@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        <link rel="canonical" href="https://pansapiens.github.io/binderdash/latest/development/download-bundles/">
+        <link rel="shortcut icon" href="../../img/favicon.ico">
+        <title>Download bundles - Binderdash</title>
+        <link href="../../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../../css/brands.min.css" rel="stylesheet">
+        <link href="../../css/solid.min.css" rel="stylesheet">
+        <link href="../../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../../css/base.css" rel="stylesheet">
+        <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
+        <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <link href="../../css/version-select.css" rel="stylesheet">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+        <script>hljs.highlightAll();</script> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="../..">Binderdash</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item">
+                                <a href="../.." class="nav-link">Home</a>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Getting started</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../setup/desktop/" class="dropdown-item">Desktop app</a>
+</li>
+                                    
+<li>
+    <a href="../../setup/docker/" class="dropdown-item">Docker deployment</a>
+</li>
+                                    
+<li>
+    <a href="../../setup/authentication/" class="dropdown-item">Authentication</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Usage</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../usage/filtering-ranking/" class="dropdown-item">Filtering and ranking</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Development</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../setup/" class="dropdown-item">Development setup</a>
+</li>
+                                    
+<li>
+    <a href="../api/" class="dropdown-item">REST API</a>
+</li>
+                                    
+<li>
+    <a href="../mcp/" class="dropdown-item">MCP server</a>
+</li>
+                                    
+<li>
+    <a href="../pipeline-methods/" class="dropdown-item">Pipeline method types</a>
+</li>
+                                    
+<li>
+    <a href="../sequence_preparation/" class="dropdown-item">Sequence preparation</a>
+</li>
+                                    
+<li>
+    <a href="../storage/" class="dropdown-item">Storage architecture</a>
+</li>
+                                    
+<li>
+    <a href="./" class="dropdown-item active" aria-current="page">Download bundles</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item">
+                                <a href="https://github.com/pansapiens/binderdash/blob/main/CHANGELOG.md" class="nav-link">Release history</a>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#mkdocs_search_modal">
+                                <i class="fa fa-search"></i> Search
+                            </a>
+                        </li>
+                            <li class="nav-item">
+                                <a rel="prev" href="../storage/" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" class="nav-link disabled">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="https://github.com/pansapiens/binderdash/edit/main/docs/development/download-bundles.md" class="nav-link"><i class="fa-brands fa-github"></i> Edit on GitHub</a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#download-bundles" class="nav-link">Download bundles</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#what-the-scope-is" class="nav-link">What the scope is</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#contents" class="nav-link">Contents</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#target-contacts-are-never-computed-on-download" class="nav-link">Target contacts are never computed on download</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#versioning" class="nav-link">Versioning</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#build-identity" class="nav-link">Build identity</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#memory-and-size" class="nav-link">Memory and size</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#restore" class="nav-link">Restore</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="download-bundles">Download bundles<a class="headerlink" href="#download-bundles" title="Permanent link">&para;</a></h1>
+<p>A <strong>design bundle</strong> is a single zip holding the data of a download <em>and</em> the interface
+state that produced it. The goal is that a folder of PDBs and sequences found six months
+later can still be explained - which runs, which filters, which ranking, which tags - and,
+where the runs still exist, restored.</p>
+<p>Three places produce one, all through the same builder (<code>backend/bundles/</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Entry point</th>
+<th>Endpoint</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Designs tab download button</td>
+<td><code>POST /api/bundles/designs</code></td>
+</tr>
+<tr>
+<td>Prepare Sequences download button</td>
+<td><code>POST /api/bundles/prepare-sequences</code></td>
+</tr>
+<tr>
+<td>Saved Sets "download"</td>
+<td><code>GET /api/saved-sets/{id}/download</code></td>
+</tr>
+</tbody>
+</table>
+<p>A pre-flight <code>POST /api/bundles/estimate</code> returns counts and byte sizes without reading
+any structure file, so the UI can warn before a large download.</p>
+<h2 id="what-the-scope-is">What the scope is<a class="headerlink" href="#what-the-scope-is" title="Permanent link">&para;</a></h2>
+<p>The bundle covers <strong>the rows currently in the Designs table</strong> - the selected designs if
+any, otherwise the filtered designs. It is not every design in the selected runs.</p>
+<h2 id="contents">Contents<a class="headerlink" href="#contents" title="Permanent link">&para;</a></h2>
+<pre><code>manifest.json                   build info, file inventory with sha256, coverage counts
+designs.tsv                     one row per design, every column Binderdash holds
+binders.fasta                   binder sequences, &gt;design_id
+binderdash_session.json         the UI state that produced the bundle
+target_contacts.tsv             cached per-residue distances and SASA (if computed)
+target_contacts_reference.json  per-run apo SASA reference and compute parameters
+structures/rank0001_&lt;run&gt;_&lt;name&gt;.pdb
+schemas/*.schema.json           JSON Schema for each JSON member
+README.txt
+</code></pre>
+<p>Prepare Sequences adds <code>constructs.tsv</code>, <code>constructs_aa.fasta</code>, <code>constructs_dna.fasta</code>,
+<code>constructs_twist_aa.csv</code>, <code>constructs_twist_dna.csv</code> and <code>prepare_sequences.json</code>.</p>
+<p>The member list does not depend on which entry point produced the bundle. A saved set
+created before UI state was recorded still emits <code>binderdash_session.json</code>, with
+<code>"captured": false</code> and a note explaining why it is empty.</p>
+<p>Only TSV: the Designs tab still offers a CSV download separately, but carrying the same
+rows twice in two delimiters inside one archive earns nothing. <code>constructs_twist_aa.csv</code>
+and <code>constructs_twist_dna.csv</code> are exceptions because they are Twist vendor upload formats
+(amino acid and nucleotide) rather than a general table. The nucleotide file is omitted,
+with a manifest warning, when no optimised DNA is available.</p>
+<h2 id="target-contacts-are-never-computed-on-download">Target contacts are never computed on download<a class="headerlink" href="#target-contacts-are-never-computed-on-download" title="Permanent link">&para;</a></h2>
+<p><code>target_contacts.tsv</code> holds whatever is already in <code>binderdash_target_contacts_cache</code> for
+the bundled designs. A SASA computation is minutes-scale, so a download must not start
+one. Designs with no cached record are reported in <code>manifest.json</code> under
+<code>coverage.designs_without_contacts</code>, alongside <code>coverage.contact_params_key</code> - records
+cached under an older parameter key are invisible to the reader and must not be counted
+as covered.</p>
+<p><code>sasa_apo</code> comes from the per-run reference map, <strong>except</strong> for a run whose target moves
+between designs, where the per-design record carries its own value and that one wins.
+Using the shared reference there would give the wrong delta for exactly the runs where it
+matters.</p>
+<h2 id="versioning">Versioning<a class="headerlink" href="#versioning" title="Permanent link">&para;</a></h2>
+<p>Every JSON member carries <code>schema_version</code>, a <code>kind</code> discriminator, and the app version
+and git commit that wrote it. Bump the <strong>major</strong> only on a breaking change (a field
+removed or retyped); additive optional fields bump the minor. Readers reject a major above
+the one they know and ignore unknown keys.</p>
+<p>Schemas are generated from the Pydantic models at request time
+(<code>backend/bundles/json_schemas.py</code>), so a schema cannot disagree with the data beside it.
+What that does not catch is a model changing without anyone bumping a version, so
+<code>backend/tests/test_bundle_schemas.py</code> compares each generated schema against a golden
+snapshot under <code>backend/tests/fixtures/bundle_schemas/</code>. A failure there means: decide
+whether the change was additive (regenerate the golden, bump the minor) or breaking (new
+golden file, bump the major, keep the old one).</p>
+<p><code>SessionState</code> and <code>PrepareSequencesPayload</code> use <code>extra="allow"</code>. They mirror Pinia stores
+that move faster than the backend, and a download failing with a 422 because the frontend
+gained a field would be a poor trade for strictness on data the backend only passes
+through. Presentational fields (coloured segment spans, display duplicates) are accepted
+on input but stripped before writing - the archive should be data, not a snapshot of one
+UI's rendering.</p>
+<h2 id="build-identity">Build identity<a class="headerlink" href="#build-identity" title="Permanent link">&para;</a></h2>
+<p><code>backend/version.py</code> resolves the app version and commit in this order: the
+<code>BINDERDASH_GIT_COMMIT</code> env var (set as a Docker build arg), then
+<code>backend/_build_info.json</code> (written by <code>desktop/packaging/build-common.sh</code>, the only
+mechanism that works in a PyInstaller build where there is no <code>.git</code>), then
+<code>git rev-parse</code> in a source checkout, then unknown. It is resolved lazily and cached, so
+the subprocess runs at most once per process and only if a bundle is actually built.</p>
+<h2 id="memory-and-size">Memory and size<a class="headerlink" href="#memory-and-size" title="Permanent link">&para;</a></h2>
+<p>The zip is built into a <code>tempfile.SpooledTemporaryFile</code> (32 MB in RAM, then spilling to
+disk) and streamed with a real <code>Content-Length</code>. A generator-based zip writer would avoid
+the temp file but loses the length header, turns a mid-archive exception into a truncated
+zip delivered with a 200, and saves no memory, since structure files stream either way.</p>
+<p><code>BUNDLE_SPOOL_DIR</code> matters on the desktop app, where <code>/tmp</code> is often tmpfs - i.e. RAM -
+which would silently defeat the spill.</p>
+<p>The caps (<code>BUNDLE_MAX_STRUCTURE_FILES</code>, <code>BUNDLE_MAX_STRUCTURE_BYTES</code>,
+<code>BUNDLE_MAX_TOTAL_BYTES</code>) guard against a runaway request rather than normal use, and
+return 413 with the measured estimate. The UI's own warning threshold is lower and is
+about the browser: <code>response.blob()</code> holds the whole archive in memory client-side.</p>
+<h2 id="restore">Restore<a class="headerlink" href="#restore" title="Permanent link">&para;</a></h2>
+<p>"Restore session from JSON" in the app header reads a <code>binderdash_session.json</code> or
+<code>prepare_sequences.json</code> back into the stores
+(<code>frontend/src/session/{sessionState,prepareState}.ts</code>). It is deliberately per-section
+and defensive: a bundle is often opened against a Binderdash whose runs have moved on, and
+restoring the filters is still worth doing when two of the runs have gone. Each section
+reports applied / partial / skipped.</p>
+<p>The filter and ranking half delegates to <code>filteringStore.loadRecipe()</code>, which already
+existed for a Saved Set's "Reapply filters", so there is one path for turning a stored
+recipe back into filter-builder state.</p>
+<p>Optimised DNA is not restored. It is a function of the settings plus the sequences, and
+stale DNA presented as current would be worse than none; the store's staleness flag
+prompts a re-run instead.</p></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../../js/base.js"></script>
+        <script src="../../search/main.js"></script>
+        <script src="../../js/version-select.js"></script>
+
+        <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="searchModalLabel">Search</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>From here you can search these documents. Enter your search terms below.</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" placeholder="Search..." id="mkdocs-search-query" title="Type search term here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No results found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div><div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>
