@@ -1,152 +1,73 @@
-## Binderdash
+# Binderdash
 
-A single-page web app to explore results from de novo protein binder design runs.
+![Binderdash: the design table with scores, and a binder-target complex in the structure viewer](docs/images/binderdash-hero.png)
 
-- Frontend: Vite + Vue 3 (Composition API) + PrimeVue, Mol* viewer, Vega-Lite plots
-- Backend: FastAPI (async) serving an API and the built frontend static files
+**Binderdash is a tool to streamline filtering, ranking and construct design for de novo protein binders.**
 
-### Prerequisites
+Point it at the output folders from your design runs and it presents the scores and structures in one interface. Filter, rank and export ready-to-order DNA constructs.
 
-- Python 3.11+ (tested with 3.12)
-- uv (Python package manager and runner)
-- pnpm (for frontend)
-- Node.js 18+ (for Vite/PrimeVue tooling)
-- Docker (optional, for containerised workflow)
+[Documentation](https://pansapiens.github.io/binderdash/) · [Download the desktop app](https://github.com/pansapiens/binderdash/releases/latest) · [Changelog](CHANGELOG.md)
 
-### Repository layout
+## Features
 
-- `backend/`: FastAPI app, static files output directory
-- `frontend/`: Vite + Vue SPA source
-- `example_runs/`: Example data (optional)
+- **Reads your runs as they are.** Supports run output folders from RFdiffusion, RFdiffusion3, BindCraft and BoltzGen. Binderdash detects `nf-binder-design` pipeline outputs and imports with no reformatting needed.
+- **One table across runs and methods.** Sort and compare designs from different runs side by side. Common metrics (ipTM, interface PAE, RMSD, pLDDT) are matched across pipelines that name them differently.
+- **3D structure viewer.** Built on Mol\*. Step through designs, colour by chain or pLDDT, overlay a reference structure, and mark designs as good or bad as you go.
+- **Filtering and ranking.** Combine score thresholds with target-contact conditions (for example "binds within 5 Å of these epitope residues"), rank on several metrics at once, and pick a shortlist that balances score against sequence diversity. The filter cascade UI shows how many designs each condition removes.
+- **Plots.** Scatterplots and histograms of any two metrics against each other.
+- **Saved sets.** Keep a shortlist together with the filters and ranking that produced it, and come back to it later.
+- **Construct design.** Add N- or C-terminal affinity tags and linkers (His, FLAG, Strep-tag II, AviTag and others) and codon-optimise with synthesis complexity constraints, including GC content, hairpins and restriction sites. Generate short names compatible with DNA synthesis vendors naming rules. Export Twist-ready CSVs.
+- **Reproducible downloads.** A design bundle holds the structures, sequences and tables together with the selections, filters and settings that produced them, so a shortlist can be traced and restored later.
+- **Bring your own data.** Upload a TSV of extra columns (for example lab results) and merge it onto designs by ID to use for filtering and ranking.
+- **Desktop or shared server.** Run it on your own machine, or host one instance for a group with sign-in (local accounts, Unix/PAM or Google), per-user API keys, and an optional MCP endpoint and REST API for AI agents.
 
-### Environment configuration
+## Getting started
 
-This project uses a `.env` file at the repository root. Copy `.env.example` as a starting point.
+### Desktop
 
-`.env` contains a `LOCAL_USERS` variable where username/password pairs for local user accounts can be defined.
+Download the build for your platform from the **[latest release](https://github.com/pansapiens/binderdash/releases/latest)**:
 
-Generate hashed and salted passwords for `LOCAL_USERS` like:
+| Platform | File |
+| --- | --- |
+| Linux (x86_64) | `Binderdash-<version>-x86_64.AppImage` |
+| macOS (Apple silicon) | `Binderdash-<version>-macos-arm64.zip` |
+| Windows (64-bit) | `Binderdash-<version>-win64.zip` |
+
+Start the app, open **Ingest Runs**, choose the folder that contains your design runs, and ingest them. See [Desktop app](https://pansapiens.github.io/binderdash/latest/setup/desktop/) for platform notes (the builds are not code-signed, so macOS and Windows will ask you to confirm the first launch).
+
+### Server
+
+For a shared instance, run Binderdash with Docker Compose. It ships with a Caddy reverse proxy that handles HTTPS.
+
 ```bash
-python backend/scripts/encrypt_password.py myusername  # Interactive password prompt
+git clone https://github.com/pansapiens/binderdash.git
+cd binderdash
+cp .env.example .env        # then edit: RUN_BASE_DIRS, DOMAIN and sign-in settings
+mkdir -p data && sudo chown -R 1000:1000 data
+docker compose up -d --build
 ```
 
-### Quick start (development)
+Mount your run directories into the `binderdash` service in `docker-compose.yml` (read-only is fine) and list the in-container paths in `RUN_BASE_DIRS`. Then open `https://<DOMAIN>` (or `https://localhost`).
 
-#### Backend
+The example `.env` has authentication turned off. Before exposing the server to other people, set up sign-in as described in [Authentication](https://pansapiens.github.io/binderdash/latest/setup/authentication/). Full deployment details are in [Docker deployment](https://pansapiens.github.io/binderdash/latest/setup/docker/).
 
-Create and activate a virtual environment with uv, then install deps:
+## Documentation
+
+The full documentation is at **<https://pansapiens.github.io/binderdash/>**, covering:
+
+- [Filtering and ranking](https://pansapiens.github.io/binderdash/latest/usage/filtering-ranking/)
+- [Docker deployment](https://pansapiens.github.io/binderdash/latest/setup/docker/) and [authentication](https://pansapiens.github.io/binderdash/latest/setup/authentication/)
+- The [REST API](https://pansapiens.github.io/binderdash/latest/development/api/) and [MCP server](https://pansapiens.github.io/binderdash/latest/development/mcp/) for scripted and agent access
+
+## Development
+
+To run Binderdash from source, work on the code, or add support for a new design pipeline, see the [development guide](docs/development/setup.md). In short:
 
 ```bash
 uv venv -p python3.12 .venv && source .venv/bin/activate
 uv pip install -r backend/requirements.txt
+(cd frontend && pnpm install && pnpm run build)
+uv run uvicorn backend.main:app --reload --port 8000
 ```
 
-Start the backend API dev server (in a separate shell):
-
-```bash
-source .venv/bin/activate
-uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-By default the FastAPI server is on `http://localhost:8000`.
-
-**Backend dependencies:** If you change any backend dependencies, edit `backend/pyproject.toml` and recompile pinned requirements:
-
-```bash
-uv pip compile backend/pyproject.toml -o backend/requirements.txt
-uv pip install -r backend/requirements.txt
-```
-
-#### Frontend
-
-Install dependencies and start the dev server (hot reload):
-
-```bash
-cd ./frontend
-pnpm install
-pnpm run dev
-```
-
-By default Vite serves on `http://localhost:5173`.
-
-Alternatively, for development with automatic rebuilding when files change:
-
-```bash
-cd ./frontend
-pnpm install
-pnpm run watch:build
-```
-
-This automatically rebuilds the frontend whenever you make changes, outputting to the backend's static directory (`backend/static/`)
-
-
-### Running with Docker (optional)
-
-#### Development Mode
-For development with live reloading and source code watching:
-
-```bash
-docker compose -f docker-compose.dev.yml up --build
-# Connect to http://localhost:8001
-
-# Watch the logs for the backend
-docker compose -f docker-compose.dev.yml logs -f binderdash
-
-# Watch the logs for the frontend
-docker compose -f docker-compose.dev.yml logs -f frontend-watcher
-
-# Stop the development environment
-docker compose -f docker-compose.dev.yml down
-```
-The development server is available at: http://localhost:8001
-
-This development setup includes:
-- Backend auto-reload when Python code changes
-- Frontend watch mode that rebuilds when Vue/TypeScript files change
-- Source code mounted from your local filesystem
-
-For detailed Docker setup instructions, troubleshooting, and production deployment guidance, see [DOCKER.md](DOCKER.md).
-
-Tip: Provide environment variables via an `.env` file or `docker compose --env-file` override.
-
-#### Production Mode
-
-Ensure the `DATABASE` folder has been created with permissions for the app user (1000:1000) (e.g. `sudo chown -R 1000:1000 data`).
-
-Build and run using Docker Compose:
-
-```bash
-docker compose up --build -d
-```
-
-### Testing and quality
-
-- Backend tests (pytest):
-
-```bash
-cd ./backend
-source .venv/bin/activate
-pytest
-```
-
-### Common tasks
-
-- Update backend dependencies from `pyproject.toml`:
-
-```bash
-uv pip compile backend/pyproject.toml -o backend/requirements.txt
-uv pip install -r backend/requirements.txt
-```
-
-- Rebuild frontend after UI changes:
-
-```bash
-cd /home/perry/projects/binderdash/frontend
-pnpm run build
-```
-
-### Contributing
-
-- Follow Python typing and import order conventions; log to stderr
-- Use Vue 3 Composition API, and keep `.vue` sections ordered as `<template>`, `<script>`, `<style>`
-- For notable features or fixes, update `CHANGELOG.md` after merging
+Contributions are welcome. Please add an entry to [CHANGELOG.md](CHANGELOG.md) for notable changes.

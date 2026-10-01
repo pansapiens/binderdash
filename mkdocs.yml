@@ -1,25 +1,41 @@
 site_name: Binderdash
-site_description: Binderdash documentation
+site_description: Filtering, ranking and construct design for de novo protein binders
+site_url: https://pansapiens.github.io/binderdash/
+repo_url: https://github.com/pansapiens/binderdash
+edit_uri: edit/main/docs/
 
 docs_dir: docs
 site_dir: site
+
+# Scripts that regenerate the README hero image; not part of the site.
+exclude_docs: |
+  images/hero/
 
 theme:
   name: mkdocs
 
 nav:
   - Home: index.md
+  - Getting started:
+      - Desktop app: setup/desktop.md
+      - Docker deployment: setup/docker.md
+      - Authentication: setup/authentication.md
   - Usage:
       - Filtering and ranking: usage/filtering-ranking.md
-  - Setup:
-      - Authentication: setup/authentication.md
   - Development:
+      - Development setup: development/setup.md
       - REST API: development/api.md
       - MCP server: development/mcp.md
       - Pipeline method types: development/pipeline-methods.md
       - Sequence preparation: development/sequence_preparation.md
       - Storage architecture: development/storage.md
       - Download bundles: development/download-bundles.md
+  - Release history: https://github.com/pansapiens/binderdash/blob/main/CHANGELOG.md
+
+plugins:
+  - search
+  - mike:
+      canonical_version: latest
 
 markdown_extensions:
   - toc:

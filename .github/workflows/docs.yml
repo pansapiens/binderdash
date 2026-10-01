@@ -1,0 +1,80 @@
+name: docs
+on:
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# main, develop and version tags all deploy to the same gh-pages branch, so their
+# runs must not overlap. The default per-ref group would not help here: the refs
+# differ, the branch they write to does not. cancel-in-progress is false so a
+# queued deploy waits its turn instead of being dropped.
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git Credentials
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+
+      - run: pip install -r requirements-docs.txt
+
+      - name: Deploy docs
+        run: |
+          git fetch origin gh-pages --depth=1 || true
+
+          # mike commits to the local gh-pages branch and pushes it. If another
+          # docs run landed on gh-pages first, that push is rejected. Resync the
+          # local branch to the remote tip and rebuild, rather than failing.
+          retry_gh_pages () {
+            local attempt
+            for attempt in 1 2 3; do
+              if "$@"; then
+                return 0
+              fi
+              if [[ ${attempt} -eq 3 ]]; then
+                break
+              fi
+              echo "::warning::gh-pages deploy failed (attempt ${attempt}/3); resyncing and retrying: $*"
+              git fetch origin gh-pages --depth=1 || true
+              if git rev-parse --verify -q FETCH_HEAD >/dev/null; then
+                git branch -f gh-pages FETCH_HEAD || true
+              fi
+              sleep $(( attempt * 15 ))
+            done
+            echo "::error::gh-pages deploy failed after 3 attempts: $*"
+            return 1
+          }
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            retry_gh_pages mike deploy --push --update-aliases "${VERSION}"
+          elif [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+            retry_gh_pages mike deploy --push --update-aliases main latest
+            retry_gh_pages mike set-default --push latest
+          elif [[ "${GITHUB_REF}" == refs/heads/develop ]]; then
+            retry_gh_pages mike deploy --push develop
+          else
+            echo "No docs version configured for ${GITHUB_REF}; skipping."
+          fi

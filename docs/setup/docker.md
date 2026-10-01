@@ -1,6 +1,6 @@
-# Docker Setup
+# Docker deployment
 
-This document describes the Docker containerization setup for Binderdash.
+This page describes running Binderdash as a shared server with Docker Compose.
 
 ## Overview
 
@@ -48,6 +48,32 @@ sudo chmod -R 755 /data/runs /data2/runs
 
 Docker Compose automatically loads all environment variables from the `.env` file.
 
+### Mounting your run directories
+
+`RUN_BASE_DIRS` is read inside the container, so each directory must be mounted into the `binderdash` service and listed by its **container** path. For example, to serve runs from `/data/runs` on the host, add a volume in `docker-compose.yml`:
+
+```yaml
+services:
+  binderdash:
+    volumes:
+      - /data/runs:/data/runs:ro
+```
+
+and set `RUN_BASE_DIRS="/data/runs"` in `.env`. Binderdash only reads run folders, so a read-only mount is sufficient.
+
+### Database directory
+
+The SQLite database lives under `./data` on the host (mounted at `/app/data`). Create it before the first start and give it to the container user:
+
+```bash
+mkdir -p data
+sudo chown -R 1000:1000 data
+```
+
+### HTTPS with Caddy
+
+`docker-compose.yml` runs a [Caddy](https://caddyserver.com/) reverse proxy on ports 80 and 443 in front of Binderdash. Set `DOMAIN` in `.env` to the server's public hostname and Caddy obtains a TLS certificate automatically. With `DOMAIN` unset, Caddy serves `https://localhost` with a locally issued certificate. Also set `CORS_ALLOWED_ORIGINS` to your site URL, and set a fixed `SECRET_KEY` so sign-in sessions survive restarts.
+
 ## Building and Running
 
 ### Production Mode
@@ -68,41 +94,7 @@ docker compose logs -f
 docker compose down
 ```
 
-### Development Mode
-
-For development with live reloading and source code watching:
-
-```bash
-docker compose -f docker-compose.dev.yml up
-# (or run in detached mode)
-docker compose -f docker-compose.dev.yml up -d
-
-# View logs
-docker compose -f docker-compose.dev.yml logs -f
-
-# Stop the development environment
-docker compose -f docker-compose.dev.yml down
-```
-
-The development setup includes:
-
-- **Backend auto-reload**: FastAPI server automatically restarts when Python code changes
-- **Frontend watch mode**: Vite automatically rebuilds the frontend when Vue/TypeScript files change
-- **Full project mounting**: entire project directory mounted for access to all files
-- **Selective write access**: frontend directory is writable for Vite temp files and build outputs
-- **Two-container setup**: separate containers for the backend and frontend watcher for better resource management
-- **Single Dockerfile**: uses the same Dockerfile as production with conditional frontend building
-
-### Alternative Development Approach
-
-For a simpler development setup, you can also run with a development server using volume mounts:
-
-```bash
-docker compose run --rm -p 8000:8000 \
-  -v $(pwd)/backend:/app \
-  -v $(pwd)/frontend:/app/frontend \
-  binderdash uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
+Development with live reloading (`docker-compose.dev.yml`) is covered in [Development setup](../development/setup.md#docker-development-mode).
 
 ## Health Checks
 
@@ -130,7 +122,7 @@ Adjust these in `docker-compose.yml` if needed for your environment.
 1. **Non-root user**: the container runs as user ID 1000 (non-root)
 2. **Read-only volumes**: data directories are mounted as read-only
 3. **Environment variables**: sensitive configuration is passed via environment variables, not baked into the image
-4. **Network**: only port 8000 is exposed to the host
+4. **Network**: only Caddy (ports 80 and 443) is exposed to the host; the Binderdash container listens on port 8000 on the internal Compose network
 
 ## Troubleshooting
 
@@ -161,15 +153,6 @@ Adjust these in `docker-compose.yml` if needed for your environment.
    - Ensure the frontend was built during the Docker build process
    - Check that static files are being served correctly
    - Verify the build output in the container: `docker compose exec binderdash ls -la /app/backend/static/`
-
-5. **Development mode issues**:
-
-   ```bash
-   docker compose -f docker-compose.dev.yml ps
-   docker compose -f docker-compose.dev.yml logs frontend-watcher
-   docker compose -f docker-compose.dev.yml exec binderdash ls -la /app/backend/
-   docker compose -f docker-compose.dev.yml exec frontend-watcher ls -la /app/frontend/
-   ```
 
 ### Debugging
 

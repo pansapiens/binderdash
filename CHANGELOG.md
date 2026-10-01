@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs**: README rewritten for users: hero screenshot, feature list, and Desktop / Server getting-started sections. Developer setup moved to `docs/development/setup.md`, with a new `docs/setup/desktop.md` for installing the desktop app. The docs are published to GitHub Pages and versioned with mike (`main` as `latest`, `develop`, and each `vX.Y.Z` tag) by a new `docs` workflow.
+
 ## [0.4.1] - 2026-09-30
 
 ### Fixed
