@@ -12,7 +12,17 @@ exclude_docs: |
   images/hero/
 
 theme:
-  name: mkdocs
+  name: readthedocs
+  highlightjs: true
+  hljs_languages:
+    - yaml
+    - json
+    - python
+    - bash
+    - nginx
+
+extra_css:
+  - styles.purple.css
 
 nav:
   - Home: index.md
@@ -38,5 +48,6 @@ plugins:
       canonical_version: latest
 
 markdown_extensions:
+  - admonition
   - toc:
       permalink: true
