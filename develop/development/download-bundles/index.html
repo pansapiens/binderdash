@@ -28,6 +28,7 @@
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/python.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/bash.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/nginx.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/http.min.js"></script>
       <script>hljs.highlightAll();</script> 
 </head>
 
@@ -160,7 +161,7 @@ any structure file, so the UI can warn before a large download.</p>
 <p>The bundle covers <strong>the rows currently in the Designs table</strong> - the selected designs if
 any, otherwise the filtered designs. It is not every design in the selected runs.</p>
 <h2 id="contents">Contents<a class="headerlink" href="#contents" title="Permanent link">&para;</a></h2>
-<pre><code>manifest.json                   build info, file inventory with sha256, coverage counts
+<pre class="highlight"><code>manifest.json                   build info, file inventory with sha256, coverage counts
 designs.tsv                     one row per design, every column Binderdash holds
 binders.fasta                   binder sequences, &gt;design_id
 binderdash_session.json         the UI state that produced the bundle
@@ -168,8 +169,7 @@ target_contacts.tsv             cached per-residue distances and SASA (if comput
 target_contacts_reference.json  per-run apo SASA reference and compute parameters
 structures/rank0001_&lt;run&gt;_&lt;name&gt;.pdb
 schemas/*.schema.json           JSON Schema for each JSON member
-README.txt
-</code></pre>
+README.txt</code></pre>
 <p>Prepare Sequences adds <code>constructs.tsv</code>, <code>constructs_aa.fasta</code>, <code>constructs_dna.fasta</code>,
 <code>constructs_twist_aa.csv</code>, <code>constructs_twist_dna.csv</code> and <code>prepare_sequences.json</code>.</p>
 <p>The member list does not depend on which entry point produced the bundle. A saved set
@@ -280,6 +280,7 @@ prompts a re-run instead.</p>
     <script>var base_url = "../..";</script>
     <script src="../../js/theme_extra.js"></script>
     <script src="../../js/theme.js"></script>
+      <script src="../../js/mermaid-init.mjs" type="module"></script>
       <script src="../../search/main.js"></script>
       <script src="../../js/version-select.js"></script>
     <script>

@@ -28,6 +28,7 @@
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/python.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/bash.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/nginx.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/http.min.js"></script>
       <script>hljs.highlightAll();</script> 
 </head>
 
@@ -220,8 +221,7 @@
 </ol>
 <h2 id="auth-type-1-disable-authentication-public-mode">Auth Type 1: Disable Authentication (Public Mode)<a class="headerlink" href="#auth-type-1-disable-authentication-public-mode" title="Permanent link">&para;</a></h2>
 <p>Use this for local development only.</p>
-<pre><code class="language-bash">DISABLE_AUTHENTICATION=&quot;true&quot;
-</code></pre>
+<pre class="highlight"><code class="language-bash">DISABLE_AUTHENTICATION="true"</code></pre>
 <p>Notes:</p>
 <ul>
 <li>Protected endpoints no longer require login, API key, or CSRF.</li>
@@ -230,30 +230,26 @@
 <h2 id="auth-type-2-local-usernamepassword-bcrypt">Auth Type 2: Local Username/Password (bcrypt)<a class="headerlink" href="#auth-type-2-local-usernamepassword-bcrypt" title="Permanent link">&para;</a></h2>
 <p>Enable local session login with bcrypt hashes in <code>LOCAL_USERS</code>.</p>
 <h3 id="step-1-generate-bcrypt-hashes">Step 1: Generate bcrypt hashes<a class="headerlink" href="#step-1-generate-bcrypt-hashes" title="Permanent link">&para;</a></h3>
-<pre><code class="language-bash">python backend/scripts/encrypt_password.py alice
-python backend/scripts/encrypt_password.py bob
-</code></pre>
+<pre class="highlight"><code class="language-bash">python backend/scripts/encrypt_password.py alice
+python backend/scripts/encrypt_password.py bob</code></pre>
 <h3 id="step-2-set-local_users">Step 2: Set <code>LOCAL_USERS</code><a class="headerlink" href="#step-2-set-local_users" title="Permanent link">&para;</a></h3>
-<pre><code class="language-bash">LOCAL_USERS=&quot;alice:$2b$12$...,bob:$2b$12$...&quot;
-DISABLE_AUTHENTICATION=&quot;false&quot;
-</code></pre>
+<pre class="highlight"><code class="language-bash">LOCAL_USERS="alice:$2b$12$...,bob:$2b$12$..."
+DISABLE_AUTHENTICATION="false"</code></pre>
 <h3 id="step-3-login">Step 3: Login<a class="headerlink" href="#step-3-login" title="Permanent link">&para;</a></h3>
-<pre><code class="language-http">POST /api/auth/login
+<pre class="highlight"><code class="language-http">POST /api/auth/login
 Content-Type: application/json
 
 {
-  &quot;username&quot;: &quot;alice&quot;,
-  &quot;password&quot;: &quot;your-password&quot;
-}
-</code></pre>
+  "username": "alice",
+  "password": "your-password"
+}</code></pre>
 <p>Successful login returns user details plus <code>csrf_token</code>, and sets session cookies.</p>
 <h2 id="auth-type-3-pam-usernamepassword-unix-accounts">Auth Type 3: PAM Username/Password (Unix Accounts)<a class="headerlink" href="#auth-type-3-pam-usernamepassword-unix-accounts" title="Permanent link">&para;</a></h2>
 <p>Enable PAM-based login for allowed system users.</p>
-<pre><code class="language-bash">PAM_LOCAL_ENABLED=&quot;true&quot;
-PAM_LOCAL_ALLOWED_USERS=&quot;ubuntu,bob,alice&quot;   # comma-separated list, or &quot;*&quot; for any PAM-valid user
-PAM_LOCAL_SERVICE=&quot;common-auth&quot;
-DISABLE_AUTHENTICATION=&quot;false&quot;
-</code></pre>
+<pre class="highlight"><code class="language-bash">PAM_LOCAL_ENABLED="true"
+PAM_LOCAL_ALLOWED_USERS="ubuntu,bob,alice"   # comma-separated list, or "*" for any PAM-valid user
+PAM_LOCAL_SERVICE="common-auth"
+DISABLE_AUTHENTICATION="false"</code></pre>
 <p>Important:</p>
 <ul>
 <li>PAM login is attempted only after local user auth fails.</li>
@@ -264,15 +260,14 @@ DISABLE_AUTHENTICATION=&quot;false&quot;
 <p>When Binderdash runs in Docker, PAM checks the container's user database by default.<br />
 That usually includes only container users (for example <code>app</code>), not host users like <code>perry</code>.</p>
 <p>To authenticate host Linux users through PAM in Docker, you must bind host account files read-only:</p>
-<pre><code class="language-yaml">services:
+<pre class="highlight"><code class="language-yaml">services:
   binderdash:
     volumes:
       - /etc/passwd:/etc/passwd:ro
       - /etc/group:/etc/group:ro
       - /etc/shadow:/etc/shadow:ro
     group_add:
-      - &quot;42&quot;          # gid `shadow` — see below; without it every login fails
-</code></pre>
+      - "42"          # gid `shadow` — see below; without it every login fails</code></pre>
 <p>The mounts are active in <code>docker-compose.dev.yml</code> and commented out in <code>docker-compose.yml</code>.</p>
 <h4 id="the-shadow-group-is-not-optional">The <code>shadow</code> group is not optional<a class="headerlink" href="#the-shadow-group-is-not-optional" title="Permanent link">&para;</a></h4>
 <p><code>pam_unix</code> does not read <code>/etc/shadow</code> itself — it shells out to <code>/sbin/unix_chkpwd</code>,
@@ -284,10 +279,9 @@ failure, so the symptom is an indistinguishable <em>"Incorrect username or passw
 when the password is right.</p>
 <p>Adding gid 42 lets the process read <code>/etc/shadow</code> in its own right. To confirm which
 failure you have, run the helper by hand inside the container:</p>
-<pre><code class="language-bash">docker compose exec binderdash sh -c 'printf %s &quot;$PW&quot; | /sbin/unix_chkpwd someuser nullok; echo $?'
+<pre class="highlight"><code class="language-bash">docker compose exec binderdash sh -c 'printf %s "$PW" | /sbin/unix_chkpwd someuser nullok; echo $?'
 # 9 = cannot read /etc/shadow (missing shadow group)
-# 7 = read it fine, password genuinely wrong
-</code></pre>
+# 7 = read it fine, password genuinely wrong</code></pre>
 <h4 id="host-account-changes-need-a-container-recreate">Host account changes need a container recreate<a class="headerlink" href="#host-account-changes-need-a-container-recreate" title="Permanent link">&para;</a></h4>
 <p>These are single-<em>file</em> bind mounts, which pin an inode. <code>passwd(1)</code> replaces
 <code>/etc/shadow</code> rather than editing it in place, so a running container keeps reading the
@@ -295,17 +289,14 @@ file as it was at start: password changes and newly added users are silently inv
 and logins fail against a stale hash. <code>docker compose restart</code> does <strong>not</strong> fix it, since
 the container is not recreated. Compare <code>md5sum /etc/shadow</code> inside and outside the
 container to confirm, then:</p>
-<pre><code class="language-bash">docker compose up -d --force-recreate
-</code></pre>
+<pre class="highlight"><code class="language-bash">docker compose up -d --force-recreate</code></pre>
 <p>Recommended matching env:</p>
-<pre><code class="language-bash">PAM_LOCAL_ENABLED=&quot;true&quot;
-PAM_LOCAL_ALLOWED_USERS=&quot;bob,alice&quot;   # comma-separated list, or &quot;*&quot; for broader access
-PAM_LOCAL_SERVICE=&quot;common-auth&quot;
-DISABLE_AUTHENTICATION=&quot;false&quot;
-</code></pre>
+<pre class="highlight"><code class="language-bash">PAM_LOCAL_ENABLED="true"
+PAM_LOCAL_ALLOWED_USERS="bob,alice"   # comma-separated list, or "*" for broader access
+PAM_LOCAL_SERVICE="common-auth"
+DISABLE_AUTHENTICATION="false"</code></pre>
 <p>After changing compose mounts or env values, recreate the container so PAM sees the updated runtime:</p>
-<pre><code class="language-bash">docker compose up -d --build
-</code></pre>
+<pre class="highlight"><code class="language-bash">docker compose up -d --build</code></pre>
 <p>Security note:</p>
 <ul>
 <li>Mounting <code>/etc/shadow</code> into a container exposes password-hash data to that container.</li>
@@ -315,19 +306,17 @@ DISABLE_AUTHENTICATION=&quot;false&quot;
 <h2 id="auth-type-4-google-oauth-oidc">Auth Type 4: Google OAuth (OIDC)<a class="headerlink" href="#auth-type-4-google-oauth-oidc" title="Permanent link">&para;</a></h2>
 <p>Enable Google sign-in and restrict it to allowed emails.</p>
 <h3 id="step-1-configure-google-credentials">Step 1: Configure Google credentials<a class="headerlink" href="#step-1-configure-google-credentials" title="Permanent link">&para;</a></h3>
-<pre><code class="language-bash">GOOGLE_AUTH_ENABLED=&quot;true&quot;
-GOOGLE_AUTH_CLIENT_ID=&quot;...&quot;
-GOOGLE_AUTH_CLIENT_SECRET=&quot;...&quot;
-GOOGLE_AUTH_REDIRECT_URI=&quot;http://localhost:8000/api/auth/google/callback&quot;
-GOOGLE_AUTH_ALLOWED_USERS=&quot;user1@example.com,user2@example.com&quot;
-DISABLE_AUTHENTICATION=&quot;false&quot;
-</code></pre>
+<pre class="highlight"><code class="language-bash">GOOGLE_AUTH_ENABLED="true"
+GOOGLE_AUTH_CLIENT_ID="..."
+GOOGLE_AUTH_CLIENT_SECRET="..."
+GOOGLE_AUTH_REDIRECT_URI="http://localhost:8000/api/auth/google/callback"
+GOOGLE_AUTH_ALLOWED_USERS="user1@example.com,user2@example.com"
+DISABLE_AUTHENTICATION="false"</code></pre>
 <h3 id="step-2-configure-redirect-uri-in-google-cloud">Step 2: Configure redirect URI in Google Cloud<a class="headerlink" href="#step-2-configure-redirect-uri-in-google-cloud" title="Permanent link">&para;</a></h3>
 <p>Your Google OAuth client must include the same callback URI as <code>GOOGLE_AUTH_REDIRECT_URI</code>.</p>
 <h3 id="step-3-start-login-flow">Step 3: Start login flow<a class="headerlink" href="#step-3-start-login-flow" title="Permanent link">&para;</a></h3>
 <p>Open:</p>
-<pre><code class="language-text">/api/auth/google/login
-</code></pre>
+<pre class="highlight"><code class="language-text">/api/auth/google/login</code></pre>
 <p>Notes:</p>
 <ul>
 <li>Google auth is considered configured only when enabled and client ID/secret/redirect URI are all non-empty.</li>
@@ -337,20 +326,16 @@ DISABLE_AUTHENTICATION=&quot;false&quot;
 <h2 id="auth-type-5-per-user-api-key">Auth Type 5: Per-User API Key<a class="headerlink" href="#auth-type-5-per-user-api-key" title="Permanent link">&para;</a></h2>
 <p>Use this for scripts/agents without browser session or CSRF handling.</p>
 <p>Unlike the other four modes, this isn't a server-wide toggle — it's a capability of the user model, gated on persistence:</p>
-<pre><code class="language-bash">DATABASE=&quot;sqlite:///./binderdash.db&quot;   # or Postgres URL; keys live in the DB
-DISABLE_AUTHENTICATION=&quot;false&quot;
-</code></pre>
+<pre class="highlight"><code class="language-bash">DATABASE="sqlite:///./binderdash.db"   # or Postgres URL; keys live in the DB
+DISABLE_AUTHENTICATION="false"</code></pre>
 <p>Create a user and a key for them, either via the web UI (account menu, top-right → "API keys") or the CLI:</p>
-<pre><code class="language-bash">python -m backend.cli user create --email you@example.org --admin
-python -m backend.cli key create you@example.org --name bootstrap
-</code></pre>
+<pre class="highlight"><code class="language-bash">python -m backend.cli user create --email you@example.org --admin
+python -m backend.cli key create you@example.org --name bootstrap</code></pre>
 <p>The token prints to stdout alone (a warning goes to stderr) and is shown <strong>once</strong> — the server stores only a SHA-256 hash. Other CLI subcommands: <code>user list|show|link-identity|set-admin</code>, <code>key list|revoke</code>.</p>
 <p>Use either header format:</p>
-<pre><code class="language-http">Authorization: Bearer &lt;token&gt;
-</code></pre>
+<pre class="highlight"><code class="language-http">Authorization: Bearer &lt;token&gt;</code></pre>
 <p>or</p>
-<pre><code class="language-http">X-Binderdash-Api-Key: &lt;token&gt;
-</code></pre>
+<pre class="highlight"><code class="language-http">X-Binderdash-Api-Key: &lt;token&gt;</code></pre>
 <p>Notes:</p>
 <ul>
 <li>For state-changing requests, API key auth bypasses CSRF checks.</li>
@@ -385,20 +370,18 @@ python -m backend.cli key create you@example.org --name bootstrap
 </ul>
 <h2 id="verify-active-providers">Verify Active Providers<a class="headerlink" href="#verify-active-providers" title="Permanent link">&para;</a></h2>
 <p>Use:</p>
-<pre><code class="language-http">GET /api/auth/status
-</code></pre>
+<pre class="highlight"><code class="language-http">GET /api/auth/status</code></pre>
 <p>Response shape:</p>
-<pre><code class="language-json">{
-  &quot;auth_disabled&quot;: false,
-  &quot;desktop_mode&quot;: false,
-  &quot;providers&quot;: {
-    &quot;local&quot;: { &quot;enabled&quot;: true },
-    &quot;pam&quot;: { &quot;enabled&quot;: false },
-    &quot;google&quot;: { &quot;enabled&quot;: true, &quot;login_url&quot;: &quot;/api/auth/google/login&quot; }
+<pre class="highlight"><code class="language-json">{
+  "auth_disabled": false,
+  "desktop_mode": false,
+  "providers": {
+    "local": { "enabled": true },
+    "pam": { "enabled": false },
+    "google": { "enabled": true, "login_url": "/api/auth/google/login" }
   },
-  &quot;api_keys&quot;: { &quot;enabled&quot;: true, &quot;reason&quot;: null }
-}
-</code></pre>
+  "api_keys": { "enabled": true, "reason": null }
+}</code></pre>
 <p><code>api_keys.reason</code> is <code>null</code> when keys are usable, <code>"auth_disabled"</code> when <code>DISABLE_AUTHENTICATION=true</code> (there is nothing to scope a key to), or <code>"persistence_disabled"</code> when no <code>DATABASE</code> is configured.</p>
 <h2 id="recommended-combinations">Recommended Combinations<a class="headerlink" href="#recommended-combinations" title="Permanent link">&para;</a></h2>
 <ul>
@@ -450,6 +433,7 @@ python -m backend.cli key create you@example.org --name bootstrap
     <script>var base_url = "../..";</script>
     <script src="../../js/theme_extra.js"></script>
     <script src="../../js/theme.js"></script>
+      <script src="../../js/mermaid-init.mjs" type="module"></script>
       <script src="../../search/main.js"></script>
       <script src="../../js/version-select.js"></script>
     <script>

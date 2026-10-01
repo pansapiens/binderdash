@@ -28,6 +28,7 @@
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/python.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/bash.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/nginx.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/http.min.js"></script>
       <script>hljs.highlightAll();</script> 
 </head>
 
@@ -252,8 +253,7 @@
 <p>Treat <strong><code>/openapi.json</code> as authoritative</strong> for request and response shapes. The examples below cover common cases; new fields or routes may appear only in the spec.</p>
 <h2 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h2>
 <p>Protected routes require credentials unless <code>DISABLE_AUTHENTICATION=true</code> (all endpoints public). Discover what is enabled:</p>
-<pre><code class="language-http">GET /api/auth/status
-</code></pre>
+<pre class="highlight"><code class="language-http">GET /api/auth/status</code></pre>
 <p>Response includes <code>auth_disabled</code> and <code>providers</code> (<code>local</code>, <code>pam</code>, <code>google</code>) plus a top-level <code>api_keys: {enabled, reason}</code> (<code>reason</code> is <code>null</code>, <code>"auth_disabled"</code>, or <code>"persistence_disabled"</code>).</p>
 <p>Configure auth via <code>.env</code> (see <code>.env.example</code>). Relevant variables:</p>
 <table>
@@ -300,9 +300,8 @@
 </table>
 <h3 id="api-key-scripts-and-automation">API key (scripts and automation)<a class="headerlink" href="#api-key-scripts-and-automation" title="Permanent link">&para;</a></h3>
 <p>API keys are <strong>per-user, named, expiring, and revocable</strong> — there is no single shared server secret. Get one from the web UI (account menu, top-right → "API keys") or via CLI:</p>
-<pre><code class="language-bash">python -m backend.cli user create --email you@example.org --admin
-python -m backend.cli key create you@example.org --name bootstrap
-</code></pre>
+<pre class="highlight"><code class="language-bash">python -m backend.cli user create --email you@example.org --admin
+python -m backend.cli key create you@example.org --name bootstrap</code></pre>
 <p>The token is printed to stdout alone (a warning goes to stderr) and shown only once — the server stores a SHA-256 hash, not the plaintext. Keys require <code>DATABASE</code>; with no persistence, key endpoints return <code>503</code>.</p>
 <p>Once you have a token, send it on <strong>every</strong> request, including <code>POST</code> / <code>PATCH</code> / <code>DELETE</code>. No session cookie or CSRF header is required.</p>
 <p>Supported headers (either is fine):</p>
@@ -310,11 +309,10 @@ python -m backend.cli key create you@example.org --name bootstrap
 <li><code>Authorization: Bearer &lt;token&gt;</code></li>
 <li><code>X-Binderdash-Api-Key: &lt;token&gt;</code></li>
 </ul>
-<pre><code class="language-bash">export BINDERDASH_TOKEN='&lt;token from `key create`&gt;'
+<pre class="highlight"><code class="language-bash">export BINDERDASH_TOKEN='&lt;token from `key create`&gt;'
 export BASE='https://binderdash.example.com'
 
-curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; &quot;$BASE/api/runs&quot;
-</code></pre>
+curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" "$BASE/api/runs"</code></pre>
 <p><code>GET /api/auth/status</code> reports <code>api_keys.enabled: true</code> when keys are usable (auth is enabled and <code>DATABASE</code> is configured). Invalid, expired, or missing keys receive <code>401 Authentication required</code>.</p>
 <p>Keys are managed via <code>GET/POST /api/api-keys</code> and <code>PATCH/DELETE /api/api-keys/{id}</code> — but only with a <strong>browser session</strong>; an API-key-authenticated request to those routes gets <code>403</code> (a leaked key must not be able to mint its own replacement). <code>GET /api/users</code> is admin-only, session-only. Do not commit keys to the repository.</p>
 <h3 id="browser-session-spa">Browser session (SPA)<a class="headerlink" href="#browser-session-spa" title="Permanent link">&para;</a></h3>
@@ -330,13 +328,12 @@ curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; &quot;$BASE/api/
 <p>A <strong>user</strong> is a person; an <strong>identity</strong> is one login method, <code>(provider, identifier)</code> — e.g. <code>local:alice</code>, <code>google:alice@example.org</code>, <code>pam:alice</code>. Identities merge onto the same user only when they share a <strong>verified email</strong>; users are auto-created on first login. <code>BINDERDASH_ADMIN_USERS</code> (comma-separated; matches email, <code>provider:identifier</code>, or bare username — no <code>*</code> wildcard) grants <code>is_admin</code> and is re-applied at every startup and login, so admin status set only via the CLI (<code>user set-admin</code>) will not stick unless the user is also listed there.</p>
 <h2 id="data-model">Data model<a class="headerlink" href="#data-model" title="Permanent link">&para;</a></h2>
 <p>There is no separate “project” resource. Entities relate as follows:</p>
-<pre><code class="language-mermaid">flowchart LR
-  Project[&quot;project_id\n(from path)&quot;]
-  Run[&quot;Run\nrun_id UUID&quot;]
-  Design[&quot;Design\nflat JSON row&quot;]
+<div class="mermaid">flowchart LR
+  Project["project_id\n(from path)"]
+  Run["Run\nrun_id UUID"]
+  Design["Design\nflat JSON row"]
   Project --&gt; Run
-  Run --&gt; Design
-</code></pre>
+  Run --&gt; Design</div>
 <h3 id="project">Project<a class="headerlink" href="#project" title="Permanent link">&para;</a></h3>
 <p>Logical grouping identified by <code>project_id</code>, inferred from directory structure when runs are scanned. List projects by grouping <code>GET /api/runs</code> results on <code>project_id</code>.</p>
 <h3 id="run">Run<a class="headerlink" href="#run" title="Permanent link">&para;</a></h3>
@@ -857,56 +854,51 @@ Requests carry design <strong>keys</strong>, not rows — the server re-reads ea
 </table>
 <h2 id="common-workflows">Common workflows<a class="headerlink" href="#common-workflows" title="Permanent link">&para;</a></h2>
 <h3 id="list-runs">List runs<a class="headerlink" href="#list-runs" title="Permanent link">&para;</a></h3>
-<pre><code class="language-bash">curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; &quot;$BASE/api/runs&quot; \
-  | jq '.runs[] | {run_id, project_id, name: .metadata.name, method}'
-</code></pre>
+<pre class="highlight"><code class="language-bash">curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" "$BASE/api/runs" \
+  | jq '.runs[] | {run_id, project_id, name: .metadata.name, method}'</code></pre>
 <h3 id="designs-for-a-project-sorted-by-score-as-tsv">Designs for a project, sorted by score, as TSV<a class="headerlink" href="#designs-for-a-project-sorted-by-score-as-tsv" title="Permanent link">&para;</a></h3>
 <p>Filtering and sorting are client-side. Only <code>run_ids</code> is supported server-side.</p>
-<pre><code class="language-bash">proj=&quot;my_project&quot;
-runs=$(curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; &quot;$BASE/api/runs&quot; \
-  | jq -r --arg p &quot;$proj&quot; '.runs[] | select(.project_id==$p) | .run_id' | paste -sd,)
+<pre class="highlight"><code class="language-bash">proj="my_project"
+runs=$(curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" "$BASE/api/runs" \
+  | jq -r --arg p "$proj" '.runs[] | select(.project_id==$p) | .run_id' | paste -sd,)
 
-curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; \
-  &quot;$BASE/api/designs?run_ids=$runs&quot; \
+curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" \
+  "$BASE/api/designs?run_ids=$runs" \
   | jq -r '
       .designs
       | sort_by(-(.iptm // -1e30))
-      | ([&quot;design_id&quot;,&quot;run_name&quot;,&quot;iptm&quot;,&quot;pdb_file&quot;,&quot;good&quot;] | @tsv),
+      | (["design_id","run_name","iptm","pdb_file","good"] | @tsv),
         (.[] | [.design_id, .run_name, .iptm, .pdb_file, .good] | @tsv)
-    '
-</code></pre>
+    '</code></pre>
 <p>Use <code>sort_by(.pae_interaction // 1e30)</code> for ascending metrics. Export CSV with <code>@csv</code> instead of <code>@tsv</code>.</p>
 <h3 id="download-one-structure">Download one structure<a class="headerlink" href="#download-one-structure" title="Permanent link">&para;</a></h3>
-<pre><code class="language-bash">run_id=&quot;...&quot;
-filename=&quot;design_model.cif&quot;   # from design.pdb_file
-curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; \
-  -o &quot;${filename}&quot; \
-  &quot;$BASE/api/runs/${run_id}/files/structure/$(python3 -c &quot;import urllib.parse; print(urllib.parse.quote('$filename'))&quot;)&quot;
-</code></pre>
+<pre class="highlight"><code class="language-bash">run_id="..."
+filename="design_model.cif"   # from design.pdb_file
+curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" \
+  -o "${filename}" \
+  "$BASE/api/runs/${run_id}/files/structure/$(python3 -c "import urllib.parse; print(urllib.parse.quote('$filename'))")"</code></pre>
 <h3 id="bulk-download-structures-as-tar">Bulk download structures as tar<a class="headerlink" href="#bulk-download-structures-as-tar" title="Permanent link">&para;</a></h3>
-<pre><code class="language-bash">items=$(curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; \
-  &quot;$BASE/api/designs?run_ids=$runs&quot; \
+<pre class="highlight"><code class="language-bash">items=$(curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" \
+  "$BASE/api/designs?run_ids=$runs" \
   | jq '[.designs[] | select(.good==true) | {run_id, filename: .pdb_file}]')
 
-curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; \
+curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" \
   -H 'Content-Type: application/json' \
-  -X POST &quot;$BASE/api/pdbs/tar&quot; \
-  -d &quot;$(jq -n --argjson items &quot;$items&quot; '{items:$items}')&quot; \
-  -o designs.tar
-</code></pre>
+  -X POST "$BASE/api/pdbs/tar" \
+  -d "$(jq -n --argjson items "$items" '{items:$items}')" \
+  -o designs.tar</code></pre>
 <h2 id="dna-codon-optimisation">DNA codon optimisation<a class="headerlink" href="#dna-codon-optimisation" title="Permanent link">&para;</a></h2>
 <p><code>POST /api/sequences/optimize-dna</code> back-translates and optimises protein sequences using <a href="https://edinburgh-genome-foundry.github.io/DnaChisel/">DnaChisel</a> and <a href="https://github.com/Edinburgh-Genome-Foundry/codon-usage-tables">python_codon_tables</a>.</p>
 <p><strong>Request body:</strong></p>
-<pre><code class="language-json">{
-  &quot;sequences&quot;: { &quot;design_id_1&quot;: &quot;MAEK...&quot;, &quot;design_id_2&quot;: &quot;MGSS...&quot; },
-  &quot;codon_table_id&quot;: &quot;e_coli_316407&quot;,
-  &quot;method&quot;: &quot;match_codon_usage&quot;,
-  &quot;constraints&quot;: [
-    { &quot;type&quot;: &quot;EnforceGCContent&quot;, &quot;enabled&quot;: true, &quot;params&quot;: { &quot;mini&quot;: 0.25, &quot;maxi&quot;: 0.64 } }
+<pre class="highlight"><code class="language-json">{
+  "sequences": { "design_id_1": "MAEK...", "design_id_2": "MGSS..." },
+  "codon_table_id": "e_coli_316407",
+  "method": "match_codon_usage",
+  "constraints": [
+    { "type": "EnforceGCContent", "enabled": true, "params": { "mini": 0.25, "maxi": 0.64 } }
   ],
-  &quot;fixed&quot;: { &quot;design_id_1&quot;: [false, false, false, true] }
-}
-</code></pre>
+  "fixed": { "design_id_1": [false, false, false, true] }
+}</code></pre>
 <p>Optional <code>fixed</code> maps each <code>design_id</code> to a per-residue boolean array the same length as that protein. Residues marked <code>true</code> must be stops (<code>*</code>, frozen as <strong>TAA</strong>) or a leading Met (<code>M</code>, frozen as <strong>ATG</strong>), and are excluded from codon optimisation and from user constraints. When a design id is omitted from <code>fixed</code> (or <code>fixed</code> is omitted entirely), every <code>*</code> in that protein is treated as fixed.</p>
 <h3 id="codon-tables">Codon tables<a class="headerlink" href="#codon-tables" title="Permanent link">&para;</a></h3>
 <p><code>GET /api/sequences/codon-tables</code> returns <code>{ "items": [ { "value", "label" }, ... ] }</code>.</p>
@@ -1001,14 +993,13 @@ curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; \
 <p><code>EnforceTranslation</code> is always applied by the server; do not send it.</p>
 <p>The Prepare Sequences UI uses a Twist-oriented default set (<code>DEFAULT_TWIST_CONSTRAINTS</code> in <code>frontend/src/stores/seqPrep.ts</code>). The UI-only type <code>ExcludeRestrictionSite</code> with <code>params.enzyme</code> is serialised to <code>AvoidPattern</code> with <code>pattern: "&lt;enzyme&gt;_site"</code> before POST.</p>
 <h3 id="optimisation-response">Optimisation response<a class="headerlink" href="#optimisation-response" title="Permanent link">&para;</a></h3>
-<pre><code class="language-json">{
-  &quot;results&quot;: [
-    { &quot;design_id&quot;: &quot;d1&quot;, &quot;optimized_dna&quot;: &quot;ATG...&quot;, &quot;error&quot;: null },
-    { &quot;design_id&quot;: &quot;d2&quot;, &quot;optimized_dna&quot;: null, &quot;error&quot;: &quot;Constraints could not be resolved (No solution found).&quot; }
+<pre class="highlight"><code class="language-json">{
+  "results": [
+    { "design_id": "d1", "optimized_dna": "ATG...", "error": null },
+    { "design_id": "d2", "optimized_dna": null, "error": "Constraints could not be resolved (No solution found)." }
   ],
-  &quot;elapsed_seconds&quot;: 2.31
-}
-</code></pre>
+  "elapsed_seconds": 2.31
+}</code></pre>
 <p>Failures are per design. DnaChisel's constraint search is stochastic, so a design that fails with "No solution found" is optimised again from the same starting sequence, up to five attempts, before that error is returned. Other errors are returned on the first failure. If many rows still fail, relax <code>UniquifyAllKmers</code> or windowed <code>EnforceGCContent</code> first.</p>
 <h2 id="sequence-tags-client-side-assembly">Sequence tags (client-side assembly)<a class="headerlink" href="#sequence-tags-client-side-assembly" title="Permanent link">&para;</a></h2>
 <p>Preset tag <strong>amino-acid sequences</strong> are not stored as DNA on the server. The API stores only which terminus is active (<code>tag</code>: <code>"N"</code> or <code>"C"</code>). Full construct assembly matches the Prepare Sequences tab (<code>frontend/src/stores/seqPrep.ts</code>).</p>
@@ -1076,8 +1067,7 @@ curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; \
 </table>
 <h3 id="assembly-order">Assembly order<a class="headerlink" href="#assembly-order" title="Permanent link">&para;</a></h3>
 <p>For binder sequence <code>core</code> (from <code>Sequence</code>, trailing <code>*</code> removed) and <code>tag</code>:</p>
-<pre><code>[N-terminal prefix] [N-terminal tags if tag==&quot;N&quot;] core [C-terminal tags if tag==&quot;C&quot;] [C-terminal suffix] [optional *]
-</code></pre>
+<pre class="highlight"><code>[N-terminal prefix] [N-terminal tags if tag=="N"] core [C-terminal tags if tag=="C"] [C-terminal suffix] [optional *]</code></pre>
 <p>Workflow for a C-terminal His tag:</p>
 <ol>
 <li>Ensure <code>Sequence</code> is set (<code>POST /api/designs/sequences</code> if missing).</li>
@@ -1095,15 +1085,14 @@ curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; \
 <li><strong>Diversity selection</strong> (<code>select_diverse</code>) — lazy-greedy selection over binder sequence similarity + <code>quality_score</code>, controlled by <code>budget</code> (final set size), <code>alpha</code> (0 = quality only, 1 = diversity only), and optional <code>size_buckets</code> (<code>{"min", "max", "num_designs"}</code>, caps selections per sequence-length range). <strong>Only designs that passed every hard filter are eligible</strong> — a design failing a filter can never end up in the diverse/saved set, however small <code>passing_filters</code> is relative to <code>budget</code>. <code>best_mpnn_only</code> (default false) first keeps one design per <code>backbone_id</code> (best primary score; designs with no backbone are kept) so the budget is not spent on MPNN variants of the same backbone. It applies only when diversity selection runs.</li>
 </ol>
 <p><code>POST /api/filtering/run</code> body is <code>FilteringRunRequest</code>: <code>name</code>, <code>run_ids</code>, <code>filters</code>, <code>metrics</code>, <code>budget</code> (default 24), <code>alpha</code> (default 0 — quality only; BoltzGen uses 0.001 for proteins and 0.01 for its peptide-anything protocol), <code>size_buckets</code>, <code>random_state</code>, <code>apply_diversity</code> (default true — when false, the saved set is every design that passed the hard filters and <code>budget</code>/<code>alpha</code> are ignored for selection), <code>best_mpnn_only</code> (default false; see stage 3). <code>POST /api/filtering/diversity</code> accepts the same selection fields without persisting a set. Response:</p>
-<pre><code class="language-json">{
-  &quot;saved_set_id&quot;: &quot;...&quot;,
-  &quot;name&quot;: &quot;...&quot;,
-  &quot;total_input&quot;: 10000,
-  &quot;passing_filters&quot;: 42,
-  &quot;top_set_count&quot;: 24,
-  &quot;diverse_set_count&quot;: 24
-}
-</code></pre>
+<pre class="highlight"><code class="language-json">{
+  "saved_set_id": "...",
+  "name": "...",
+  "total_input": 10000,
+  "passing_filters": 42,
+  "top_set_count": 24,
+  "diverse_set_count": 24
+}</code></pre>
 <p><code>total_input</code> is every design across <code>run_ids</code> before filtering; <code>passing_filters</code> is how many passed every hard filter; <code>top_set_count</code> is <code>min(budget, total_input)</code> (an upper bound, not necessarily reachable); <code>diverse_set_count</code> is the actual number of designs selected into the set — this is what <code>SavedSet.design_count</code> reports afterwards (<strong>not</strong> <code>total_input</code>).</p>
 <p><code>GET /api/saved-sets/{id}/designs</code> returns every ranked design (pass or fail), each with <code>in_diverse_set</code> — use this to browse the full ranked pool with a "made the cut" flag; use <code>SavedSet.design_count</code>/<code>total_input</code> from <code>GET /api/saved-sets/{id}</code> for the summary counts.</p>
 <p><code>SavedSet.source_run_ids</code> records which runs a set was built from — resolve to display names via <code>GET /api/runs</code>.</p>
@@ -1166,6 +1155,7 @@ curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; \
     <script>var base_url = "../..";</script>
     <script src="../../js/theme_extra.js"></script>
     <script src="../../js/theme.js"></script>
+      <script src="../../js/mermaid-init.mjs" type="module"></script>
       <script src="../../search/main.js"></script>
       <script src="../../js/version-select.js"></script>
     <script>

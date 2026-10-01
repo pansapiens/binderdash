@@ -28,6 +28,7 @@
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/python.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/bash.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/nginx.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/http.min.js"></script>
       <script>hljs.highlightAll();</script> 
 </head>
 
@@ -137,8 +138,7 @@
    It repeatedly takes <code>value mod 52</code> as the next digit (least-significant side of the radix expansion), integer-divides by 52, then <strong>reverses</strong> the digit order so the string reads <strong>most significant digit first</strong> for a fixed width <strong><code>L</code></strong>.</li>
 </ol>
 <p>The exported helper is:</p>
-<pre><code class="language-text">hashBase52(input: string, length: number) := base52(fnv1a64(input), length)
-</code></pre>
+<pre class="highlight"><code class="language-text">hashBase52(input: string, length: number) := base52(fnv1a64(input), length)</code></pre>
 <p>In code, <code>base52</code> clamps <strong><code>L</code></strong> to <strong><code>1 … 32</code></strong>. Strategies that expose “hash length” or “UID length” in the UI use <strong><code>clampHashLen</code></strong>, which further restricts those lengths to <strong><code>3 … 10</code></strong> for Prepare Sequences short-name use.</p>
 <p>So <strong>changing UID / hash length only changes how many base52 characters are emitted</strong>; it does <strong>not</strong> change the hash algorithm. A longer length exposes more of the 64-bit digest in base 52 (more distinguishing power, longer strings). A shorter length truncates to the leading (most significant) base52 digits of the same underlying 64-bit value.</p>
 <h3 id="2-prefix-sorted-dna-set-uid-index-uid-length">2. “Prefix + sorted DNA-set uid + index” (UID length)<a class="headerlink" href="#2-prefix-sorted-dna-set-uid-index-uid-length" title="Permanent link">&para;</a></h3>
@@ -230,6 +230,7 @@
     <script>var base_url = "../..";</script>
     <script src="../../js/theme_extra.js"></script>
     <script src="../../js/theme.js"></script>
+      <script src="../../js/mermaid-init.mjs" type="module"></script>
       <script src="../../search/main.js"></script>
       <script src="../../js/version-select.js"></script>
     <script>
