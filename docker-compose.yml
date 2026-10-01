@@ -38,10 +38,8 @@ services:
       # Mount .env file inside the container if it exists
       - ./.env:/app/.env:ro
       # Persist SQLite under ./data on the host. This directory should be
-      # created in advance and owned by the app user (1000:1000).
+      # writable by the container user (BINDERDASH_UID:BINDERDASH_GID, default 1000:1000).
       - ./data:/app/data:rw
-      # Mount the database file as read-write on the host
-      - ./db.sqlite:/app/db.sqlite:rw
       # --- Optional: PAM against host local users (DISABLE BY DEFAULT)
       # Un-comment to let pam_unix see the same accounts as the Docker host. This
       # exposes host passwd/shadow to the container — use only on trusted hosts and
@@ -63,13 +61,15 @@ services:
       retries: 3
       start_period: 40s
     restart: unless-stopped
-    # Security: run as non-root user
-    user: "1000:1000"
+    # Security: run as non-root user. Set BINDERDASH_UID / BINDERDASH_GID in .env
+    # to your own ids (id -u / id -g) so the container can write ./data and read
+    # run directories you own.
+    user: "${BINDERDASH_UID:-1000}:${BINDERDASH_GID:-1000}"
     # --- Required with the PAM mounts above (harmless otherwise, if gid 42 exists)
     # pam_unix shells out to /sbin/unix_chkpwd, which is setgid `shadow` but
     # refuses to use that privilege to check a user other than its caller. A
-    # container running as uid 1000 is therefore always making a cross-user
-    # request, and the helper returns PAM_AUTHINFO_UNAVAIL, which pam_unix
+    # container running as BINDERDASH_UID makes a cross-user request for every
+    # other account, and the helper returns PAM_AUTHINFO_UNAVAIL, which pam_unix
     # reports as an ordinary wrong-password failure. Joining group shadow (gid
     # 42 on Debian/Ubuntu) lets it read /etc/shadow in its own right.
     # group_add:

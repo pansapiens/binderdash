@@ -92,7 +92,10 @@ For a one-off production build, run `pnpm run build` in `frontend/`.
 
 `docker-compose.dev.yml` runs the backend with auto-reload and a separate container that rebuilds the frontend when Vue/TypeScript files change. The project directory is mounted from your filesystem.
 
+Both containers write into that mount (the frontend watcher rebuilds `backend/static/`, the backend writes `data/`), so they should run as your own user. Set `BINDERDASH_UID` and `BINDERDASH_GID` in `.env` first if your uid is not 1000; see [Container user](../setup/docker.md#container-user).
+
 ```bash
+printf 'BINDERDASH_UID=%s\nBINDERDASH_GID=%s\n' "$(id -u)" "$(id -g)" >> .env
 docker compose -f docker-compose.dev.yml up --build
 # App: http://localhost:8001
 

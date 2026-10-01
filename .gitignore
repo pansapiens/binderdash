@@ -27,7 +27,6 @@ prototypes/
 /backend/static/assets/
 /backend/static/index.html
 /backend/data/binderdash.sqlite
-/data/
 db.sqlite
 
 /example_runs

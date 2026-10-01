@@ -43,7 +43,7 @@ For a shared instance, run Binderdash with Docker Compose. It ships with a Caddy
 git clone https://github.com/pansapiens/binderdash.git
 cd binderdash
 cp .env.example .env        # then edit: RUN_BASE_DIRS, DOMAIN and sign-in settings
-mkdir -p data && sudo chown -R 1000:1000 data
+printf 'BINDERDASH_UID=%s\nBINDERDASH_GID=%s\n' "$(id -u)" "$(id -g)" >> .env   # run as you
 docker compose up -d --build
 ```
 

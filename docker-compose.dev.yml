@@ -34,7 +34,9 @@ services:
       retries: 3
       start_period: 40s
     restart: unless-stopped
-    user: "1000:1000"
+    # Set BINDERDASH_UID / BINDERDASH_GID in .env to your own ids; this container
+    # writes into the mounted project directory.
+    user: "${BINDERDASH_UID:-1000}:${BINDERDASH_GID:-1000}"
     deploy:
       resources:
         limits:
@@ -58,7 +60,9 @@ services:
       # Vite + molstar/pdbe-molstar exceeds Node’s default old-space (~1 GiB) in slim containers.
       - NODE_OPTIONS=--max-old-space-size=3072
     restart: unless-stopped
-    user: "1000:1000"
+    # Set BINDERDASH_UID / BINDERDASH_GID in .env to your own ids; this container
+    # writes into the mounted project directory.
+    user: "${BINDERDASH_UID:-1000}:${BINDERDASH_GID:-1000}"
     deploy:
       resources:
         limits:

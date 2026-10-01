@@ -20,9 +20,8 @@ For PAM authentication inside Docker (bind-mounting `/etc/passwd`/`/etc/group`/`
 Before running the containerized application, ensure the directories specified in `RUN_BASE_DIRS` exist and are accessible on the host. They should contain your protein binder design run data; the container mounts them as read-only volumes.
 
 ```bash
-# Example: make directories readable by the container user (UID 1000)
-sudo chown -R 1000:1000 /data/runs /data2/runs
-sudo chmod -R 755 /data/runs /data2/runs
+# Example: make directories readable by the container user (see "Container user" below)
+sudo chmod -R a+rX /data/runs /data2/runs
 ```
 
 ### Environment Configuration
@@ -33,7 +32,13 @@ sudo chmod -R 755 /data/runs /data2/runs
    cp .env.example .env
    ```
 
-2. **Configure your environment variables** in the `.env` file:
+2. **Set the container user** to your own uid and gid (see [Container user](#container-user) for why):
+
+   ```bash
+   printf 'BINDERDASH_UID=%s\nBINDERDASH_GID=%s\n' "$(id -u)" "$(id -g)" >> .env
+   ```
+
+3. **Configure your environment variables** in the `.env` file:
 
    ```bash
    # Required: set the paths to your data directories
@@ -63,12 +68,45 @@ and set `RUN_BASE_DIRS="/data/runs"` in `.env`. Binderdash only reads run folder
 
 ### Database directory
 
-The SQLite database lives under `./data` on the host (mounted at `/app/data`). Create it before the first start and give it to the container user:
+The SQLite database lives under `./data` on the host (mounted at `/app/data`) and is created on first start. The `data/` directory is part of the repository, so it exists after cloning, owned by you.
+
+### Container user
+
+The `binderdash` container never runs as root. It runs as the numeric user and group given by two variables in `.env`:
+
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `BINDERDASH_UID` | User ID the container process runs as | `1000` |
+| `BINDERDASH_GID` | Group ID the container process runs as | `1000` |
+
+Files the container creates in `./data` (the SQLite database and its `-wal`/`-shm` files) are owned by this uid and gid on the host. The same ids need read access to your run directories. Setting them to your own ids means:
+
+- `./data`, which you own after cloning, is writable without a `chown`
+- run directories you can read, the container can read
+- the database files on the host belong to you, so you can back up, copy or delete them without `sudo`
+
+To set them to the user you are logged in as:
 
 ```bash
-mkdir -p data
-sudo chown -R 1000:1000 data
+printf 'BINDERDASH_UID=%s\nBINDERDASH_GID=%s\n' "$(id -u)" "$(id -g)" >> .env
 ```
+
+This writes literal numbers into `.env`, for example `BINDERDASH_UID=1001`. Use numbers, not `$UID`: Compose substitutes variables in `.env` only from its own environment, and bash does not export `UID` and does not define a `GID` variable at all. A `$UID` in `.env` therefore resolves to an empty string, Compose prints a `"UID" variable is not set` warning, and the container falls back to 1000.
+
+Check the result with:
+
+```bash
+docker compose config | grep 'user:'
+```
+
+If you change the ids after the database exists, give `./data` to the new owner and recreate the container (`docker compose restart` keeps the old user):
+
+```bash
+sudo chown -R <uid>:<gid> data
+docker compose up -d
+```
+
+The variables are read by Docker Compose only; the Binderdash backend ignores them. They apply to `docker-compose.dev.yml` too.
 
 ### HTTPS with Caddy
 
@@ -119,7 +157,7 @@ Adjust these in `docker-compose.yml` if needed for your environment.
 
 ## Security Considerations
 
-1. **Non-root user**: the container runs as user ID 1000 (non-root)
+1. **Non-root user**: the container runs as `BINDERDASH_UID`:`BINDERDASH_GID` (default 1000:1000), never root
 2. **Read-only volumes**: data directories are mounted as read-only
 3. **Environment variables**: sensitive configuration is passed via environment variables, not baked into the image
 4. **Network**: only Caddy (ports 80 and 443) is exposed to the host; the Binderdash container listens on port 8000 on the internal Compose network
@@ -128,10 +166,10 @@ Adjust these in `docker-compose.yml` if needed for your environment.
 
 ### Common Issues
 
-1. **Permission denied on data directories**:
+1. **Permission denied on data directories**: the container user (see [Container user](#container-user)) must be able to read the run directories and write `./data`. Either set `BINDERDASH_UID`/`BINDERDASH_GID` to the owner, or make the directories readable:
 
    ```bash
-   sudo chown -R 1000:1000 /data/runs /data2/runs
+   sudo chmod -R a+rX /data/runs /data2/runs
    ```
 
 2. **Container won't start**:
@@ -197,6 +235,8 @@ server {
 | Variable                    | Description                                                       | Default                  | Required |
 | --------------------------- | ------------------------------------------------------------------| ------------------------ | -------- |
 | `RUN_BASE_DIRS`             | Comma-separated list of base directories to scan                  | `/data/runs,/data2/runs` | Yes      |
+| `BINDERDASH_UID`            | Numeric uid the container runs as (see [Container user](#container-user)) | `1000`           | No       |
+| `BINDERDASH_GID`            | Numeric gid the container runs as                                  | `1000`                   | No       |
 | `GOOGLE_AUTH_ALLOWED_USERS` | Comma-separated allowed Google sign-in emails (with Google OAuth)  | Empty                    | No       |
 | `LOCAL_USERS`               | Comma-separated list of local users with bcrypt hashes             | Empty                    | No       |
 | `SECRET_KEY`                | JWT secret key (auto-generated if not provided)                    | Auto-generated           | No       |

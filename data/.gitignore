@@ -1,0 +1,4 @@
+# Keep this directory in git so Docker Compose bind-mounts an existing, user-owned
+# directory (otherwise Docker creates it as root). The database itself is ignored.
+*
+!.gitignore

@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Docs**: README rewritten for users: hero screenshot, feature list, and Desktop / Server getting-started sections. Developer setup moved to `docs/development/setup.md`, with a new `docs/setup/desktop.md` for installing the desktop app. The docs are published to GitHub Pages and versioned with mike (`main` as `latest`, `develop`, and each `vX.Y.Z` tag) by a new `docs` workflow.
+- **Docker**: Removed the unused `./db.sqlite:/app/db.sqlite` volume from `docker-compose.yml`. The database is under the `./data` mount (`DATABASE="sqlite:///data/binderdash.sqlite"`), and when `./db.sqlite` was missing Docker created an empty root-owned directory in its place.
+- **Docker**: `data/` is now kept in git (its contents are ignored by `data/.gitignore`), so after cloning Docker Compose bind-mounts a directory owned by the user instead of creating one as root. The `chown` step is only needed when the host uid is not 1000.
+- **Docker**: The container uid/gid is configurable with `BINDERDASH_UID` / `BINDERDASH_GID` in `.env` (default 1000:1000, also in `docker-compose.dev.yml`). Setting them to the host user's ids removes the need to `chown` `./data` or the run directories.
 
 ## [0.4.1] - 2026-09-30
 
