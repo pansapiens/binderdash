@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        <link rel="canonical" href="https://pansapiens.github.io/binderdash/latest/development/api/">
+        <link rel="shortcut icon" href="../../img/favicon.ico">
+        <title>REST API - Binderdash</title>
+        <link href="../../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../../css/brands.min.css" rel="stylesheet">
+        <link href="../../css/solid.min.css" rel="stylesheet">
+        <link href="../../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../../css/base.css" rel="stylesheet">
+        <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
+        <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <link href="../../css/version-select.css" rel="stylesheet">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+        <script>hljs.highlightAll();</script> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="../..">Binderdash</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item">
+                                <a href="../.." class="nav-link">Home</a>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Getting started</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../setup/desktop/" class="dropdown-item">Desktop app</a>
+</li>
+                                    
+<li>
+    <a href="../../setup/docker/" class="dropdown-item">Docker deployment</a>
+</li>
+                                    
+<li>
+    <a href="../../setup/authentication/" class="dropdown-item">Authentication</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Usage</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../usage/filtering-ranking/" class="dropdown-item">Filtering and ranking</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Development</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../setup/" class="dropdown-item">Development setup</a>
+</li>
+                                    
+<li>
+    <a href="./" class="dropdown-item active" aria-current="page">REST API</a>
+</li>
+                                    
+<li>
+    <a href="../mcp/" class="dropdown-item">MCP server</a>
+</li>
+                                    
+<li>
+    <a href="../pipeline-methods/" class="dropdown-item">Pipeline method types</a>
+</li>
+                                    
+<li>
+    <a href="../sequence_preparation/" class="dropdown-item">Sequence preparation</a>
+</li>
+                                    
+<li>
+    <a href="../storage/" class="dropdown-item">Storage architecture</a>
+</li>
+                                    
+<li>
+    <a href="../download-bundles/" class="dropdown-item">Download bundles</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item">
+                                <a href="https://github.com/pansapiens/binderdash/blob/main/CHANGELOG.md" class="nav-link">Release history</a>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#mkdocs_search_modal">
+                                <i class="fa fa-search"></i> Search
+                            </a>
+                        </li>
+                            <li class="nav-item">
+                                <a rel="prev" href="../setup/" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../mcp/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="https://github.com/pansapiens/binderdash/edit/main/docs/development/api.md" class="nav-link"><i class="fa-brands fa-github"></i> Edit on GitHub</a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#rest-api" class="nav-link">REST API</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#base-url-and-openapi" class="nav-link">Base URL and OpenAPI</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#authentication" class="nav-link">Authentication</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#data-model" class="nav-link">Data model</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#endpoint-reference" class="nav-link">Endpoint reference</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#common-workflows" class="nav-link">Common workflows</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#dna-codon-optimisation" class="nav-link">DNA codon optimisation</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#sequence-tags-client-side-assembly" class="nav-link">Sequence tags (client-side assembly)</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#filtering-ranking-and-diversity-selection" class="nav-link">Filtering, ranking, and diversity selection</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#run-ingestion" class="nav-link">Run ingestion</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#related-documentation" class="nav-link">Related documentation</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="rest-api">REST API<a class="headerlink" href="#rest-api" title="Permanent link">&para;</a></h1>
+<p>Binderdash exposes a FastAPI REST API used by the Vue frontend and by scripts that analyse binder design runs. The same service also serves the built SPA and static assets.</p>
+<p>Pipeline outputs (BindCraft, RFdiffusion, RFdiffusion3, BoltzGen, and others recognised by <a href="https://github.com/pansapiens/binderdash/blob/main/backend/config/run_signatures.py">run signatures</a>) are ingested into SQLite (or Postgres), cached in memory, and returned as JSON. Design rows include every column from the upstream results table plus Binderdash metadata.</p>
+<p>For machine-readable schemas, use the live OpenAPI document on your deployment. This page describes behaviour, authentication, and typical workflows.</p>
+<h2 id="base-url-and-openapi">Base URL and OpenAPI<a class="headerlink" href="#base-url-and-openapi" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Environment</th>
+<th>Typical base URL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Production</td>
+<td><code>https://binderdash.knottlab.cloud.edu.au</code></td>
+</tr>
+<tr>
+<td>Docker dev (<code>docker-compose.dev.yml</code>)</td>
+<td><code>http://localhost:8911</code> (host port → container <code>8000</code>)</td>
+</tr>
+<tr>
+<td>Local uvicorn</td>
+<td><code>http://localhost:8000</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Resource</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Swagger UI</td>
+<td><code>/docs</code></td>
+</tr>
+<tr>
+<td>ReDoc</td>
+<td><code>/redoc</code></td>
+</tr>
+<tr>
+<td>OpenAPI JSON</td>
+<td><code>/openapi.json</code></td>
+</tr>
+<tr>
+<td>Health (no auth)</td>
+<td><code>/health</code> → <code>{"status": "healthy", "timestamp": "..."}</code></td>
+</tr>
+</tbody>
+</table>
+<p>Treat <strong><code>/openapi.json</code> as authoritative</strong> for request and response shapes. The examples below cover common cases; new fields or routes may appear only in the spec.</p>
+<h2 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h2>
+<p>Protected routes require credentials unless <code>DISABLE_AUTHENTICATION=true</code> (all endpoints public). Discover what is enabled:</p>
+<pre><code class="language-http">GET /api/auth/status
+</code></pre>
+<p>Response includes <code>auth_disabled</code> and <code>providers</code> (<code>local</code>, <code>pam</code>, <code>google</code>) plus a top-level <code>api_keys: {enabled, reason}</code> (<code>reason</code> is <code>null</code>, <code>"auth_disabled"</code>, or <code>"persistence_disabled"</code>).</p>
+<p>Configure auth via <code>.env</code> (see <code>.env.example</code>). Relevant variables:</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DISABLE_AUTHENTICATION</code></td>
+<td>When <code>true</code>, skip all auth and CSRF checks</td>
+</tr>
+<tr>
+<td><code>LOCAL_USERS</code></td>
+<td><code>user:bcrypt_hash,...</code> for <code>POST /api/auth/login</code></td>
+</tr>
+<tr>
+<td><code>PAM_LOCAL_*</code></td>
+<td>Optional Unix PAM after local users</td>
+</tr>
+<tr>
+<td><code>PAM_GECOS_EMAIL</code></td>
+<td>When <code>true</code>, resolve a PAM user's email from the GECOS "other" (5th) field only</td>
+</tr>
+<tr>
+<td><code>GOOGLE_AUTH_*</code></td>
+<td>Optional Google OAuth</td>
+</tr>
+<tr>
+<td><code>SECRET_KEY</code></td>
+<td>JWT signing for session cookies</td>
+</tr>
+<tr>
+<td><code>BINDERDASH_ADMIN_USERS</code></td>
+<td>Comma-separated allowlist (email, <code>provider:identifier</code>, or bare username) granting admin; re-applied at every startup and login</td>
+</tr>
+<tr>
+<td><code>DATABASE</code></td>
+<td>Required for per-user API keys to exist at all — they live in the DB</td>
+</tr>
+</tbody>
+</table>
+<h3 id="api-key-scripts-and-automation">API key (scripts and automation)<a class="headerlink" href="#api-key-scripts-and-automation" title="Permanent link">&para;</a></h3>
+<p>API keys are <strong>per-user, named, expiring, and revocable</strong> — there is no single shared server secret. Get one from the web UI (account menu, top-right → "API keys") or via CLI:</p>
+<pre><code class="language-bash">python -m backend.cli user create --email you@example.org --admin
+python -m backend.cli key create you@example.org --name bootstrap
+</code></pre>
+<p>The token is printed to stdout alone (a warning goes to stderr) and shown only once — the server stores a SHA-256 hash, not the plaintext. Keys require <code>DATABASE</code>; with no persistence, key endpoints return <code>503</code>.</p>
+<p>Once you have a token, send it on <strong>every</strong> request, including <code>POST</code> / <code>PATCH</code> / <code>DELETE</code>. No session cookie or CSRF header is required.</p>
+<p>Supported headers (either is fine):</p>
+<ul>
+<li><code>Authorization: Bearer &lt;token&gt;</code></li>
+<li><code>X-Binderdash-Api-Key: &lt;token&gt;</code></li>
+</ul>
+<pre><code class="language-bash">export BINDERDASH_TOKEN='&lt;token from `key create`&gt;'
+export BASE='https://binderdash.knottlab.cloud.edu.au'
+
+curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; &quot;$BASE/api/runs&quot;
+</code></pre>
+<p><code>GET /api/auth/status</code> reports <code>api_keys.enabled: true</code> when keys are usable (auth is enabled and <code>DATABASE</code> is configured). Invalid, expired, or missing keys receive <code>401 Authentication required</code>.</p>
+<p>Keys are managed via <code>GET/POST /api/api-keys</code> and <code>PATCH/DELETE /api/api-keys/{id}</code> — but only with a <strong>browser session</strong>; an API-key-authenticated request to those routes gets <code>403</code> (a leaked key must not be able to mint its own replacement). <code>GET /api/users</code> is admin-only, session-only. Do not commit keys to the repository.</p>
+<h3 id="browser-session-spa">Browser session (SPA)<a class="headerlink" href="#browser-session-spa" title="Permanent link">&para;</a></h3>
+<p>For interactive login (also required to create or manage API keys):</p>
+<ol>
+<li><strong><code>POST /api/auth/login</code></strong> — body <code>{"username": "...", "password": "..."}</code>. Sets an HTTP-only session cookie and returns <code>csrf_token</code> and <code>user</code>.</li>
+<li><strong>CSRF</strong> — state-changing methods (<code>POST</code>, <code>PUT</code>, <code>PATCH</code>, <code>DELETE</code>) must send header <code>X-CSRF-Token</code> matching the <code>binderdash_csrf</code> cookie. <code>GET</code> / <code>HEAD</code> / <code>OPTIONS</code> are exempt. Failure → <code>403</code> with plain text <code>CSRF token missing</code> or <code>CSRF token mismatch</code>.</li>
+<li><strong><code>POST /api/auth/logout</code></strong> — clears session and CSRF cookies.</li>
+</ol>
+<p>Google OAuth: <code>GET /api/auth/google/login</code> and <code>GET /api/auth/google/callback</code> (browser redirect flow).</p>
+<p><strong><code>GET /api/auth/me</code></strong> — current user; requires a session cookie (API key alone is not accepted here — deliberately, see <code>backend/auth.py</code>). Returns <code>username</code>, <code>provider</code>, <code>email</code>, <code>display_name</code>, <code>picture_url</code>, <code>user_id</code>, <code>is_admin</code>, <code>auth_method</code>, <code>last_login_at</code>. The login response (<code>POST /api/auth/login</code>, and the Google callback) returns the same shape under <code>user</code>.</p>
+<h3 id="user-model">User model<a class="headerlink" href="#user-model" title="Permanent link">&para;</a></h3>
+<p>A <strong>user</strong> is a person; an <strong>identity</strong> is one login method, <code>(provider, identifier)</code> — e.g. <code>local:alice</code>, <code>google:alice@example.org</code>, <code>pam:alice</code>. Identities merge onto the same user only when they share a <strong>verified email</strong>; users are auto-created on first login. <code>BINDERDASH_ADMIN_USERS</code> (comma-separated; matches email, <code>provider:identifier</code>, or bare username — no <code>*</code> wildcard) grants <code>is_admin</code> and is re-applied at every startup and login, so admin status set only via the CLI (<code>user set-admin</code>) will not stick unless the user is also listed there.</p>
+<h2 id="data-model">Data model<a class="headerlink" href="#data-model" title="Permanent link">&para;</a></h2>
+<p>There is no separate “project” resource. Entities relate as follows:</p>
+<pre><code class="language-mermaid">flowchart LR
+  Project[&quot;project_id\n(from path)&quot;]
+  Run[&quot;Run\nrun_id UUID&quot;]
+  Design[&quot;Design\nflat JSON row&quot;]
+  Project --&gt; Run
+  Run --&gt; Design
+</code></pre>
+<h3 id="project">Project<a class="headerlink" href="#project" title="Permanent link">&para;</a></h3>
+<p>Logical grouping identified by <code>project_id</code>, inferred from directory structure when runs are scanned. List projects by grouping <code>GET /api/runs</code> results on <code>project_id</code>.</p>
+<h3 id="run">Run<a class="headerlink" href="#run" title="Permanent link">&para;</a></h3>
+<p>One pipeline execution. Key fields:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>run_id</code></td>
+<td>Stable UUID (assigned at ingest)</td>
+</tr>
+<tr>
+<td><code>project_id</code></td>
+<td>Project name</td>
+</tr>
+<tr>
+<td><code>method</code></td>
+<td><code>bindcraft</code>, <code>rfd</code>, <code>rfd3</code>, <code>boltzgen</code>, …</td>
+</tr>
+<tr>
+<td><code>path</code></td>
+<td>Filesystem path at ingest</td>
+</tr>
+<tr>
+<td><code>metadata.name</code></td>
+<td>Display name</td>
+</tr>
+<tr>
+<td><code>metadata.pdb_count</code></td>
+<td>Structure file count</td>
+</tr>
+<tr>
+<td><code>metadata.trajectory_count</code></td>
+<td>Trajectory / design count where available</td>
+</tr>
+<tr>
+<td><code>metadata.primary_score_stats</code></td>
+<td>Summary stats for the method’s primary score column</td>
+</tr>
+<tr>
+<td><code>metadata.merged_count</code></td>
+<td>Present when multiple paths merged under one name</td>
+</tr>
+</tbody>
+</table>
+<p>Runs with the same <code>project_id</code> and <code>metadata.name</code> may be merged; see <code>merged_paths</code> in stored run JSON.</p>
+<h3 id="design">Design<a class="headerlink" href="#design" title="Permanent link">&para;</a></h3>
+<p>One row from the run’s results table, plus Binderdash fields. Each design is a <strong>flat JSON object</strong>: all upstream table columns are copied in, so column names depend on the pipeline (e.g. BindCraft <code>Average_i_pTM</code>, RFD3 <code>iptm</code>, <code>rf3_ipsae_min</code>).</p>
+<p>Common Binderdash fields:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>design_id</code></td>
+<td>Primary identifier from results table</td>
+</tr>
+<tr>
+<td><code>backbone_id</code></td>
+<td><code>design_id</code> with MPNN / AF2 suffixes removed</td>
+</tr>
+<tr>
+<td><code>run_id</code>, <code>project_id</code>, <code>run_name</code>, <code>method</code>, <code>run_path</code></td>
+<td>Run context</td>
+</tr>
+<tr>
+<td><code>pdb_file</code></td>
+<td>Structure basename (not full path)</td>
+</tr>
+<tr>
+<td><code>source_path</code></td>
+<td>Distinguishes rows when runs are merged</td>
+</tr>
+<tr>
+<td><code>good</code></td>
+<td>User flag (boolean)</td>
+</tr>
+<tr>
+<td><code>tag</code></td>
+<td><code>"N"</code> or <code>"C"</code> — which terminus receives preset tags in Prepare Sequences</td>
+</tr>
+<tr>
+<td><code>Sequence</code></td>
+<td>Binder amino-acid sequence (stored in <strong><code>extra_data</code></strong>; extract / tag-placement)</td>
+</tr>
+<tr>
+<td><code>binder_chain</code></td>
+<td>Chain ID used for sequence extract (default <code>B</code>)</td>
+</tr>
+<tr>
+<td><code>short_name</code></td>
+<td>Twist / vendor short identifier (≤32 chars)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Persistence:</strong> Pipeline columns from the on-disk results table are stored in <strong><code>data_json</code></strong> and replaced on re-ingest. User annotations (uploaded table columns, extracted sequence, plugins) live in <strong><code>extra_data</code></strong> and are preserved across re-ingest. The API returns a single flat dict: <code>{**data_json, **extra_data}</code> plus dedicated columns.</p>
+<p>The in-memory designs list is sorted by each method’s primary score (see table below). Client-side filtering and re-sorting are normal.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Primary score columns (first match used)</th>
+<th>Default sort in cache</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bindcraft</code></td>
+<td><code>Average_i_pTM</code></td>
+<td>ascending</td>
+</tr>
+<tr>
+<td><code>rfd</code></td>
+<td><code>pae_interaction</code></td>
+<td>ascending</td>
+</tr>
+<tr>
+<td><code>boltzgen</code></td>
+<td><code>design_to_target_iptm</code></td>
+<td>descending</td>
+</tr>
+<tr>
+<td><code>rfd3</code></td>
+<td><code>iptm</code>, <code>pair_pae</code>, <code>rf3_ipsae_min</code>, <code>rf3_rmsd_target_aligned_binder_rmsd_all</code></td>
+<td>descending</td>
+</tr>
+</tbody>
+</table>
+<p>For BindCraft, ascending <code>Average_i_pTM</code> means lower values sort first in the API cache; re-sort client-side if “higher is better” for your analysis.</p>
+<h2 id="endpoint-reference">Endpoint reference<a class="headerlink" href="#endpoint-reference" title="Permanent link">&para;</a></h2>
+<h3 id="auth">Auth<a class="headerlink" href="#auth" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/auth/login</code></td>
+<td>Username/password login</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/auth/logout</code></td>
+<td>End session</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/auth/me</code></td>
+<td>Current user</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/auth/status</code></td>
+<td>Auth configuration (public)</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/auth/google/login</code></td>
+<td>Start Google OAuth</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/auth/google/callback</code></td>
+<td>OAuth callback</td>
+</tr>
+</tbody>
+</table>
+<h3 id="runs">Runs<a class="headerlink" href="#runs" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/runs</code></td>
+<td>List ingested runs (memory cache)</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/runs/{run_id}/table</code></td>
+<td>Raw results table: <code>columns</code>, <code>data</code>, <code>total_rows</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/runs/{run_id}/input-targets</code></td>
+<td>Input / target structures for reference overlay</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/runs/scan</code></td>
+<td>Discover runs under <code>folders</code> (see ingestion)</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/runs/ingest-preview</code></td>
+<td>Which scanned runs already exist in DB</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/runs/ingest</code></td>
+<td>Persist runs and designs to database</td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/runs/{run_id}</code></td>
+<td>Remove one run from DB and cache</td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/runs</code></td>
+<td>Clear all runs</td>
+</tr>
+</tbody>
+</table>
+<h3 id="designs">Designs<a class="headerlink" href="#designs" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/designs</code></td>
+<td>All designs; optional <code>?run_ids=id1,id2</code>; optional <code>?format=tsv</code> (default <code>json</code>); optional <code>?download_token=</code> (short-lived JWT scoped to one run + format; substitutes for Bearer/session)</td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/designs</code></td>
+<td>Clear designs cache only</td>
+</tr>
+<tr>
+<td><code>PATCH</code></td>
+<td><code>/api/designs/good</code></td>
+<td>Set or clear ★ flag</td>
+</tr>
+<tr>
+<td><code>PATCH</code></td>
+<td><code>/api/designs/tag</code></td>
+<td>Set <code>tag</code> to <code>N</code>, <code>C</code>, or clear</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/designs/short-names</code></td>
+<td>Bulk-update <code>short_name</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/designs/sequences</code></td>
+<td>Extract binder sequence from PDB</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/designs/tag-metrics</code></td>
+<td>SASA / contact metrics (optional cache)</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/designs/tag-placement</code></td>
+<td>Predict and persist <code>tag</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/designs/refresh-cache</code></td>
+<td>Reload designs cache from DB</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/designs/merge-table</code></td>
+<td>Merge CSV/TSV columns into <code>extra_data</code> (multipart: <code>file</code>, <code>run_ids</code>, optional <code>preview</code>, <code>design_id_column</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Merge table:</strong> Only adds keys not already present in <code>data_json</code> or <code>extra_data</code> for each matched row. Match on <code>design_id</code> (and <code>source_path</code> when the upload includes that column). <code>preview=true</code> returns counts without writing.</p>
+<h3 id="structure-files">Structure files<a class="headerlink" href="#structure-files" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/runs/{run_id}/files/structure/{filename}</code></td>
+<td>PDB or mmCIF (<code>.gz</code> decompressed)</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/runs/{run_id}/files/pdb/{filename}</code></td>
+<td>Legacy alias of structure route</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/runs/{run_id}/files/reference</code></td>
+<td>TM-aligned reference mmCIF (query params below)</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/pdbs/tar</code></td>
+<td>Stream tar of multiple structures</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Reference overlay query parameters:</strong> <code>align_filename</code> (design structure basename), <code>mode</code> (<code>manual</code> or <code>input_target</code>), <code>source</code> (PDB ID or URL when <code>manual</code>), <code>input_target_id</code> (when <code>input_target</code>), optional <code>reference_chains</code> (comma/space-separated). Response headers include <code>X-Binderdash-TM-Norm-Design</code>, <code>X-Binderdash-RMSD</code>, <code>X-Binderdash-Aligned-Length</code>, and optional membrane plane headers.</p>
+<p><strong>Tar request body:</strong> <code>{ "items": [ { "run_id": "...", "filename": "..." }, ... ] }</code>. Archive paths: <code>{project_id}/{run_name}/{filename}</code>.</p>
+<h3 id="sequences-dna-optimisation">Sequences (DNA optimisation)<a class="headerlink" href="#sequences-dna-optimisation" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/sequences/codon-tables</code></td>
+<td>List codon table IDs and labels</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/sequences/codon-tables/{table_id}</code></td>
+<td>Frequencies and stop codons</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/sequences/optimize-dna</code></td>
+<td>Batch codon optimisation (DnaChisel)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="plots-spa">Plots (SPA)<a class="headerlink" href="#plots-spa" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/runs/plots/columns</code></td>
+<td>Numeric columns and default x/y across runs</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/runs/plots/scatter</code></td>
+<td>Combined scatter data</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/runs/plots/histogram</code></td>
+<td>Combined histogram data</td>
+</tr>
+</tbody>
+</table>
+<p>For custom analysis, prefer <code>GET /api/designs</code> or <code>GET /api/runs/{run_id}/table</code> and plot in Python or R; these plot routes mainly exist for the UI.</p>
+<h3 id="filtering">Filtering<a class="headerlink" href="#filtering" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/filtering/columns</code></td>
+<td>Filterable columns (numeric metrics + <code>design_id</code>/<code>project_id</code>/<code>run_name</code>/<code>method</code>/<code>Sequence</code>) for a run scope</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/filtering/preview</code></td>
+<td>Sequential filter cascade: designs remaining after each stage</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/filtering/apply</code></td>
+<td>Hard filters only — passing design keys, debounced for live table narrowing</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/filtering/rank</code></td>
+<td>Filters + ranking (boltzgen "Algorithm 2" worst-case rank), no diversity selection, not persisted</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/filtering/diversity</code></td>
+<td>Full filter → rank → diversity pipeline, not persisted</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/filtering/run</code></td>
+<td>Full pipeline, persisted as a new Saved Set</td>
+</tr>
+</tbody>
+</table>
+<h3 id="saved-sets">Saved Sets<a class="headerlink" href="#saved-sets" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/saved-sets</code></td>
+<td>List all saved sets</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/saved-sets/{id}</code></td>
+<td>One saved set's metadata</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/saved-sets/{id}/designs</code></td>
+<td>Full ranked design table for the set (see below)</td>
+</tr>
+<tr>
+<td><code>PATCH</code></td>
+<td><code>/api/saved-sets/{id}</code></td>
+<td>Rename (the only allowed mutation — sets are otherwise immutable snapshots)</td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/saved-sets/{id}</code></td>
+<td>Delete</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/saved-sets/{id}/download</code></td>
+<td>ZIP: the standard <a href="../download-bundles/">design bundle</a> — ranked rows, structures, and the UI state the set was saved with</td>
+</tr>
+</tbody>
+</table>
+<h3 id="download-bundles">Download bundles<a class="headerlink" href="#download-bundles" title="Permanent link">&para;</a></h3>
+<p>One zip carrying the data plus the UI state that produced it. See
+<a href="../download-bundles/">Download bundles</a> for the member list and the JSON schema contract.
+Requests carry design <strong>keys</strong>, not rows — the server re-reads each design from its cache.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/bundles/estimate</code></td>
+<td>Pre-flight counts and byte sizes; stats structure files without reading them</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/bundles/designs</code></td>
+<td>The designs bundle (zip)</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/bundles/prepare-sequences</code></td>
+<td>Superset bundle adding construct sequences and the Prepare Sequences settings</td>
+</tr>
+</tbody>
+</table>
+<p>Returns <code>413</code> with the measured estimate when a request exceeds the configured caps, and
+<code>507</code> when there is not enough scratch space to assemble the archive.</p>
+<h3 id="administration">Administration<a class="headerlink" href="#administration" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/tree</code></td>
+<td>Browse <code>RUN_BASE_DIRS</code> for ingest UI (<code>?path=</code> optional)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="common-workflows">Common workflows<a class="headerlink" href="#common-workflows" title="Permanent link">&para;</a></h2>
+<h3 id="list-runs">List runs<a class="headerlink" href="#list-runs" title="Permanent link">&para;</a></h3>
+<pre><code class="language-bash">curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; &quot;$BASE/api/runs&quot; \
+  | jq '.runs[] | {run_id, project_id, name: .metadata.name, method}'
+</code></pre>
+<h3 id="designs-for-a-project-sorted-by-score-as-tsv">Designs for a project, sorted by score, as TSV<a class="headerlink" href="#designs-for-a-project-sorted-by-score-as-tsv" title="Permanent link">&para;</a></h3>
+<p>Filtering and sorting are client-side. Only <code>run_ids</code> is supported server-side.</p>
+<pre><code class="language-bash">proj=&quot;my_project&quot;
+runs=$(curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; &quot;$BASE/api/runs&quot; \
+  | jq -r --arg p &quot;$proj&quot; '.runs[] | select(.project_id==$p) | .run_id' | paste -sd,)
+
+curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; \
+  &quot;$BASE/api/designs?run_ids=$runs&quot; \
+  | jq -r '
+      .designs
+      | sort_by(-(.iptm // -1e30))
+      | ([&quot;design_id&quot;,&quot;run_name&quot;,&quot;iptm&quot;,&quot;pdb_file&quot;,&quot;good&quot;] | @tsv),
+        (.[] | [.design_id, .run_name, .iptm, .pdb_file, .good] | @tsv)
+    '
+</code></pre>
+<p>Use <code>sort_by(.pae_interaction // 1e30)</code> for ascending metrics. Export CSV with <code>@csv</code> instead of <code>@tsv</code>.</p>
+<h3 id="download-one-structure">Download one structure<a class="headerlink" href="#download-one-structure" title="Permanent link">&para;</a></h3>
+<pre><code class="language-bash">run_id=&quot;...&quot;
+filename=&quot;design_model.cif&quot;   # from design.pdb_file
+curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; \
+  -o &quot;${filename}&quot; \
+  &quot;$BASE/api/runs/${run_id}/files/structure/$(python3 -c &quot;import urllib.parse; print(urllib.parse.quote('$filename'))&quot;)&quot;
+</code></pre>
+<h3 id="bulk-download-structures-as-tar">Bulk download structures as tar<a class="headerlink" href="#bulk-download-structures-as-tar" title="Permanent link">&para;</a></h3>
+<pre><code class="language-bash">items=$(curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; \
+  &quot;$BASE/api/designs?run_ids=$runs&quot; \
+  | jq '[.designs[] | select(.good==true) | {run_id, filename: .pdb_file}]')
+
+curl -sS -H &quot;Authorization: Bearer $BINDERDASH_TOKEN&quot; \
+  -H 'Content-Type: application/json' \
+  -X POST &quot;$BASE/api/pdbs/tar&quot; \
+  -d &quot;$(jq -n --argjson items &quot;$items&quot; '{items:$items}')&quot; \
+  -o designs.tar
+</code></pre>
+<h2 id="dna-codon-optimisation">DNA codon optimisation<a class="headerlink" href="#dna-codon-optimisation" title="Permanent link">&para;</a></h2>
+<p><code>POST /api/sequences/optimize-dna</code> back-translates and optimises protein sequences using <a href="https://edinburgh-genome-foundry.github.io/DnaChisel/">DnaChisel</a> and <a href="https://github.com/Edinburgh-Genome-Foundry/codon-usage-tables">python_codon_tables</a>.</p>
+<p><strong>Request body:</strong></p>
+<pre><code class="language-json">{
+  &quot;sequences&quot;: { &quot;design_id_1&quot;: &quot;MAEK...&quot;, &quot;design_id_2&quot;: &quot;MGSS...&quot; },
+  &quot;codon_table_id&quot;: &quot;e_coli_316407&quot;,
+  &quot;method&quot;: &quot;match_codon_usage&quot;,
+  &quot;constraints&quot;: [
+    { &quot;type&quot;: &quot;EnforceGCContent&quot;, &quot;enabled&quot;: true, &quot;params&quot;: { &quot;mini&quot;: 0.25, &quot;maxi&quot;: 0.64 } }
+  ],
+  &quot;fixed&quot;: { &quot;design_id_1&quot;: [false, false, false, true] }
+}
+</code></pre>
+<p>Optional <code>fixed</code> maps each <code>design_id</code> to a per-residue boolean array the same length as that protein. Residues marked <code>true</code> must be stops (<code>*</code>, frozen as <strong>TAA</strong>) or a leading Met (<code>M</code>, frozen as <strong>ATG</strong>), and are excluded from codon optimisation and from user constraints. When a design id is omitted from <code>fixed</code> (or <code>fixed</code> is omitted entirely), every <code>*</code> in that protein is treated as fixed.</p>
+<h3 id="codon-tables">Codon tables<a class="headerlink" href="#codon-tables" title="Permanent link">&para;</a></h3>
+<p><code>GET /api/sequences/codon-tables</code> returns <code>{ "items": [ { "value", "label" }, ... ] }</code>.</p>
+<p><code>GET /api/sequences/codon-tables/{table_id}</code> returns <code>value</code>, <code>label</code>, <code>stop_codons</code>, and <code>codons_by_aa</code> (amino acid → codon → frequency).</p>
+<p>Common <code>codon_table_id</code> values:</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Organism</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>e_coli_316407</code></td>
+<td><em>E. coli</em> K-12 (default in UI)</td>
+</tr>
+<tr>
+<td><code>s_cerevisiae_4932</code></td>
+<td><em>S. cerevisiae</em></td>
+</tr>
+<tr>
+<td><code>h_sapiens_9606</code></td>
+<td>Human</td>
+</tr>
+<tr>
+<td><code>c_griseus_10029</code></td>
+<td>CHO (<em>C. griseus</em>)</td>
+</tr>
+<tr>
+<td><code>p_pastoris_4922</code></td>
+<td><em>P. pastoris</em></td>
+</tr>
+</tbody>
+</table>
+<h3 id="optimisation-method">Optimisation <code>method</code><a class="headerlink" href="#optimisation-method" title="Permanent link">&para;</a></h3>
+<p>Passed to DnaChisel <code>CodonOptimize</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>match_codon_usage</code></td>
+<td>Match host codon usage (recommended)</td>
+</tr>
+<tr>
+<td><code>use_best_codon</code></td>
+<td>Highest-frequency codon per AA (can conflict with k-mer uniqueness)</td>
+</tr>
+<tr>
+<td><code>harmonize_rca</code></td>
+<td>Preserve relative adaptiveness when changing hosts</td>
+</tr>
+</tbody>
+</table>
+<h3 id="constraints">Constraints<a class="headerlink" href="#constraints" title="Permanent link">&para;</a></h3>
+<p>Each constraint: <code>{ "type": "&lt;name&gt;", "enabled": true, "params": { ... } }</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Parameters</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EnforceGCContent</code></td>
+<td><code>mini</code>, <code>maxi</code> (0–1); optional <code>window</code> for local GC</td>
+</tr>
+<tr>
+<td><code>AvoidHairpins</code></td>
+<td><code>stem_size</code>, <code>hairpin_window</code></td>
+</tr>
+<tr>
+<td><code>AvoidPattern</code></td>
+<td><code>pattern</code>: literal string, <code>RepeatedKmerPattern</code>, or <code>"EnzymeName_site"</code> (e.g. <code>"BsaI_site"</code>)</td>
+</tr>
+<tr>
+<td><code>AvoidRareCodons</code></td>
+<td><code>min_frequency</code>; species injected from <code>codon_table_id</code></td>
+</tr>
+<tr>
+<td><code>UniquifyAllKmers</code></td>
+<td><code>k</code> (e.g. 12)</td>
+</tr>
+</tbody>
+</table>
+<p><code>EnforceTranslation</code> is always applied by the server; do not send it.</p>
+<p>The Prepare Sequences UI uses a Twist-oriented default set (<code>DEFAULT_TWIST_CONSTRAINTS</code> in <code>frontend/src/stores/seqPrep.ts</code>). The UI-only type <code>ExcludeRestrictionSite</code> with <code>params.enzyme</code> is serialised to <code>AvoidPattern</code> with <code>pattern: "&lt;enzyme&gt;_site"</code> before POST.</p>
+<h3 id="optimisation-response">Optimisation response<a class="headerlink" href="#optimisation-response" title="Permanent link">&para;</a></h3>
+<pre><code class="language-json">{
+  &quot;results&quot;: [
+    { &quot;design_id&quot;: &quot;d1&quot;, &quot;optimized_dna&quot;: &quot;ATG...&quot;, &quot;error&quot;: null },
+    { &quot;design_id&quot;: &quot;d2&quot;, &quot;optimized_dna&quot;: null, &quot;error&quot;: &quot;Constraints could not be resolved (No solution found).&quot; }
+  ],
+  &quot;elapsed_seconds&quot;: 2.31
+}
+</code></pre>
+<p>Failures are per design. DnaChisel's constraint search is stochastic, so a design that fails with "No solution found" is optimised again from the same starting sequence, up to five attempts, before that error is returned. Other errors are returned on the first failure. If many rows still fail, relax <code>UniquifyAllKmers</code> or windowed <code>EnforceGCContent</code> first.</p>
+<h2 id="sequence-tags-client-side-assembly">Sequence tags (client-side assembly)<a class="headerlink" href="#sequence-tags-client-side-assembly" title="Permanent link">&para;</a></h2>
+<p>Preset tag <strong>amino-acid sequences</strong> are not stored as DNA on the server. The API stores only which terminus is active (<code>tag</code>: <code>"N"</code> or <code>"C"</code>). Full construct assembly matches the Prepare Sequences tab (<code>frontend/src/stores/seqPrep.ts</code>).</p>
+<h3 id="preset-sequences">Preset sequences<a class="headerlink" href="#preset-sequences" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Preset</th>
+<th>Sequence</th>
+<th>Terminus</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>His-N</td>
+<td><code>HHHHHHSG</code></td>
+<td>N only</td>
+</tr>
+<tr>
+<td>His-C</td>
+<td><code>GSHHHHHH</code></td>
+<td>C only</td>
+</tr>
+<tr>
+<td>FLAG</td>
+<td><code>DYKDDDDK</code></td>
+<td>N or C</td>
+</tr>
+<tr>
+<td>cMyc</td>
+<td><code>EQKLISEEDL</code></td>
+<td>N or C</td>
+</tr>
+<tr>
+<td>HA</td>
+<td><code>YPYDVPDYA</code></td>
+<td>N or C</td>
+</tr>
+<tr>
+<td>AviTag</td>
+<td><code>GLNDIFEAQKIEWHE</code></td>
+<td>N or C</td>
+</tr>
+<tr>
+<td>Strep-tag II</td>
+<td><code>WSHPQFEK</code></td>
+<td>N or C</td>
+</tr>
+<tr>
+<td>C-tag</td>
+<td><code>EPEA</code></td>
+<td>C only</td>
+</tr>
+<tr>
+<td>G4S linker</td>
+<td><code>GGGGS</code></td>
+<td>N or C</td>
+</tr>
+<tr>
+<td>STOP*</td>
+<td><code>*</code></td>
+<td>N or C</td>
+</tr>
+</tbody>
+</table>
+<h3 id="assembly-order">Assembly order<a class="headerlink" href="#assembly-order" title="Permanent link">&para;</a></h3>
+<p>For binder sequence <code>core</code> (from <code>Sequence</code>, trailing <code>*</code> removed) and <code>tag</code>:</p>
+<pre><code>[N-terminal prefix] [N-terminal tags if tag==&quot;N&quot;] core [C-terminal tags if tag==&quot;C&quot;] [C-terminal suffix] [optional *]
+</code></pre>
+<p>Workflow for a C-terminal His tag:</p>
+<ol>
+<li>Ensure <code>Sequence</code> is set (<code>POST /api/designs/sequences</code> if missing).</li>
+<li><code>PATCH /api/designs/tag</code> with <code>"tag": "C"</code>.</li>
+<li>Build <code>prepared_aa = core + "GSHHHHHH" + ("*" if including stop)</code>.</li>
+<li><code>POST /api/sequences/optimize-dna</code> with <code>sequences: { design_id: prepared_aa }</code>. Stops (<code>*</code>) are frozen as TAA; pass an optional <code>fixed</code> boolean array per design to mark which residues stay fixed.</li>
+</ol>
+<p>Use <code>POST /api/designs/tag-placement</code> to let the server choose N vs C from structure SASA and contacts.</p>
+<p>Further UI behaviour (post-stop padding, short names, mixed-case sequences) is documented in <a href="../sequence_preparation/">Sequence preparation</a>.</p>
+<h2 id="filtering-ranking-and-diversity-selection">Filtering, ranking, and diversity selection<a class="headerlink" href="#filtering-ranking-and-diversity-selection" title="Permanent link">&para;</a></h2>
+<p>Run scope for every <code>/api/filtering/*</code> call is an explicit <code>run_ids</code> list — there is no server-side "currently selected" state. How the Filtering tab uses these stages, including the BoltzGen-style weighted ranking, is described in <a href="../../usage/filtering-ranking/">Filtering and ranking</a>. The pipeline has three independent stages, each individually reachable:</p>
+<ol>
+<li><strong>Hard filters</strong> (<code>FilterSpec</code>) — <code>{ "column": "...", "operator": "...", "threshold": &lt;number|null&gt;, "text_value": &lt;string|null&gt; }</code>. <code>column</code> accepts a canonical metric name (see <code>backend/filtering/metrics.py</code>, e.g. <code>iptm</code>, <code>rmsd</code>, <code>pae_interaction</code>) resolved per-method, a raw column name, or one of the identity columns <code>design_id</code>/<code>project_id</code>/<code>run_name</code>/<code>method</code>/<code>Sequence</code>. Numeric operators <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code> take <code>threshold</code>; string operators <code>contains</code>, <code>not_contains</code>, <code>starts_with</code>, <code>ends_with</code>, <code>equals</code>, <code>not_equals</code>, <code>regex</code> take <code>text_value</code>; <code>is_empty</code>/<code>is_not_empty</code> take neither.</li>
+<li><strong>Ranking</strong> (<code>RankingMetric</code>) — <code>{ "column": "...", "weight": 1.0, "higher_is_better": true }</code>, plus <code>ranking_mode</code>. <code>worst_rank</code> (the default when the field is omitted, so older clients stay on boltzgen Algorithm 2) scales each design's rank on every metric by <code>1/weight</code> and takes the <em>worst</em> (max) scaled rank. <code>simple</code> sorts lexicographically: more filters passed first, then the metrics in list order, and <code>weight</code> is ignored. Either way <code>num_filters_passed</code> is folded into the sort and failing designs are <strong>not dropped</strong> — <code>ranked</code> always covers every input design. The Filtering tab sends <code>simple</code> by default.</li>
+<li><strong>Diversity selection</strong> (<code>select_diverse</code>) — lazy-greedy selection over binder sequence similarity + <code>quality_score</code>, controlled by <code>budget</code> (final set size), <code>alpha</code> (0 = quality only, 1 = diversity only), and optional <code>size_buckets</code> (<code>{"min", "max", "num_designs"}</code>, caps selections per sequence-length range). <strong>Only designs that passed every hard filter are eligible</strong> — a design failing a filter can never end up in the diverse/saved set, however small <code>passing_filters</code> is relative to <code>budget</code>. <code>best_mpnn_only</code> (default false) first keeps one design per <code>backbone_id</code> (best primary score; designs with no backbone are kept) so the budget is not spent on MPNN variants of the same backbone. It applies only when diversity selection runs.</li>
+</ol>
+<p><code>POST /api/filtering/run</code> body is <code>FilteringRunRequest</code>: <code>name</code>, <code>run_ids</code>, <code>filters</code>, <code>metrics</code>, <code>budget</code> (default 24), <code>alpha</code> (default 0 — quality only; BoltzGen uses 0.001 for proteins and 0.01 for its peptide-anything protocol), <code>size_buckets</code>, <code>random_state</code>, <code>apply_diversity</code> (default true — when false, the saved set is every design that passed the hard filters and <code>budget</code>/<code>alpha</code> are ignored for selection), <code>best_mpnn_only</code> (default false; see stage 3). <code>POST /api/filtering/diversity</code> accepts the same selection fields without persisting a set. Response:</p>
+<pre><code class="language-json">{
+  &quot;saved_set_id&quot;: &quot;...&quot;,
+  &quot;name&quot;: &quot;...&quot;,
+  &quot;total_input&quot;: 10000,
+  &quot;passing_filters&quot;: 42,
+  &quot;top_set_count&quot;: 24,
+  &quot;diverse_set_count&quot;: 24
+}
+</code></pre>
+<p><code>total_input</code> is every design across <code>run_ids</code> before filtering; <code>passing_filters</code> is how many passed every hard filter; <code>top_set_count</code> is <code>min(budget, total_input)</code> (an upper bound, not necessarily reachable); <code>diverse_set_count</code> is the actual number of designs selected into the set — this is what <code>SavedSet.design_count</code> reports afterwards (<strong>not</strong> <code>total_input</code>).</p>
+<p><code>GET /api/saved-sets/{id}/designs</code> returns every ranked design (pass or fail), each with <code>in_diverse_set</code> — use this to browse the full ranked pool with a "made the cut" flag; use <code>SavedSet.design_count</code>/<code>total_input</code> from <code>GET /api/saved-sets/{id}</code> for the summary counts.</p>
+<p><code>SavedSet.source_run_ids</code> records which runs a set was built from — resolve to display names via <code>GET /api/runs</code>.</p>
+<h2 id="run-ingestion">Run ingestion<a class="headerlink" href="#run-ingestion" title="Permanent link">&para;</a></h2>
+<p>Used by the <strong>Select Runs</strong> UI to discover and persist runs from <code>RUN_BASE_DIRS</code>:</p>
+<ol>
+<li><strong><code>GET /api/tree</code></strong> — browse allowed base directories.</li>
+<li><strong><code>POST /api/runs/scan</code></strong> — body <code>{ "folders": ["/path/..."], "force_rescan_of_ingested": false }</code>. Returns discovered run metadata; skips already-ingested runs unless forced.</li>
+<li><strong><code>POST /api/runs/ingest-preview</code></strong> — body <code>{ "runs": [ ... ] }</code>. Lists runs that would be re-ingested.</li>
+<li><strong><code>POST /api/runs/ingest</code></strong> — body <code>{ "runs": [ ... ] }</code>. Requires <code>DATABASE</code>. Assigns stable <code>run_id</code>, stores designs, refreshes cache.</li>
+</ol>
+<p>Deleting a run (<code>DELETE /api/runs/{run_id}</code>) removes database and cache entries only; files on disk are unchanged.</p>
+<h2 id="related-documentation">Related documentation<a class="headerlink" href="#related-documentation" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../pipeline-methods/">Pipeline method types</a> — run signatures, score columns, structure paths</li>
+<li><a href="../sequence_preparation/">Sequence preparation</a> — short names, hashing, UI behaviour</li>
+<li><a href="../download-bundles/">Download bundles</a> — bundle contents, JSON schema versioning, restore</li>
+<li>Agent-oriented quick reference: <a href="https://github.com/pansapiens/binderdash/blob/main/skills/binderdash-api/SKILL.md"><code>skills/binderdash-api/SKILL.md</code></a></li>
+</ul></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../../js/base.js"></script>
+        <script src="../../search/main.js"></script>
+        <script src="../../js/version-select.js"></script>
+
+        <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="searchModalLabel">Search</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>From here you can search these documents. Enter your search terms below.</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" placeholder="Search..." id="mkdocs-search-query" title="Type search term here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No results found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div><div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>
