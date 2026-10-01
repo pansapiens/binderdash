@@ -273,7 +273,9 @@ pnpm run dev
 <p>For a one-off production build, run <code>pnpm run build</code> in <code>frontend/</code>.</p>
 <h2 id="docker-development-mode">Docker development mode<a class="headerlink" href="#docker-development-mode" title="Permanent link">&para;</a></h2>
 <p><code>docker-compose.dev.yml</code> runs the backend with auto-reload and a separate container that rebuilds the frontend when Vue/TypeScript files change. The project directory is mounted from your filesystem.</p>
-<pre><code class="language-bash">docker compose -f docker-compose.dev.yml up --build
+<p>Both containers write into that mount (the frontend watcher rebuilds <code>backend/static/</code>, the backend writes <code>data/</code>), so they should run as your own user. Set <code>BINDERDASH_UID</code> and <code>BINDERDASH_GID</code> in <code>.env</code> first if your uid is not 1000; see <a href="../../setup/docker/#container-user">Container user</a>.</p>
+<pre><code class="language-bash">printf 'BINDERDASH_UID=%s\nBINDERDASH_GID=%s\n' &quot;$(id -u)&quot; &quot;$(id -g)&quot; &gt;&gt; .env
+docker compose -f docker-compose.dev.yml up --build
 # App: http://localhost:8001
 
 docker compose -f docker-compose.dev.yml logs -f binderdash        # backend logs
