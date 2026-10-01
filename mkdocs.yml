@@ -20,9 +20,13 @@ theme:
     - python
     - bash
     - nginx
+    - http
 
 extra_css:
   - styles.purple.css
+
+extra_javascript:
+  - js/mermaid-init.mjs
 
 nav:
   - Home: index.md
@@ -49,5 +53,13 @@ plugins:
 
 markdown_extensions:
   - admonition
+  # Leave code blocks as plain <pre><code class="language-x"> for the theme's highlight.js.
+  - pymdownx.highlight:
+      use_pygments: false
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_div_format
   - toc:
       permalink: true
