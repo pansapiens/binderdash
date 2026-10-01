@@ -10,7 +10,7 @@ For machine-readable schemas, use the live OpenAPI document on your deployment. 
 
 | Environment | Typical base URL |
 | ----------- | ---------------- |
-| Production | `https://binderdash.knottlab.cloud.edu.au` |
+| Your deployment | `https://binderdash.example.com` |
 | Docker dev (`docker-compose.dev.yml`) | `http://localhost:8911` (host port → container `8000`) |
 | Local uvicorn | `http://localhost:8000` |
 
@@ -66,7 +66,7 @@ Supported headers (either is fine):
 
 ```bash
 export BINDERDASH_TOKEN='<token from `key create`>'
-export BASE='https://binderdash.knottlab.cloud.edu.au'
+export BASE='https://binderdash.example.com'
 
 curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" "$BASE/api/runs"
 ```

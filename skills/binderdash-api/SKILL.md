@@ -5,7 +5,7 @@ description: >
   Documents the Binderdash REST API for agents — projects, runs, designs, PDB/CIF
   downloads, DNA codon optimisation (DnaChisel), and tag placement. Agents should
   use this skill when the user mentions Binderdash, Binderdash API keys, Bearer or
-  API-key auth, fetches designs/runs/PDBs from binderdash.knottlab.cloud.edu.au,
+  API-key auth, fetches designs/runs/PDBs from a Binderdash instance (URL in $BINDERDASH_BASE_URL),
   wants design tables sorted by metrics (iptm, pae_interaction, Average_i_pTM,
   rf3_ipsae_min, design_to_target_iptm), adds N-/C-terminal tags (His, FLAG, HA,
   cMyc, AviTag, Strep-tag II, C-tag, G4S linker, STOP*), or optimises DNA with GC/hairpin/restriction-site/codon
@@ -28,7 +28,7 @@ Binderdash is a web app + FastAPI service that aggregates the results of de novo
 
 ## When to Use This Skill
 
-- User mentions **Binderdash** or `binderdash.knottlab.cloud.edu.au` (or a local Binderdash instance)
+- User mentions **Binderdash** or the URL of a Binderdash instance (deployed or local)
 - Working with Binderdash API keys, `Authorization: Bearer`, or `X-Binderdash-Api-Key` headers
 - Fetching designs, runs, or PDB/CIF structure files via the Binderdash API
 - Producing TSV/CSV/JSON design tables sorted by metrics (`iptm`, `pae_interaction`, `Average_i_pTM`, `rf3_ipsae_min`, `design_to_target_iptm`)
@@ -53,6 +53,7 @@ Binderdash is a web app + FastAPI service that aggregates the results of de novo
 
 ## Before calling any endpoint
 
+0. **Base URL**: `printenv BINDERDASH_BASE_URL BINDERDASH_TOKEN`. If the URL is unset, ask the user (see Base URL below).
 1. **Auth check**: `GET /api/auth/status`. If `auth_disabled: true`, omit all auth headers. Otherwise, set `$AUTH`.
 2. **Method check**: From `GET /api/runs`, note each run's `method` — it determines which score columns exist and the correct sort direction.
 3. **Batch over loop**: For >1 design, prefer batch endpoints (`/api/designs?run_ids=...`, `POST /api/pdbs/tar`) over per-file calls.
@@ -60,7 +61,7 @@ Binderdash is a web app + FastAPI service that aggregates the results of de novo
 
 ## Base URL and OpenAPI
 
-- **Production (canonical)**: `https://binderdash.knottlab.cloud.edu.au`
+- **Your instance**: read from the `BINDERDASH_BASE_URL` environment variable (e.g. `https://binderdash.example.com`, no trailing slash). Check it with `printenv BINDERDASH_BASE_URL`. If it is unset, ask the user for the web address of their Binderdash instance (a deployed server, or e.g. `http://localhost:8000` if running locally) and suggest they add `export BINDERDASH_BASE_URL=...` to their shell profile, alongside `BINDERDASH_TOKEN`. Never guess a hostname.
 - **Development**: typically `http://localhost:8911` (the port mapping defined in `docker-compose.dev.yml`; the in-container port is `8000`). When running uvicorn directly without Docker, the URL is usually `http://localhost:8000`.
 - **Interactive docs**: `${BASE}/docs` (Swagger UI), `${BASE}/redoc` (ReDoc), and the raw spec at `${BASE}/openapi.json`. **Always treat `/openapi.json` as the source of truth** for the exact request/response shapes - the curl snippets in this skill are the common cases, but new endpoints or fields may have been added since.
 - **Health check**: `GET ${BASE}/health` returns `{"status": "healthy", "timestamp": "..."}` and is unauthenticated; use it as a quick liveness probe.
@@ -68,7 +69,7 @@ Binderdash is a web app + FastAPI service that aggregates the results of de novo
 For all examples below, set:
 
 ```bash
-BASE="https://binderdash.knottlab.cloud.edu.au"   # or http://localhost:8911 in dev
+BASE="${BINDERDASH_BASE_URL:?set BINDERDASH_BASE_URL to your Binderdash URL}"   # e.g. http://localhost:8911 in dev
 ```
 
 ## Authentication
@@ -99,7 +100,7 @@ Either header form works:
 
 ```bash
 export BINDERDASH_TOKEN='<token from the UI or `key create`>'
-BASE="https://binderdash.knottlab.cloud.edu.au"
+BASE="${BINDERDASH_BASE_URL:?set BINDERDASH_BASE_URL to your Binderdash URL}"
 AUTH=(-H "Authorization: Bearer $BINDERDASH_TOKEN")
 ```
 
