@@ -28,6 +28,7 @@
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/python.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/bash.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/nginx.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/http.min.js"></script>
       <script>hljs.highlightAll();</script> 
 </head>
 
@@ -172,39 +173,35 @@
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <h3 id="host-directory-setup">Host Directory Setup<a class="headerlink" href="#host-directory-setup" title="Permanent link">&para;</a></h3>
 <p>Before running the containerized application, ensure the directories specified in <code>RUN_BASE_DIRS</code> exist and are accessible on the host. They should contain your protein binder design run data; the container mounts them as read-only volumes.</p>
-<pre><code class="language-bash"># Example: make directories readable by the container user (see &quot;Container user&quot; below)
-sudo chmod -R a+rX /data/runs /data2/runs
-</code></pre>
+<pre class="highlight"><code class="language-bash"># Example: make directories readable by the container user (see "Container user" below)
+sudo chmod -R a+rX /data/runs /data2/runs</code></pre>
 <h3 id="environment-configuration">Environment Configuration<a class="headerlink" href="#environment-configuration" title="Permanent link">&para;</a></h3>
 <ol>
 <li><strong>Create <code>.env</code> file</strong>: copy from <code>.env.example</code> and configure:</li>
 </ol>
-<p><code>bash
-   cp .env.example .env</code></p>
+<pre class="highlight"><code class="language-bash">cp .env.example .env</code></pre>
 <ol>
 <li><strong>Set the container user</strong> to your own uid and gid (see <a href="#container-user">Container user</a> for why):</li>
 </ol>
-<p><code>bash
-   printf 'BINDERDASH_UID=%s\nBINDERDASH_GID=%s\n' "$(id -u)" "$(id -g)" &gt;&gt; .env</code></p>
+<pre class="highlight"><code class="language-bash">printf 'BINDERDASH_UID=%s\nBINDERDASH_GID=%s\n' "$(id -u)" "$(id -g)" &gt;&gt; .env</code></pre>
 <ol>
 <li><strong>Configure your environment variables</strong> in the <code>.env</code> file:</li>
 </ol>
-<p>```bash
-   # Required: set the paths to your data directories
-   RUN_BASE_DIRS="/data/runs,/data2/runs"</p>
-<p># Optional: Google OAuth allowlist (use with GOOGLE_AUTH_* vars)
-   GOOGLE_AUTH_ALLOWED_USERS="user1@example.com,user2@example.com"</p>
-<p># Optional: for local authentication (dev only)
-   LOCAL_USERS="alice:$2b$12$...,bob:$2b$12$..."
-   ```</p>
+<pre class="highlight"><code class="language-bash"># Required: set the paths to your data directories
+RUN_BASE_DIRS="/data/runs,/data2/runs"
+
+# Optional: Google OAuth allowlist (use with GOOGLE_AUTH_* vars)
+GOOGLE_AUTH_ALLOWED_USERS="user1@example.com,user2@example.com"
+
+# Optional: for local authentication (dev only)
+LOCAL_USERS="alice:$2b$12$...,bob:$2b$12$..."</code></pre>
 <p>Docker Compose automatically loads all environment variables from the <code>.env</code> file.</p>
 <h3 id="mounting-your-run-directories">Mounting your run directories<a class="headerlink" href="#mounting-your-run-directories" title="Permanent link">&para;</a></h3>
 <p><code>RUN_BASE_DIRS</code> is read inside the container, so each directory must be mounted into the <code>binderdash</code> service and listed by its <strong>container</strong> path. For example, to serve runs from <code>/data/runs</code> on the host, add a volume in <code>docker-compose.yml</code>:</p>
-<pre><code class="language-yaml">services:
+<pre class="highlight"><code class="language-yaml">services:
   binderdash:
     volumes:
-      - /data/runs:/data/runs:ro
-</code></pre>
+      - /data/runs:/data/runs:ro</code></pre>
 <p>and set <code>RUN_BASE_DIRS="/data/runs"</code> in <code>.env</code>. Binderdash only reads run folders, so a read-only mount is sufficient.</p>
 <h3 id="database-directory">Database directory<a class="headerlink" href="#database-directory" title="Permanent link">&para;</a></h3>
 <p>The SQLite database lives under <code>./data</code> on the host (mounted at <code>/app/data</code>) and is created on first start. The <code>data/</code> directory is part of the repository, so it exists after cloning, owned by you.</p>
@@ -238,22 +235,19 @@ sudo chmod -R a+rX /data/runs /data2/runs
 <li>the database files on the host belong to you, so you can back up, copy or delete them without <code>sudo</code></li>
 </ul>
 <p>To set them to the user you are logged in as:</p>
-<pre><code class="language-bash">printf 'BINDERDASH_UID=%s\nBINDERDASH_GID=%s\n' &quot;$(id -u)&quot; &quot;$(id -g)&quot; &gt;&gt; .env
-</code></pre>
+<pre class="highlight"><code class="language-bash">printf 'BINDERDASH_UID=%s\nBINDERDASH_GID=%s\n' "$(id -u)" "$(id -g)" &gt;&gt; .env</code></pre>
 <p>This writes literal numbers into <code>.env</code>, for example <code>BINDERDASH_UID=1001</code>. Use numbers, not <code>$UID</code>: Compose substitutes variables in <code>.env</code> only from its own environment, and bash does not export <code>UID</code> and does not define a <code>GID</code> variable at all. A <code>$UID</code> in <code>.env</code> therefore resolves to an empty string, Compose prints a <code>"UID" variable is not set</code> warning, and the container falls back to 1000.</p>
 <p>Check the result with:</p>
-<pre><code class="language-bash">docker compose config | grep 'user:'
-</code></pre>
+<pre class="highlight"><code class="language-bash">docker compose config | grep 'user:'</code></pre>
 <p>If you change the ids after the database exists, give <code>./data</code> to the new owner and recreate the container (<code>docker compose restart</code> keeps the old user):</p>
-<pre><code class="language-bash">sudo chown -R &lt;uid&gt;:&lt;gid&gt; data
-docker compose up -d
-</code></pre>
+<pre class="highlight"><code class="language-bash">sudo chown -R &lt;uid&gt;:&lt;gid&gt; data
+docker compose up -d</code></pre>
 <p>The variables are read by Docker Compose only; the Binderdash backend ignores them. They apply to <code>docker-compose.dev.yml</code> too.</p>
 <h3 id="https-with-caddy">HTTPS with Caddy<a class="headerlink" href="#https-with-caddy" title="Permanent link">&para;</a></h3>
 <p><code>docker-compose.yml</code> runs a <a href="https://caddyserver.com/">Caddy</a> reverse proxy on ports 80 and 443 in front of Binderdash. Set <code>DOMAIN</code> in <code>.env</code> to the server's public hostname and Caddy obtains a TLS certificate automatically. With <code>DOMAIN</code> unset, Caddy serves <code>https://localhost</code> with a locally issued certificate. Also set <code>CORS_ALLOWED_ORIGINS</code> to your site URL, and set a fixed <code>SECRET_KEY</code> so sign-in sessions survive restarts.</p>
 <h2 id="building-and-running">Building and Running<a class="headerlink" href="#building-and-running" title="Permanent link">&para;</a></h2>
 <h3 id="production-mode">Production Mode<a class="headerlink" href="#production-mode" title="Permanent link">&para;</a></h3>
-<pre><code class="language-bash"># Build the Docker image
+<pre class="highlight"><code class="language-bash"># Build the Docker image
 docker compose build
 # Or build with no cache (if you need a fresh build)
 docker compose build --no-cache
@@ -265,17 +259,15 @@ docker compose up -d
 # View logs
 docker compose logs -f
 # Stop the application
-docker compose down
-</code></pre>
+docker compose down</code></pre>
 <p>Development with live reloading (<code>docker-compose.dev.yml</code>) is covered in <a href="../../development/setup/#docker-development-mode">Development setup</a>.</p>
 <h2 id="health-checks">Health Checks<a class="headerlink" href="#health-checks" title="Permanent link">&para;</a></h2>
 <p>The application includes health checks that verify the FastAPI server is responding on <code>/health</code>, run every 30 seconds with a 10-second timeout.</p>
-<pre><code class="language-bash"># View health status
+<pre class="highlight"><code class="language-bash"># View health status
 docker compose ps
 
 # Test health endpoint directly
-curl http://localhost:8000/health
-</code></pre>
+curl http://localhost:8000/health</code></pre>
 <h2 id="resource-limits">Resource Limits<a class="headerlink" href="#resource-limits" title="Permanent link">&para;</a></h2>
 <p>The container is configured with resource limits:</p>
 <ul>
@@ -295,21 +287,18 @@ curl http://localhost:8000/health
 <ol>
 <li><strong>Permission denied on data directories</strong>: the container user (see <a href="#container-user">Container user</a>) must be able to read the run directories and write <code>./data</code>. Either set <code>BINDERDASH_UID</code>/<code>BINDERDASH_GID</code> to the owner, or make the directories readable:</li>
 </ol>
-<p><code>bash
-   sudo chmod -R a+rX /data/runs /data2/runs</code></p>
+<pre class="highlight"><code class="language-bash">sudo chmod -R a+rX /data/runs /data2/runs</code></pre>
 <ol>
 <li><strong>Container won't start</strong>:</li>
 </ol>
-<p><code>bash
-   docker compose logs binderdash
-   netstat -tulpn | grep :8000
-   cat .env</code></p>
+<pre class="highlight"><code class="language-bash">docker compose logs binderdash
+netstat -tulpn | grep :8000
+cat .env</code></pre>
 <ol>
 <li><strong>Health check failing</strong>:</li>
 </ol>
-<p><code>bash
-   curl -v http://localhost:8000/health
-   docker compose logs -f binderdash</code></p>
+<pre class="highlight"><code class="language-bash">curl -v http://localhost:8000/health
+docker compose logs -f binderdash</code></pre>
 <ol>
 <li><strong>Frontend not loading</strong>:</li>
 <li>Ensure the frontend was built during the Docker build process</li>
@@ -317,12 +306,11 @@ curl http://localhost:8000/health
 <li>Verify the build output in the container: <code>docker compose exec binderdash ls -la /app/backend/static/</code></li>
 </ol>
 <h3 id="debugging">Debugging<a class="headerlink" href="#debugging" title="Permanent link">&para;</a></h3>
-<pre><code class="language-bash"># Access the container shell
+<pre class="highlight"><code class="language-bash"># Access the container shell
 docker compose exec binderdash /bin/bash
 
 # Check application status
-docker compose exec binderdash ps aux
-</code></pre>
+docker compose exec binderdash ps aux</code></pre>
 <h2 id="production-deployment">Production Deployment<a class="headerlink" href="#production-deployment" title="Permanent link">&para;</a></h2>
 <p>For production deployment:</p>
 <ol>
@@ -334,7 +322,7 @@ docker compose exec binderdash ps aux
 <li><strong>Consider using Docker Swarm or Kubernetes</strong> for orchestration</li>
 </ol>
 <h3 id="example-nginx-configuration">Example nginx configuration<a class="headerlink" href="#example-nginx-configuration" title="Permanent link">&para;</a></h3>
-<pre><code class="language-nginx">server {
+<pre class="highlight"><code class="language-nginx">server {
     listen 80;
     server_name your-domain.com;
 
@@ -345,8 +333,7 @@ docker compose exec binderdash ps aux
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
-}
-</code></pre>
+}</code></pre>
 <h2 id="environment-variables-reference">Environment Variables Reference<a class="headerlink" href="#environment-variables-reference" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -452,6 +439,7 @@ docker compose exec binderdash ps aux
     <script>var base_url = "../..";</script>
     <script src="../../js/theme_extra.js"></script>
     <script src="../../js/theme.js"></script>
+      <script src="../../js/mermaid-init.mjs" type="module"></script>
       <script src="../../search/main.js"></script>
       <script src="../../js/version-select.js"></script>
     <script>

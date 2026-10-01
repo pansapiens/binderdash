@@ -28,6 +28,7 @@
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/python.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/bash.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/nginx.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/http.min.js"></script>
       <script>hljs.highlightAll();</script> 
 </head>
 
@@ -194,70 +195,59 @@
 <h2 id="environment-configuration">Environment configuration<a class="headerlink" href="#environment-configuration" title="Permanent link">&para;</a></h2>
 <p>Configuration is read from a <code>.env</code> file at the repository root. Copy <code>.env.example</code> as a starting point; it documents every supported variable. For local development the defaults (authentication disabled, SQLite under <code>data/</code>, runs from <code>./example_runs</code>) are usually enough.</p>
 <p>To create a local user account instead, set <code>DISABLE_AUTHENTICATION="false"</code> and add a bcrypt hash to <code>LOCAL_USERS</code>:</p>
-<pre><code class="language-bash">python backend/scripts/encrypt_password.py myusername  # prompts for the password
-</code></pre>
+<pre class="highlight"><code class="language-bash">python backend/scripts/encrypt_password.py myusername  # prompts for the password</code></pre>
 <p>See <a href="../../setup/authentication/">Authentication</a> for the other sign-in providers.</p>
 <h2 id="backend">Backend<a class="headerlink" href="#backend" title="Permanent link">&para;</a></h2>
 <p>Create a virtual environment and install dependencies:</p>
-<pre><code class="language-bash">uv venv -p python3.12 .venv &amp;&amp; source .venv/bin/activate
-uv pip install -r backend/requirements.txt
-</code></pre>
+<pre class="highlight"><code class="language-bash">uv venv -p python3.12 .venv &amp;&amp; source .venv/bin/activate
+uv pip install -r backend/requirements.txt</code></pre>
 <p>If a conda environment is active, deactivate it first so it does not shadow the venv.</p>
 <p>Start the API server with auto-reload:</p>
-<pre><code class="language-bash">uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-</code></pre>
+<pre class="highlight"><code class="language-bash">uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000</code></pre>
 <p>The server listens on <a href="http://localhost:8000">http://localhost:8000</a>.</p>
 <h3 id="changing-backend-dependencies">Changing backend dependencies<a class="headerlink" href="#changing-backend-dependencies" title="Permanent link">&para;</a></h3>
 <p>Edit <code>backend/pyproject.toml</code>, then recompile the pinned requirements:</p>
-<pre><code class="language-bash">uv pip compile backend/pyproject.toml -o backend/requirements.txt
-uv pip install -r backend/requirements.txt
-</code></pre>
+<pre class="highlight"><code class="language-bash">uv pip compile backend/pyproject.toml -o backend/requirements.txt
+uv pip install -r backend/requirements.txt</code></pre>
 <h2 id="frontend">Frontend<a class="headerlink" href="#frontend" title="Permanent link">&para;</a></h2>
 <p>There are two ways to work on the UI.</p>
 <p><strong>Rebuild into the backend</strong> (recommended when the backend is running). Changes are rebuilt into <code>backend/static/</code>, so the FastAPI server at :8000 always serves the latest UI:</p>
-<pre><code class="language-bash">cd frontend
+<pre class="highlight"><code class="language-bash">cd frontend
 pnpm install
-pnpm run watch:build
-</code></pre>
+pnpm run watch:build</code></pre>
 <p><strong>Vite dev server</strong> with hot reload on <a href="http://localhost:5173">http://localhost:5173</a>, proxying API calls to the backend:</p>
-<pre><code class="language-bash">cd frontend
+<pre class="highlight"><code class="language-bash">cd frontend
 pnpm install
-pnpm run dev
-</code></pre>
+pnpm run dev</code></pre>
 <p>For a one-off production build, run <code>pnpm run build</code> in <code>frontend/</code>.</p>
 <h2 id="docker-development-mode">Docker development mode<a class="headerlink" href="#docker-development-mode" title="Permanent link">&para;</a></h2>
 <p><code>docker-compose.dev.yml</code> runs the backend with auto-reload and a separate container that rebuilds the frontend when Vue/TypeScript files change. The project directory is mounted from your filesystem.</p>
 <p>Both containers write into that mount (the frontend watcher rebuilds <code>backend/static/</code>, the backend writes <code>data/</code>), so they should run as your own user. Set <code>BINDERDASH_UID</code> and <code>BINDERDASH_GID</code> in <code>.env</code> first if your uid is not 1000; see <a href="../../setup/docker/#container-user">Container user</a>.</p>
-<pre><code class="language-bash">printf 'BINDERDASH_UID=%s\nBINDERDASH_GID=%s\n' &quot;$(id -u)&quot; &quot;$(id -g)&quot; &gt;&gt; .env
+<pre class="highlight"><code class="language-bash">printf 'BINDERDASH_UID=%s\nBINDERDASH_GID=%s\n' "$(id -u)" "$(id -g)" &gt;&gt; .env
 docker compose -f docker-compose.dev.yml up --build
 # App: http://localhost:8001
 
 docker compose -f docker-compose.dev.yml logs -f binderdash        # backend logs
 docker compose -f docker-compose.dev.yml logs -f frontend-watcher  # frontend build logs
 
-docker compose -f docker-compose.dev.yml down
-</code></pre>
+docker compose -f docker-compose.dev.yml down</code></pre>
 <p>Troubleshooting commands:</p>
-<pre><code class="language-bash">docker compose -f docker-compose.dev.yml ps
+<pre class="highlight"><code class="language-bash">docker compose -f docker-compose.dev.yml ps
 docker compose -f docker-compose.dev.yml exec binderdash ls -la /app/backend/
-docker compose -f docker-compose.dev.yml exec frontend-watcher ls -la /app/frontend/
-</code></pre>
+docker compose -f docker-compose.dev.yml exec frontend-watcher ls -la /app/frontend/</code></pre>
 <p>Production deployment is covered in <a href="../../setup/docker/">Docker deployment</a>.</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
 <p>Backend unit tests (pytest):</p>
-<pre><code class="language-bash">cd backend
+<pre class="highlight"><code class="language-bash">cd backend
 pytest                                           # all tests
-pytest tests/test_dna_optimization.py -k name -x  # a single test
-</code></pre>
+pytest tests/test_dna_optimization.py -k name -x  # a single test</code></pre>
 <p>End-to-end tests (Playwright), which start the servers defined in <code>playwright.config.js</code>:</p>
-<pre><code class="language-bash">pnpm test
-</code></pre>
+<pre class="highlight"><code class="language-bash">pnpm test</code></pre>
 <p>See <code>tests/README.md</code> for details of the end-to-end workflow tests.</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
 <p>The docs are built with <a href="https://www.mkdocs.org/">MkDocs</a> and versioned with <a href="https://github.com/jimporter/mike">mike</a>. To preview locally:</p>
-<pre><code class="language-bash">pip install -r requirements-docs.txt
-mkdocs serve
-</code></pre>
+<pre class="highlight"><code class="language-bash">pip install -r requirements-docs.txt
+mkdocs serve</code></pre>
 <p>The <code>docs</code> GitHub Actions workflow publishes to GitHub Pages on every push:</p>
 <table>
 <thead>
@@ -333,6 +323,7 @@ mkdocs serve
     <script>var base_url = "../..";</script>
     <script src="../../js/theme_extra.js"></script>
     <script src="../../js/theme.js"></script>
+      <script src="../../js/mermaid-init.mjs" type="module"></script>
       <script src="../../search/main.js"></script>
       <script src="../../js/version-select.js"></script>
     <script>

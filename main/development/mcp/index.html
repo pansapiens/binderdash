@@ -28,6 +28,7 @@
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/python.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/bash.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/nginx.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/http.min.js"></script>
       <script>hljs.highlightAll();</script> 
 </head>
 
@@ -150,9 +151,8 @@ own — an existing stack needs <code>docker compose up -d --build</code> once t
 <p><strong>Local venv: opt in.</strong> <code>fastmcp</code> is an optional extra, so a plain install does not get
 it; the app runs exactly as before and the endpoint is simply not mounted (an INFO line
 says so at startup).</p>
-<pre><code class="language-bash">uv pip install -r backend/requirements.txt
-uv pip install &quot;fastmcp&gt;=3.4,&lt;4&quot;     # or: uv pip install -e &quot;backend[mcp]&quot;
-</code></pre>
+<pre class="highlight"><code class="language-bash">uv pip install -r backend/requirements.txt
+uv pip install "fastmcp&gt;=3.4,&lt;4"     # or: uv pip install -e "backend[mcp]"</code></pre>
 <p><strong>Desktop: deliberately excluded.</strong> The PyInstaller build installs from the checked-in
 <code>backend/requirements.txt</code>, which does not carry the extra — see below for why. Do not
 "fix" that inconsistency by regenerating <code>requirements.txt</code> with <code>--extra mcp</code>; it is
@@ -169,8 +169,7 @@ why they opt in at build time while the desktop bundle does not.</p>
 <h2 id="authenticating">Authenticating<a class="headerlink" href="#authenticating" title="Permanent link">&para;</a></h2>
 <p>MCP uses the same <strong>per-user API keys</strong> as scripted REST access (see
 <a href="../../setup/authentication/">Authentication</a>). Mint one with:</p>
-<pre><code class="language-bash">python -m backend.cli key create alice --name mcp
-</code></pre>
+<pre class="highlight"><code class="language-bash">python -m backend.cli key create alice --name mcp</code></pre>
 <p>Send it as <code>Authorization: Bearer bd_…</code> (canonical) or <code>X-Binderdash-Api-Key: bd_…</code>.
 Keys are validated through the same TTL cache as REST, so revoking a key takes effect
 for both at the same moment.</p>
@@ -184,22 +183,20 @@ command and JSON snippet with the key and this server's URL already filled in. T
 section only appears when the server actually has MCP mounted (<code>GET /api/auth/status</code>
 reports <code>mcp.enabled</code>).</p>
 <p>Claude Code, in one command:</p>
-<pre><code class="language-bash">claude mcp add --transport http --scope user binderdash \
+<pre class="highlight"><code class="language-bash">claude mcp add --transport http --scope user binderdash \
   https://binderdash.example.org/api/mcp/ \
-  --header &quot;Authorization: Bearer bd_your_key_here&quot;
-</code></pre>
+  --header "Authorization: Bearer bd_your_key_here"</code></pre>
 <p>Or edit <code>~/.claude.json</code> (all projects) or <code>.mcp.json</code> (one project) directly — this is
 exactly what the command above writes, and other MCP clients take the same shape:</p>
-<pre><code class="language-json">{
-  &quot;mcpServers&quot;: {
-    &quot;binderdash&quot;: {
-      &quot;type&quot;: &quot;http&quot;,
-      &quot;url&quot;: &quot;https://binderdash.example.org/api/mcp/&quot;,
-      &quot;headers&quot;: { &quot;Authorization&quot;: &quot;Bearer bd_your_key_here&quot; }
+<pre class="highlight"><code class="language-json">{
+  "mcpServers": {
+    "binderdash": {
+      "type": "http",
+      "url": "https://binderdash.example.org/api/mcp/",
+      "headers": { "Authorization": "Bearer bd_your_key_here" }
     }
   }
-}
-</code></pre>
+}</code></pre>
 <p>The key is stored in that file in plain text, so prefer a dedicated expiring key per
 agent and revoke it from the UI when finished. A project-scoped <code>.mcp.json</code> is shared
 with anyone who clones the repo, and Claude Code asks each of them to approve the server
@@ -284,11 +281,10 @@ and <code>folder_mtime</code> (run-directory mtime at ingest).</p>
 target residue rather than a design-table column - "A166 within 5 Å of the binder
 (heavy atoms)", "the epitope buries at least 30% of its surface on binding" - evaluated
 from the design's structure and applied as a hard filter.</p>
-<pre><code class="language-json">{&quot;target_key&quot;: &quot;…&quot;, &quot;label&quot;: &quot;PD-L1&quot;, &quot;filters&quot;: [
-  {&quot;residues&quot;: [&quot;A54&quot;, &quot;A56&quot;], &quot;scope&quot;: &quot;any&quot;, &quot;metric&quot;: &quot;distance&quot;,
-   &quot;distance_type&quot;: &quot;heavy&quot;, &quot;operator&quot;: &quot;&lt;=&quot;, &quot;value&quot;: 5.0}
-]}
-</code></pre>
+<pre class="highlight"><code class="language-json">{"target_key": "…", "label": "PD-L1", "filters": [
+  {"residues": ["A54", "A56"], "scope": "any", "metric": "distance",
+   "distance_type": "heavy", "operator": "&lt;=", "value": 5.0}
+]}</code></pre>
 <p><code>metric</code> is <code>distance</code> (with <code>distance_type</code> <code>ca</code>/<code>cb</code>/<code>heavy</code>), <code>sasa_bound</code> or
 <code>delta_sasa</code>; <code>unit</code> is <code>angstrom</code> or <code>percent</code> of the residue's theoretical maximum
 (Tien et al. 2013); <code>scope</code> is <code>any</code>/<code>all</code> of the listed residues, <code>count</code> (with
@@ -332,14 +328,13 @@ consumers.</p>
 <h2 id="response-shape">Response shape<a class="headerlink" href="#response-shape" title="Permanent link">&para;</a></h2>
 <p>Data-returning tools share one envelope. Rows are arrays rather than objects (40–55%
 fewer tokens on a wide table) and floats are rounded to four significant figures:</p>
-<pre><code class="language-json">{
-  &quot;columns&quot;: [&quot;run_id&quot;, &quot;design_id&quot;, &quot;method&quot;, &quot;iptm&quot;, &quot;structure_filename&quot;],
-  &quot;rows&quot;: [[&quot;bc&quot;, &quot;d1&quot;, &quot;bindcraft&quot;, 0.9123, &quot;d1.pdb&quot;]],
-  &quot;total_matching&quot;: 1240, &quot;returned&quot;: 25, &quot;offset&quot;: 0, &quot;truncated&quot;: true,
-  &quot;methods&quot;: {&quot;bindcraft&quot;: {&quot;columns&quot;: [&quot;Average_i_pTM&quot;], &quot;higher_is_better&quot;: true}},
-  &quot;warnings&quot;: [{&quot;code&quot;: &quot;MERGED_RUN&quot;, &quot;message&quot;: &quot;...&quot;}]
-}
-</code></pre>
+<pre class="highlight"><code class="language-json">{
+  "columns": ["run_id", "design_id", "method", "iptm", "structure_filename"],
+  "rows": [["bc", "d1", "bindcraft", 0.9123, "d1.pdb"]],
+  "total_matching": 1240, "returned": 25, "offset": 0, "truncated": true,
+  "methods": {"bindcraft": {"columns": ["Average_i_pTM"], "higher_is_better": true}},
+  "warnings": [{"code": "MERGED_RUN", "message": "..."}]
+}</code></pre>
 <p>Errors are raised as <code>[CODE] message</code>, always ending in a concrete next call —
 <code>UNKNOWN_COLUMN</code> (with the nearest names), <code>AMBIGUOUS_DESIGN_REF</code>,
 <code>NO_RANKABLE_METRICS</code>, <code>RESPONSE_TOO_LARGE</code>, <code>EMPTY_SELECTION</code>, <code>SEQUENCES_REQUIRED</code>,
@@ -419,6 +414,7 @@ them as behaviour changes.</p>
     <script>var base_url = "../..";</script>
     <script src="../../js/theme_extra.js"></script>
     <script src="../../js/theme.js"></script>
+      <script src="../../js/mermaid-init.mjs" type="module"></script>
       <script src="../../search/main.js"></script>
       <script src="../../js/version-select.js"></script>
     <script>
