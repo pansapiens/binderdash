@@ -645,7 +645,7 @@ curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" "$BASE/api/runs"</code></p
 <tr>
 <td><code>GET</code></td>
 <td><code>/api/runs/{run_id}/files/structure/{filename}</code></td>
-<td>PDB or mmCIF (<code>.gz</code> decompressed)</td>
+<td>PDB or mmCIF (<code>.gz</code> decompressed). Optional <code>?download_token=</code> (short-lived JWT scoped to that run and filename; substitutes for Bearer/session). A present but invalid token is 403 and does not fall through to the session</td>
 </tr>
 <tr>
 <td><code>GET</code></td>
@@ -658,9 +658,14 @@ curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" "$BASE/api/runs"</code></p
 <td>TM-aligned reference mmCIF (query params below)</td>
 </tr>
 <tr>
+<td><code>GET</code></td>
+<td><code>/api/pdbs/tar</code></td>
+<td>Stream a tar stashed by MCP <code>export_structures</code>. Requires <code>download_id</code> and <code>download_token</code> (JWT scoped to that stash). Unknown or expired stash is 404</td>
+</tr>
+<tr>
 <td><code>POST</code></td>
 <td><code>/api/pdbs/tar</code></td>
-<td>Stream tar of multiple structures</td>
+<td>Stream tar of multiple structures (web UI; cookie or API key)</td>
 </tr>
 </tbody>
 </table>
