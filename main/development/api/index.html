@@ -103,7 +103,7 @@
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#structure-files">Structure files</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#sequences-dna-optimisation">Sequences (DNA optimisation)</a>
+    <li class="toctree-l3"><a class="reference internal" href="#sequences-construct-preparation-and-dna-optimisation">Sequences (construct preparation and DNA optimisation)</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#plots-spa">Plots (SPA)</a>
     </li>
@@ -131,6 +131,8 @@
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#dna-codon-optimisation">DNA codon optimisation</a>
         <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#preparing-constructs">Preparing constructs</a>
+    </li>
     <li class="toctree-l3"><a class="reference internal" href="#codon-tables">Codon tables</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#optimisation-method">Optimisation method</a>
@@ -141,7 +143,7 @@
     </li>
         </ul>
     </li>
-    <li class="toctree-l2"><a class="reference internal" href="#sequence-tags-client-side-assembly">Sequence tags (client-side assembly)</a>
+    <li class="toctree-l2"><a class="reference internal" href="#sequence-tags">Sequence tags</a>
         <ul>
     <li class="toctree-l3"><a class="reference internal" href="#preset-sequences">Preset sequences</a>
     </li>
@@ -664,7 +666,7 @@ curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" "$BASE/api/runs"</code></p
 </table>
 <p><strong>Reference overlay query parameters:</strong> <code>align_filename</code> (design structure basename), <code>mode</code> (<code>manual</code> or <code>input_target</code>), <code>source</code> (PDB ID or URL when <code>manual</code>), <code>input_target_id</code> (when <code>input_target</code>), optional <code>reference_chains</code> (comma/space-separated). Response headers include <code>X-Binderdash-TM-Norm-Design</code>, <code>X-Binderdash-RMSD</code>, <code>X-Binderdash-Aligned-Length</code>, and optional membrane plane headers.</p>
 <p><strong>Tar request body:</strong> <code>{ "items": [ { "run_id": "...", "filename": "..." }, ... ] }</code>. Archive paths: <code>{project_id}/{run_name}/{filename}</code>.</p>
-<h3 id="sequences-dna-optimisation">Sequences (DNA optimisation)<a class="headerlink" href="#sequences-dna-optimisation" title="Permanent link">&para;</a></h3>
+<h3 id="sequences-construct-preparation-and-dna-optimisation">Sequences (construct preparation and DNA optimisation)<a class="headerlink" href="#sequences-construct-preparation-and-dna-optimisation" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -688,6 +690,26 @@ curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" "$BASE/api/runs"</code></p
 <td><code>POST</code></td>
 <td><code>/api/sequences/optimize-dna</code></td>
 <td>Batch codon optimisation (DnaChisel)</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/sequences/tag-presets</code></td>
+<td>Tag preset table and default DnaChisel constraints</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/sequences/prepare</code></td>
+<td>Build constructs (tags, linkers, stops, padding, short names) from designs plus settings</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/sequences/prepare/script</code></td>
+<td>Generate a standalone Python script that reproduces those constructs</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/sequences/prepare/download</code></td>
+<td>Fetch a stashed MCP <code>prepare_sequences</code> result, token-scoped</td>
 </tr>
 </tbody>
 </table>
@@ -900,6 +922,10 @@ curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" \
   "fixed": { "design_id_1": [false, false, false, true] }
 }</code></pre>
 <p>Optional <code>fixed</code> maps each <code>design_id</code> to a per-residue boolean array the same length as that protein. Residues marked <code>true</code> must be stops (<code>*</code>, frozen as <strong>TAA</strong>) or a leading Met (<code>M</code>, frozen as <strong>ATG</strong>), and are excluded from codon optimisation and from user constraints. When a design id is omitted from <code>fixed</code> (or <code>fixed</code> is omitted entirely), every <code>*</code> in that protein is treated as fixed.</p>
+<p>Each result row carries the <code>seed</code> that produced its DNA, and the response carries <code>tool_versions</code> (DnaChisel, python_codon_tables, numpy). Passing those seeds back as <code>seeds: { design_id: 12345 }</code> reproduces the same DNA, as long as the versions still match - a DnaChisel upgrade can change the search order and so the result for a given seed. Omit <code>seeds</code> and each design gets a fresh one, which is what makes re-running the solver worthwhile when a hard constraint set fails.</p>
+<h3 id="preparing-constructs">Preparing constructs<a class="headerlink" href="#preparing-constructs" title="Permanent link">&para;</a></h3>
+<p><code>POST /api/sequences/prepare</code> builds the full constructs - N/C tags, linkers, terminal prefixes and suffixes, start methionine, stop codons, post-stop padding, vendor short names and the protein parameters - from a design selection plus a settings payload, and returns the prepared rows plus per-row warnings. The settings payload is the same JSON a Prepare Sequences download bundle records, so a saved bundle can be replayed. An invalid payload returns <code>validation_errors</code> instead of rows.</p>
+<p><code>POST /api/sequences/prepare/script</code> returns a standalone Python script (<code>text/x-python</code>) that reproduces those constructs offline. It is generated by inlining <code>backend/seq_prep/</code>'s own source alongside a <code>CONFIG</code> block holding the settings, so it cannot drift from the server that produced it. The script runs under <code>uv run</code> using a PEP 723 header, takes a TSV of designs with a <code>tag</code> column, writes Twist CSV by default (<code>--format</code> for FASTA/TSV/CSV/JSON), and embeds no sequences, hashes or seeds, so the same script works on a later similar set. It is POST rather than GET because the settings are a whole document, not a query string.</p>
 <h3 id="codon-tables">Codon tables<a class="headerlink" href="#codon-tables" title="Permanent link">&para;</a></h3>
 <p><code>GET /api/sequences/codon-tables</code> returns <code>{ "items": [ { "value", "label" }, ... ] }</code>.</p>
 <p><code>GET /api/sequences/codon-tables/{table_id}</code> returns <code>value</code>, <code>label</code>, <code>stop_codons</code>, and <code>codons_by_aa</code> (amino acid → codon → frequency).</p>
@@ -995,14 +1021,16 @@ curl -sS -H "Authorization: Bearer $BINDERDASH_TOKEN" \
 <h3 id="optimisation-response">Optimisation response<a class="headerlink" href="#optimisation-response" title="Permanent link">&para;</a></h3>
 <pre class="highlight"><code class="language-json">{
   "results": [
-    { "design_id": "d1", "optimized_dna": "ATG...", "error": null },
-    { "design_id": "d2", "optimized_dna": null, "error": "Constraints could not be resolved (No solution found)." }
+    { "design_id": "d1", "optimized_dna": "ATG...", "error": null, "seed": 847392011 },
+    { "design_id": "d2", "optimized_dna": null, "error": "Constraints could not be resolved (No solution found).", "seed": null }
   ],
-  "elapsed_seconds": 2.31
+  "elapsed_seconds": 2.31,
+  "tool_versions": { "dnachisel": "3.2.16", "numpy": "2.3.2", "python_codon_tables": "0.1.18" }
 }</code></pre>
-<p>Failures are per design. DnaChisel's constraint search is stochastic, so a design that fails with "No solution found" is optimised again from the same starting sequence, up to five attempts, before that error is returned. Other errors are returned on the first failure. If many rows still fail, relax <code>UniquifyAllKmers</code> or windowed <code>EnforceGCContent</code> first.</p>
-<h2 id="sequence-tags-client-side-assembly">Sequence tags (client-side assembly)<a class="headerlink" href="#sequence-tags-client-side-assembly" title="Permanent link">&para;</a></h2>
-<p>Preset tag <strong>amino-acid sequences</strong> are not stored as DNA on the server. The API stores only which terminus is active (<code>tag</code>: <code>"N"</code> or <code>"C"</code>). Full construct assembly matches the Prepare Sequences tab (<code>frontend/src/stores/seqPrep.ts</code>).</p>
+<p>Failures are per design. DnaChisel's constraint search is stochastic, so a design that fails with "No solution found" is optimised again from the same starting sequence, up to five attempts with a fresh seed each time, before that error is returned. The <code>seed</code> reported is the one from the attempt that succeeded. Other errors are returned on the first failure. If many rows still fail, relax <code>UniquifyAllKmers</code> or windowed <code>EnforceGCContent</code> first.</p>
+<h2 id="sequence-tags">Sequence tags<a class="headerlink" href="#sequence-tags" title="Permanent link">&para;</a></h2>
+<p>Preset tag <strong>amino-acid sequences</strong> are not stored as DNA on the server. The API stores only which terminus is active (<code>tag</code>: <code>"N"</code> or <code>"C"</code>); <code>GET /api/sequences/tag-presets</code> returns the preset table itself.</p>
+<p>Construct assembly exists <strong>twice</strong>: in <code>backend/seq_prep/</code> behind <code>POST /api/sequences/prepare</code>, and in TypeScript in <code>frontend/src/stores/seqPrep.ts</code>, which is what the Prepare Sequences tab's live preview still uses. They are held in agreement by <code>backend/tests/test_seq_prep_parity.py</code>. Removing the TypeScript side is planned.</p>
 <h3 id="preset-sequences">Preset sequences<a class="headerlink" href="#preset-sequences" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
