@@ -264,15 +264,15 @@ section fills these three values in and shows the form.</p>
 </tr>
 <tr>
 <td><code>inspect_structures</code></td>
-<td>Chains, roles, sequences, <code>binderdash_*</code> interface metrics</td>
+<td>Chains, roles, sequences, <code>binderdash_*</code> interface metrics, and a tokenised structure URL</td>
 </tr>
 <tr>
 <td><code>read_structure_file</code></td>
-<td>Raw structure text, size-capped</td>
+<td>Raw structure text, size-capped. Over the cap, the error includes a download URL</td>
 </tr>
 <tr>
 <td><code>export_structures</code></td>
-<td>Manifest plus the tar endpoint to fetch many structures</td>
+<td>Manifest plus an absolute GET URL for a tar of the structures</td>
 </tr>
 <tr>
 <td><code>list_target_residues</code></td>
@@ -291,10 +291,23 @@ section fills these three values in and shows the form.</p>
 <p>There is deliberately <strong>no plotting tool</strong>: <code>query_designs</code> returns column-selected
 tabular data and an agent charts it itself. For bulk dumps, <code>list_runs</code> includes
 <code>designs_json_url</code> / <code>designs_tsv_url</code> per run with a short-lived <code>download_token</code>
-(JWT claims bound to that <code>run_id</code> + format, ~10 minutes) — curl those REST paths
+(JWT claims bound to that <code>run_id</code> + format, ~10 minutes) — curl those URLs
 without the MCP API key rather than raising <code>query_designs</code> limits until the cell
-budget rejects you. Each run also reports <code>ingested_at</code> (first Binderdash ingest)
-and <code>folder_mtime</code> (run-directory mtime at ingest).</p>
+budget rejects you. Download URLs are absolute when the server knows its public
+origin (<code>PUBLIC_BASE_URL</code>, else <code>https://</code> plus <code>DOMAIN</code>, else the incoming
+request). The same response includes <code>base_url</code>. Each run also reports
+<code>ingested_at</code> (first Binderdash ingest) and <code>folder_mtime</code> (run-directory mtime
+at ingest).</p>
+<p><code>inspect_structures</code> returns one absolute <code>structure_url</code> per design, with a
+token scoped to that run and filename. <code>export_structures</code> stashes the file list
+and returns one absolute <code>GET /api/pdbs/tar?download_id=&amp;download_token=</code> URL;
+curl it with no API key and no body. Both expire in about 10 minutes and the
+archive stash does not survive a restart. <code>read_structure_file</code> stays capped
+(20 KB default, 200 KB hard limit); over the cap the error includes that
+download URL so the file can be parsed locally. <code>structure_url</code> on
+<code>query_designs</code>, <code>rank_designs</code>, <code>select_diverse_designs</code> and <code>saved_sets</code> rows
+has no token and is not fetchable — call <code>inspect_structures</code> or
+<code>export_structures</code>.</p>
 <h3 id="target-contacts">Target contacts<a class="headerlink" href="#target-contacts" title="Permanent link">&para;</a></h3>
 <p><code>query_designs</code>, <code>rank_designs</code> and <code>select_diverse_designs</code> take an optional
 <code>target_contact_groups</code> alongside <code>filters</code>. A contact condition is a threshold on a
