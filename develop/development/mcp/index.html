@@ -85,6 +85,8 @@
         <ul>
     <li class="toctree-l3"><a class="reference internal" href="#target-contacts">Target contacts</a>
     </li>
+    <li class="toctree-l3"><a class="reference internal" href="#preparing-sequences-for-ordering">Preparing sequences for ordering</a>
+    </li>
         </ul>
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#how-the-tool-surface-differs-from-rest">How the tool surface differs from REST</a>
@@ -178,10 +180,9 @@ rejected with 401 (the startup log warns about this explicitly). With
 <code>DISABLE_AUTHENTICATION=true</code> the server mounts with no auth at all and logs a warning.</p>
 <h3 id="client-configuration">Client configuration<a class="headerlink" href="#client-configuration" title="Permanent link">&para;</a></h3>
 <p>The web UI does this for you: <strong>account menu → API keys → Create</strong>, then expand
-<em>"Use with Claude Code or another AI agent (MCP)"</em> on the new-key panel for a ready-made
-command and JSON snippet with the key and this server's URL already filled in. The
-section only appears when the server actually has MCP mounted (<code>GET /api/auth/status</code>
-reports <code>mcp.enabled</code>).</p>
+<em>"Use with Claude Code or another AI agent (MCP)"</em> or <em>"Use Claude Science"</em> on the
+new-key panel. Both fill in this server's URL and the new key. The sections only appear
+when the server actually has MCP mounted (<code>GET /api/auth/status</code> reports <code>mcp.enabled</code>).</p>
 <p>Claude Code, in one command:</p>
 <pre class="highlight"><code class="language-bash">claude mcp add --transport http --scope user binderdash \
   https://binderdash.example.org/api/mcp/ \
@@ -201,6 +202,21 @@ exactly what the command above writes, and other MCP clients take the same shape
 agent and revoke it from the UI when finished. A project-scoped <code>.mcp.json</code> is shared
 with anyone who clones the repo, and Claude Code asks each of them to approve the server
 before first use.</p>
+<p>Claude Science uses its own connector form. Open <strong>Settings → Connectors → Add
+Connector</strong> and choose <strong>Local URL</strong>, then:</p>
+<ul>
+<li><strong>Name:</strong> <code>binderdash</code></li>
+<li><strong>Server address:</strong> <code>https://binderdash.example.org/api/mcp/</code></li>
+<li><strong>Advanced settings:</strong> leave OAuth Client ID, OAuth Server URL and Scopes empty, and
+  paste this into the header command field. Claude Science runs it on your machine on
+  each connect and sends the JSON it prints as request headers:</li>
+</ul>
+<pre class="highlight"><code class="language-bash">echo '{"Authorization": "Bearer bd_your_key_here"}'</code></pre>
+<ul>
+<li><strong>Type:</strong> Streamable HTTP</li>
+</ul>
+<p>The key is inside that command in plain text. The new-key panel's <strong>Use Claude Science</strong>
+section fills these three values in and shows the form.</p>
 <h2 id="tools">Tools<a class="headerlink" href="#tools" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -266,6 +282,10 @@ before first use.</p>
 <td><code>target_contact_profile</code></td>
 <td>Per-residue mean ΔSASA / closest approach / contact frequency</td>
 </tr>
+<tr>
+<td><code>prepare_sequences</code></td>
+<td>Add N/C tags, linkers, stops and short names; return a download URL for the ordering table</td>
+</tr>
 </tbody>
 </table>
 <p>There is deliberately <strong>no plotting tool</strong>: <code>query_designs</code> returns column-selected
@@ -300,6 +320,26 @@ structure in the selection and takes minutes, so it stays behind the web UI's Co
 button in the Filtering tab. A design with no record fails every contact condition, so
 tools emit a <code>TARGET_CONTACTS_UNAVAILABLE</code> warning and an empty result explains that
 contacts may be uncomputed rather than reporting it as a real answer.</p>
+<h3 id="preparing-sequences-for-ordering">Preparing sequences for ordering<a class="headerlink" href="#preparing-sequences-for-ordering" title="Permanent link">&para;</a></h3>
+<p><code>prepare_sequences</code> runs the same construct builder as the Prepare Sequences tab
+(<code>backend/seq_prep/</code>): N/C-terminal tags and linkers, start methionine, stop codons,
+post-stop padding and short names. It takes a run/design selection plus a <code>config</code>
+matching the tab's settings, and <code>format</code> picks <code>twist</code> (default), <code>fasta</code>, <code>tsv</code>,
+<code>csv</code> or <code>json</code>.</p>
+<p>It deliberately does <strong>not</strong> run DnaChisel: constraint solving takes minutes for a few
+hundred designs, which is too long for a tool call. With DNA enabled the result is a
+plain reverse translation (what the UI shows before Optimize DNA is pressed), flagged
+as <code>dna_optimized: false</code> with a warning, since a reverse translation is
+indistinguishable from an optimised one by eye and the difference only shows up after
+ordering. Constraint-checked DNA comes from the UI or its downloaded script.</p>
+<p>The rows are <strong>not</strong> returned in the tool result - an ordering table for a few hundred
+designs would swamp the context. The result carries counts, warnings and a
+<code>download_url</code> with a short-lived token scoped to that request and format; fetch it
+without the MCP API key. Nothing is written to disk: the request is held in memory and
+rendered when the URL is fetched, so the URL stops working after the TTL or a restart.</p>
+<p>Designs without a placed tag are skipped and listed, so a selection that was never set
+up in the UI returns an explicit skip list rather than untagged constructs; <code>default_tag</code>
+overrides that for designs with no tag recorded.</p>
 <p><strong>Write scope</strong> is read + analysis + Saved Sets, plus the compute-and-cache writes
 (sequence extraction, structural metrics) that only populate derived caches. Scanning,
 ingesting, deleting, cache refresh and merge-table upload are not exposed.</p>
